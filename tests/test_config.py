@@ -8,13 +8,15 @@ def test_load_settings_defaults():
     assert settings.defaults.lines == 3
     assert settings.defaults.preview_length == 120
     assert settings.no_edit.interval_seconds == 30
+    assert settings.tools.timestamp is True
+    assert settings.tools.timestamp_format == "%H:%M"
 
 
 def test_resolve_platform_override():
     settings = load_settings(
         {
             "progress_tail": {
-                "defaults": {"lines": 4, "preview_length": 90},
+                "tools": {"lines": 4, "preview_length": 90, "timestamp": False},
                 "platforms": {"discord": {"enabled": True, "strategy": "live_tail", "lines": 2}},
             }
         }
@@ -26,6 +28,7 @@ def test_resolve_platform_override():
     assert platform.strategy == "live_tail"
     assert platform.lines == 2
     assert platform.preview_length == 90
+    assert platform.timestamp is False
 
 
 def test_invalid_values_fall_back_safely():

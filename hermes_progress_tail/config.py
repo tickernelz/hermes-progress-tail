@@ -23,6 +23,8 @@ class ToolSettings:
     lines: int = 3
     preview_length: int = 120
     show_completed: bool = False
+    timestamp: bool = True
+    timestamp_format: str = "%H:%M"
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,8 @@ class PlatformSettings:
     show_completed: bool = False
     tools_enabled: bool = True
     reasoning_enabled: bool = True
+    timestamp: bool = True
+    timestamp_format: str = "%H:%M"
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,8 @@ def _legacy_to_progress_tail(section: dict[str, Any]) -> dict[str, Any]:
             "lines": defaults.get("lines", 3),
             "preview_length": defaults.get("preview_length", 120),
             "show_completed": defaults.get("show_completed", False),
+            "timestamp": defaults.get("timestamp", True),
+            "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
         },
         "renderer": {
             "strategy": "auto",
@@ -176,6 +182,8 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         lines=_int(tools_raw.get("lines"), 3),
         preview_length=_int(tools_raw.get("preview_length"), 120),
         show_completed=_bool(tools_raw.get("show_completed"), False),
+        timestamp=_bool(tools_raw.get("timestamp"), True),
+        timestamp_format=str(tools_raw.get("timestamp_format") or "%H:%M"),
     )
     reasoning = ReasoningSettings(
         enabled=_bool(reasoning_raw.get("enabled"), True),
@@ -226,6 +234,8 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         show_completed=settings.tools.show_completed,
         tools_enabled=settings.tools.enabled,
         reasoning_enabled=settings.reasoning.enabled,
+        timestamp=settings.tools.timestamp,
+        timestamp_format=settings.tools.timestamp_format,
     )
     raw = (settings.platforms or {}).get(platform, {})
     if not isinstance(raw, dict):
@@ -244,4 +254,6 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         reasoning_enabled=_bool(
             raw.get("reasoning", raw.get("reasoning_enabled")), base.reasoning_enabled
         ),
+        timestamp=_bool(raw.get("timestamp"), base.timestamp),
+        timestamp_format=str(raw.get("timestamp_format") or base.timestamp_format),
     )

@@ -1,6 +1,6 @@
 import yaml
 
-from hermes_progress_tail.installer import install, uninstall
+from hermes_progress_tail.installer import _builtin_reasoning_conflict, install, uninstall
 
 
 def test_install_copies_plugin_and_updates_config(tmp_path):
@@ -22,6 +22,8 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert "hermes-progress-tail" in config["plugins"]["enabled"]
     assert config["display"]["tool_progress"] == "off"
     assert config["display"]["show_reasoning"] is False
+    assert config["progress_tail"]["tools"]["timestamp"] is True
+    assert config["progress_tail"]["tools"]["timestamp_format"] == "%H:%M"
     assert "progress_tail" in config
     assert (hermes_home / "hermes-progress-tail" / "backups").exists()
 
@@ -62,6 +64,31 @@ def test_install_dry_run_does_not_modify_files(tmp_path):
     assert result.changed is True
     assert not (hermes_home / "plugins").exists()
     assert yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8")) == {}
+
+
+def test_install_warns_when_builtin_reasoning_conflicts(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    (source / "__init__.py").write_text("def register(ctx): pass\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "display": {"show_reasoning": True},
+                "progress_tail": {"enabled": True, "reasoning": {"enabled": True}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = install(hermes_home, source, dry_run=True)
+
+    assert _builtin_reasoning_conflict(
+        yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
+    )
+    assert any("display.show_reasoning=true" in message for message in result.messages)
 
 
 def test_uninstall_removes_plugin_and_enabled_entry(tmp_path):

@@ -6,6 +6,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+TodoStatus = Literal["pending", "in_progress", "completed", "cancelled"]
+
+
+@dataclass(frozen=True)
+class TodoItem:
+    content: str
+    status: str
+
 
 @dataclass
 class SessionContext:
@@ -25,6 +33,8 @@ class SessionContext:
     can_edit: bool = True
     disabled: bool = False
     tool_lines: deque[str] = field(default_factory=lambda: deque(maxlen=3))
+    todo_items: tuple[TodoItem, ...] = ()
+    todo_updated_at: float = 0.0
     reasoning_text: str = ""
     reasoning_pending_chars: int = 0
     last_render_at: float = 0.0
@@ -34,6 +44,8 @@ class SessionContext:
     total_events: int = 0
     tools_enabled: bool = True
     reasoning_enabled: bool = True
+    timestamp: bool | None = None
+    timestamp_format: str = ""
     lock: Any = field(default_factory=asyncio.Lock)
 
     @property
@@ -62,7 +74,9 @@ class ToolEvent:
     platform: str
     line: str
     tool_call_id: str = ""
-    created_at: float = field(default_factory=time.monotonic)
+    tool_name: str = ""
+    todo_items: tuple[TodoItem, ...] = ()
+    created_at: float = field(default_factory=time.time)
     kind: Literal["tool"] = "tool"
 
 
@@ -72,7 +86,7 @@ class ReasoningEvent:
     session_key: str
     platform: str
     text: str
-    created_at: float = field(default_factory=time.monotonic)
+    created_at: float = field(default_factory=time.time)
     kind: Literal["reasoning"] = "reasoning"
 
 

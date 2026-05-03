@@ -55,7 +55,9 @@ def test_pre_gateway_dispatch_registers_context(monkeypatch):
         adapter = Adapter()
         hermes_progress_tail.plugin._renderer = None
         monkeypatch.setattr(
-            hermes_progress_tail.plugin, "_load_runtime_settings", lambda: load_settings({})
+            hermes_progress_tail.plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
         )
 
         result = hermes_progress_tail._on_pre_gateway_dispatch(
@@ -77,7 +79,9 @@ def test_pre_tool_call_formats_and_renders(monkeypatch):
         adapter = Adapter()
         hermes_progress_tail.plugin._renderer = None
         monkeypatch.setattr(
-            hermes_progress_tail.plugin, "_load_runtime_settings", lambda: load_settings({})
+            hermes_progress_tail.plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
         )
         hermes_progress_tail._on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
 

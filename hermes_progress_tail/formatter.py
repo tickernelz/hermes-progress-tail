@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from .redaction import redact_text, sanitize
+from .state import TodoItem
 
 EMOJI = {
     "skill_view": "📚",
@@ -47,20 +48,33 @@ def _short_path(path: Any, *, keep_parent: bool = True) -> str:
     return parts[-1] if parts else raw
 
 
-def _fmt_todo(args: dict[str, Any], preview: str | None, limit: int) -> str:
-    todos = args.get("todos")
+def extract_todo_items(args: dict[str, Any] | None) -> tuple[TodoItem, ...]:
+    safe_args = sanitize(args or {})
+    todos = safe_args.get("todos")
     if not isinstance(todos, list):
-        return _truncate(redact_text(preview or "updated"), limit)
-    counts = {"pending": 0, "in_progress": 0, "completed": 0, "cancelled": 0}
-    current = None
+        return ()
+    items = []
     for item in todos:
         if not isinstance(item, dict):
             continue
-        status = str(item.get("status") or "pending")
-        if status in counts:
-            counts[status] += 1
-        if status == "in_progress" and current is None:
-            current = str(item.get("content") or "").strip()
+        content = redact_text(str(item.get("content") or "")).strip()
+        if not content:
+            continue
+        status = str(item.get("status") or "pending").strip() or "pending"
+        if status not in STATUS_LABELS:
+            status = "pending"
+        items.append(TodoItem(content=content, status=status))
+    return tuple(items)
+
+
+def summarize_todo_items(items: tuple[TodoItem, ...], limit: int = 120) -> str:
+    counts = {"pending": 0, "in_progress": 0, "completed": 0, "cancelled": 0}
+    current = None
+    for item in items:
+        if item.status in counts:
+            counts[item.status] += 1
+        if item.status == "in_progress" and current is None:
+            current = item.content
     chunks = []
     if current:
         chunks.append("▶ " + _truncate(redact_text(current), max(20, limit // 2)))
@@ -71,6 +85,13 @@ def _fmt_todo(args: dict[str, Any], preview: str | None, limit: int) -> str:
     if not chunks and counts["in_progress"]:
         chunks.append(f"{counts['in_progress']} in_progress")
     return _truncate(" · ".join(chunks) or "no tasks", limit)
+
+
+def _fmt_todo(args: dict[str, Any], preview: str | None, limit: int) -> str:
+    items = extract_todo_items(args)
+    if not items:
+        return _truncate(redact_text(preview or "updated"), limit)
+    return summarize_todo_items(items, limit)
 
 
 def _fmt_terminal(args: dict[str, Any], limit: int) -> str:

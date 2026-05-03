@@ -8,9 +8,15 @@ from typing import Any
 from .compat import adapter_supports_edit
 from .config import Settings
 from .redaction import redact_text
-from .state import ProgressEvent, ReasoningEvent, SessionContext, ToolEvent
+from .state import ProgressEvent, ReasoningEvent, SessionContext, TodoItem, ToolEvent
 
 logger = logging.getLogger(__name__)
+
+
+def _truncate_local(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)] + "..."
 
 
 class ProgressRenderer:
@@ -24,6 +30,8 @@ class ProgressRenderer:
         if existing is not None:
             ctx.message_id = existing.message_id
             ctx.tool_lines = existing.tool_lines
+            ctx.todo_items = existing.todo_items
+            ctx.todo_updated_at = existing.todo_updated_at
             ctx.reasoning_text = existing.reasoning_text
             ctx.reasoning_pending_chars = existing.reasoning_pending_chars
             ctx.total_events = existing.total_events
@@ -81,7 +89,10 @@ class ProgressRenderer:
             ctx.total_events += 1
             ctx.new_events_since_snapshot += 1
             if isinstance(event, ToolEvent):
-                ctx.tool_lines.append(event.line)
+                if event.tool_name == "todo" and event.todo_items:
+                    ctx.todo_items = event.todo_items
+                    ctx.todo_updated_at = event.created_at
+                ctx.tool_lines.append(self._format_tool_line(ctx, event))
             else:
                 pending = self._append_reasoning(ctx, event.text)
                 if (
@@ -143,15 +154,71 @@ class ProgressRenderer:
         reasoning = self._reasoning_tail(ctx)
         if reasoning:
             parts.append("💭 Reasoning\n" + reasoning)
+        todo = self._todo_section(ctx)
+        if todo:
+            parts.append(todo)
         if ctx.tool_lines:
             parts.append("🧰 Tools\n" + "\n".join(ctx.tool_lines))
         content = "\n\n".join(parts)
         return redact_text(content) if self.settings.renderer.redact_secrets else content
 
+    def _format_tool_line(self, ctx: SessionContext, event: ToolEvent) -> str:
+        timestamp_enabled = (
+            self.settings.tools.timestamp if ctx.timestamp is None else ctx.timestamp
+        )
+        if not timestamp_enabled:
+            return event.line
+        timestamp_format = ctx.timestamp_format or self.settings.tools.timestamp_format
+        timestamp = self._timestamp(event.created_at, timestamp_format)
+        return f"[{timestamp}] {event.line}"
+
+    def _todo_section(self, ctx: SessionContext) -> str:
+        if not ctx.todo_items:
+            return ""
+        timestamp_enabled = (
+            self.settings.tools.timestamp if ctx.timestamp is None else ctx.timestamp
+        )
+        timestamp_format = ctx.timestamp_format or self.settings.tools.timestamp_format
+        timestamp = self._timestamp(ctx.todo_updated_at, timestamp_format)
+        header = f"📋 Todo [{timestamp}]" if timestamp_enabled else "📋 Todo"
+        lines = self._todo_lines(ctx.todo_items)
+        return header + "\n" + "\n".join(lines)
+
+    @staticmethod
+    def _timestamp(value: float, fmt: str) -> str:
+        try:
+            return time.strftime(fmt, time.localtime(value))
+        except Exception:
+            return time.strftime("%H:%M", time.localtime(value))
+
+    @staticmethod
+    def _todo_lines(items: tuple[TodoItem, ...]) -> list[str]:
+        by_status = {"in_progress": [], "pending": [], "completed": [], "cancelled": []}
+        for item in items:
+            by_status.setdefault(item.status, []).append(item.content)
+        lines = []
+        if by_status["in_progress"]:
+            lines.append("▶ " + _truncate_local(by_status["in_progress"][0], 80))
+        for status, label, limit in (
+            ("pending", "pending", 3),
+            ("completed", "done", 3),
+            ("cancelled", "cancelled", 2),
+        ):
+            values = by_status[status]
+            if not values:
+                continue
+            visible = ", ".join(_truncate_local(value, 40) for value in values[:limit])
+            hidden = len(values) - limit
+            suffix = f" +{hidden} more" if hidden > 0 else ""
+            lines.append(f"{label}: {visible}{suffix}")
+        return lines or ["no tasks"]
+
     @staticmethod
     def _reset_turn(ctx: SessionContext) -> None:
         ctx.message_id = None
         ctx.tool_lines.clear()
+        ctx.todo_items = ()
+        ctx.todo_updated_at = 0.0
         ctx.reasoning_text = ""
         ctx.reasoning_pending_chars = 0
         ctx.new_events_since_snapshot = 0

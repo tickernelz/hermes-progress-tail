@@ -9,7 +9,7 @@ import yaml
 
 from .compat import platform_name, source_chat_id, source_thread_id
 from .config import load_settings, resolve_platform_settings
-from .formatter import format_tool_line
+from .formatter import extract_todo_items, format_tool_line
 from .monkeypatches import install_monkeypatches
 from .renderer import ProgressRenderer
 from .state import ReasoningEvent, SessionContext, ToolEvent
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
 
 
-def _load_runtime_settings():
+def _load_runtime_config() -> dict[str, Any]:
     config = {}
     try:
         from hermes_constants import get_hermes_home
@@ -33,7 +33,29 @@ def _load_runtime_settings():
                 config = loaded
     except Exception as exc:
         logger.debug("hermes-progress-tail config load failed: %s", exc)
-    return load_settings(config)
+    return config
+
+
+def _load_runtime_settings():
+    return load_settings(_load_runtime_config())
+
+
+def _builtin_reasoning_conflict(config: dict[str, Any]) -> bool:
+    display = config.get("display")
+    if not isinstance(display, dict) or display.get("show_reasoning") is not True:
+        return False
+    progress_tail = config.get("progress_tail")
+    if isinstance(progress_tail, dict) and progress_tail.get("enabled") is False:
+        return False
+    reasoning = progress_tail.get("reasoning") if isinstance(progress_tail, dict) else None
+    return not (isinstance(reasoning, dict) and reasoning.get("enabled") is False)
+
+
+def _reasoning_conflict_warning() -> str:
+    return (
+        "warning: display.show_reasoning=true while progress_tail.reasoning.enabled=true; "
+        "duplicate reasoning/final output may occur. Set display.show_reasoning=false."
+    )
 
 
 def _get_renderer() -> ProgressRenderer:
@@ -114,6 +136,8 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
         edit_interval=settings.edit_interval,
         tools_enabled=settings.tools_enabled,
         reasoning_enabled=settings.reasoning_enabled,
+        timestamp=settings.timestamp,
+        timestamp_format=settings.timestamp_format,
     )
     renderer.register_context(ctx)
     return None
@@ -159,6 +183,8 @@ def _on_pre_tool_call(
         platform=ctx.platform,
         line=line,
         tool_call_id=tool_call_id or "",
+        tool_name=tool_name,
+        todo_items=extract_todo_items(args or {}) if tool_name == "todo" else (),
     )
     _schedule_render(ctx, event)
     return None
@@ -181,7 +207,15 @@ def _on_post_tool_call(
     duration = f" {duration_ms / 1000:.1f}s" if isinstance(duration_ms, int) else ""
     line = f"✅ {tool_name}{duration}"
     _schedule_render(
-        ctx, ToolEvent(ctx.session_id, ctx.session_key, ctx.platform, line, tool_call_id or "")
+        ctx,
+        ToolEvent(
+            ctx.session_id,
+            ctx.session_key,
+            ctx.platform,
+            line,
+            tool_call_id=tool_call_id or "",
+            tool_name=tool_name,
+        ),
     )
     return None
 
@@ -248,13 +282,18 @@ def _command(raw_args: str = "") -> str:
             monkeypatch_active = bool(getattr(AIAgent, "_hermes_progress_tail_patched", False))
         except Exception:
             monkeypatch_active = False
-        return f"hermes-progress-tail active · sessions={active} · tools={renderer.settings.tools.enabled} · reasoning={renderer.settings.reasoning.enabled} · monkeypatch={monkeypatch_active}"
+        status = f"hermes-progress-tail active · sessions={active} · tools={renderer.settings.tools.enabled} · reasoning={renderer.settings.reasoning.enabled} · monkeypatch={monkeypatch_active}"
+        if _builtin_reasoning_conflict(_load_runtime_config()):
+            status += "\n" + _reasoning_conflict_warning()
+        return status
     if args == "test":
         return "hermes-progress-tail is loaded. Send a normal request with tool calls/reasoning to test live rendering."
     return "Usage: /progresstail status | test"
 
 
 def register(ctx):
+    if _builtin_reasoning_conflict(_load_runtime_config()):
+        logger.warning(_reasoning_conflict_warning())
     install_monkeypatches()
     ctx.register_hook("pre_gateway_dispatch", _on_pre_gateway_dispatch)
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)

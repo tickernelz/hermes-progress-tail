@@ -67,7 +67,14 @@ def test_reasoning_tail_renders_section_with_latest_lines():
     async def run():
         adapter = EditableAdapter()
         renderer = ProgressRenderer(
-            load_settings({"progress_tail": {"reasoning": {"max_lines": 2, "min_update_chars": 1}}})
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "reasoning": {"max_lines": 2, "min_update_chars": 1},
+                    }
+                }
+            )
         )
         ctx = SessionContext(
             "s1", "k1", "discord", "chat", None, adapter, asyncio.get_running_loop(), "live_tail"
@@ -88,7 +95,14 @@ def test_reasoning_and_tools_share_one_progress_bubble():
     async def run():
         adapter = EditableAdapter()
         renderer = ProgressRenderer(
-            load_settings({"progress_tail": {"reasoning": {"min_update_chars": 1}}})
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "reasoning": {"min_update_chars": 1},
+                    }
+                }
+            )
         )
         ctx = SessionContext(
             "s1", "k1", "discord", "chat", None, adapter, asyncio.get_running_loop(), "live_tail"
@@ -122,7 +136,14 @@ def test_monkeypatch_captures_agent_reasoning_delta(monkeypatch):
         monkeypatch.setattr(
             plugin,
             "_load_runtime_settings",
-            lambda: load_settings({"progress_tail": {"reasoning": {"min_update_chars": 1}}}),
+            lambda: load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "reasoning": {"min_update_chars": 1},
+                    }
+                }
+            ),
         )
         _on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
 
@@ -164,7 +185,14 @@ def test_monkeypatch_preserves_keyword_call_shape(monkeypatch):
         monkeypatch.setattr(
             plugin,
             "_load_runtime_settings",
-            lambda: load_settings({"progress_tail": {"reasoning": {"min_update_chars": 1}}}),
+            lambda: load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "reasoning": {"min_update_chars": 1},
+                    }
+                }
+            ),
         )
         _on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
 

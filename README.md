@@ -2,8 +2,6 @@
 
 Compact Hermes gateway plugin for live progress tails.
 
-Version: `v0.1.0`
-
 ## What it does
 
 - Shows the latest tool calls in one compact progress bubble.
@@ -16,12 +14,28 @@ Version: `v0.1.0`
 ## Install
 
 ```bash
-cd ~/Projects/hermes-progress-tail
-python -m hermes_progress_tail.installer install --hermes-home ~/.hermes --set-display-off --dry-run
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/main/install.sh | bash
+```
+
+Dry-run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/main/install.sh | env HPT_DRY_RUN=1 bash
+```
+
+Uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/main/uninstall.sh | bash
+```
+
+Local install:
+
+```bash
 python -m hermes_progress_tail.installer install --hermes-home ~/.hermes --set-display-off
 ```
 
-Restart Hermes manually after install:
+Restart Hermes manually after install/uninstall:
 
 ```text
 /restart
@@ -43,6 +57,8 @@ progress_tail:
   tools:
     enabled: true
     lines: 3
+    timestamp: true
+    timestamp_format: "%H:%M"
   reasoning:
     enabled: true
     max_lines: 3

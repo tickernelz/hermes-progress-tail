@@ -37,7 +37,9 @@ class SlowEditableAdapter:
 def test_renderer_redacts_raw_tool_event_at_final_boundary():
     async def run():
         adapter = SlowEditableAdapter()
-        renderer = ProgressRenderer(load_settings({}))
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
         ctx = SessionContext(
             "s1", "k1", "discord", "chat", None, adapter, asyncio.get_running_loop(), "live_tail"
         )
@@ -63,7 +65,9 @@ def test_todo_preview_fallback_is_redacted():
 def test_concurrent_events_do_not_send_duplicate_initial_messages():
     async def run():
         adapter = SlowEditableAdapter()
-        renderer = ProgressRenderer(load_settings({}))
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
         ctx = SessionContext(
             "s1", "k1", "discord", "chat", None, adapter, asyncio.get_running_loop(), "live_tail"
         )
@@ -86,7 +90,14 @@ def test_finalize_resets_turn_state_before_next_turn():
     async def run():
         adapter = SlowEditableAdapter()
         renderer = ProgressRenderer(
-            load_settings({"progress_tail": {"reasoning": {"min_update_chars": 1}}})
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "reasoning": {"min_update_chars": 1},
+                    }
+                }
+            )
         )
         ctx = SessionContext(
             "s1", "k1", "discord", "chat", None, adapter, asyncio.get_running_loop(), "live_tail"
@@ -111,7 +122,12 @@ def test_reasoning_updates_even_when_tail_is_at_max_chars():
     async def run():
         adapter = SlowEditableAdapter()
         settings = load_settings(
-            {"progress_tail": {"reasoning": {"max_chars": 10, "min_update_chars": 3}}}
+            {
+                "progress_tail": {
+                    "tools": {"timestamp": False},
+                    "reasoning": {"max_chars": 10, "min_update_chars": 3},
+                }
+            }
         )
         renderer = ProgressRenderer(settings)
         ctx = SessionContext(

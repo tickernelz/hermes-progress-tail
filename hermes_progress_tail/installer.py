@@ -20,6 +20,8 @@ DEFAULT_CONFIG = {
         "lines": 3,
         "preview_length": 120,
         "show_completed": False,
+        "timestamp": True,
+        "timestamp_format": "%H:%M",
     },
     "reasoning": {
         "enabled": True,
@@ -102,6 +104,8 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
                 "lines": defaults.get("lines", 3),
                 "preview_length": defaults.get("preview_length", 120),
                 "show_completed": defaults.get("show_completed", False),
+                "timestamp": defaults.get("timestamp", True),
+                "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
             },
             "reasoning": DEFAULT_CONFIG["reasoning"].copy(),
             "renderer": {
@@ -134,6 +138,13 @@ def _reasoning_tail_enabled(config: dict[str, Any]) -> bool:
     if not isinstance(reasoning, dict):
         return True
     return reasoning.get("enabled") is not False
+
+
+def _builtin_reasoning_conflict(config: dict[str, Any]) -> bool:
+    display = config.get("display")
+    if not isinstance(display, dict):
+        return False
+    return _reasoning_tail_enabled(config) and display.get("show_reasoning") is True
 
 
 def _update_config(config: dict[str, Any], set_display_off: bool) -> tuple[dict[str, Any], bool]:
@@ -183,9 +194,16 @@ def install(
     legacy_dir = hermes_home / "plugins" / LEGACY_PLUGIN_NAME
     config_path = hermes_home / "config.yaml"
     config = _read_yaml(config_path)
+    had_builtin_reasoning_conflict = _builtin_reasoning_conflict(config)
     updated, config_changed = _update_config(config, set_display_off=set_display_off)
+    has_builtin_reasoning_conflict = _builtin_reasoning_conflict(updated)
     plugin_changed = not target_dir.exists() or legacy_dir.exists()
     result = InstallResult(changed=config_changed or plugin_changed)
+    if had_builtin_reasoning_conflict or has_builtin_reasoning_conflict:
+        result.messages.append(
+            "warning: display.show_reasoning=true while progress_tail.reasoning.enabled=true; "
+            "duplicate reasoning/final output may occur"
+        )
     if dry_run:
         result.messages.append(f"Would copy plugin to {target_dir}")
         if legacy_dir.exists():

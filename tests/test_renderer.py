@@ -1,6 +1,7 @@
 import asyncio
 
 from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.formatter import extract_todo_items, format_tool_line
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import SessionContext, ToolEvent
 
@@ -48,20 +49,27 @@ class FailingEditAdapter(EditableAdapter):
         return Result(False, message_id, "edit not supported")
 
 
+def make_ctx(adapter, *, strategy="live_tail", timestamp=False):
+    return SessionContext(
+        "s1",
+        "k1",
+        "discord",
+        "chat",
+        "thread",
+        adapter,
+        asyncio.get_running_loop(),
+        strategy,
+        timestamp=timestamp,
+    )
+
+
 def test_live_tail_keeps_latest_three_and_edits_one_message():
     async def run():
         adapter = EditableAdapter()
-        renderer = ProgressRenderer(load_settings({}))
-        ctx = SessionContext(
-            "s1",
-            "k1",
-            "discord",
-            "chat",
-            "thread",
-            adapter,
-            asyncio.get_running_loop(),
-            "live_tail",
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
         )
+        ctx = make_ctx(adapter)
         renderer.register_context(ctx)
 
         for i in range(5):
@@ -77,7 +85,9 @@ def test_live_tail_keeps_latest_three_and_edits_one_message():
 def test_live_tail_finalizes_latest_lines_after_throttled_events():
     async def run():
         adapter = EditableAdapter()
-        renderer = ProgressRenderer(load_settings({}))
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
         ctx = SessionContext(
             "s1", "k1", "discord", "chat", None, adapter, asyncio.get_running_loop(), "live_tail"
         )
@@ -94,11 +104,88 @@ def test_live_tail_finalizes_latest_lines_after_throttled_events():
     asyncio.run(run())
 
 
+def test_tool_tail_adds_compact_event_timestamp():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(load_settings({}))
+        ctx = SessionContext(
+            "s1",
+            "k1",
+            "discord",
+            "chat",
+            None,
+            adapter,
+            asyncio.get_running_loop(),
+            "live_tail",
+            timestamp=True,
+            timestamp_format="%H:%M",
+        )
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "discord", "terminal: npm test", created_at=0),
+            force=True,
+        )
+
+        assert adapter.sent[0][1] == "🧰 Tools\n[07:00] terminal: npm test"
+
+    asyncio.run(run())
+
+
+def test_sticky_todo_survives_latest_tool_tail_and_resets_on_finalize():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        todo_args = {
+            "todos": [
+                {"content": "inspect repo", "status": "completed"},
+                {"content": "implement sticky todo", "status": "in_progress"},
+                {"content": "write tests", "status": "pending"},
+                {"content": "push tag", "status": "pending"},
+            ]
+        }
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "discord",
+                format_tool_line("todo", todo_args),
+                tool_name="todo",
+                todo_items=extract_todo_items(todo_args),
+                created_at=0,
+            ),
+            force=True,
+        )
+        for i in range(5):
+            await renderer.handle_event(ToolEvent("s1", "k1", "discord", f"tool {i}"), force=True)
+
+        content = adapter.edits[-1][2]
+        assert "📋 Todo" in content
+        assert "▶ implement sticky todo" in content
+        assert "pending: write tests, push tag" in content
+        assert "done: inspect repo" in content
+        assert "tool 2\ntool 3\ntool 4" in content
+
+        await renderer.finalize(session_id="s1")
+        assert renderer.sessions["s1"].todo_items == ()
+
+    asyncio.run(run())
+
+
 def test_snapshot_strategy_does_not_spam_until_threshold():
     async def run():
         adapter = NoEditAdapter()
         settings = load_settings(
-            {"progress_tail": {"no_edit": {"interval_seconds": 30, "min_new_events": 3}}}
+            {
+                "progress_tail": {
+                    "tools": {"timestamp": False},
+                    "no_edit": {"interval_seconds": 30, "min_new_events": 3},
+                }
+            }
         )
         renderer = ProgressRenderer(settings)
         ctx = SessionContext(
@@ -121,7 +208,9 @@ def test_snapshot_strategy_does_not_spam_until_threshold():
 def test_edit_failure_downgrades_to_snapshot():
     async def run():
         adapter = FailingEditAdapter()
-        settings = load_settings({"progress_tail": {"no_edit": {"min_new_events": 1}}})
+        settings = load_settings(
+            {"progress_tail": {"tools": {"timestamp": False}, "no_edit": {"min_new_events": 1}}}
+        )
         renderer = ProgressRenderer(settings)
         ctx = SessionContext(
             "s1", "k1", "discord", "chat", None, adapter, asyncio.get_running_loop(), "live_tail"
@@ -140,7 +229,9 @@ def test_parallel_sessions_do_not_cross_edit():
     async def run():
         adapter1 = EditableAdapter()
         adapter2 = EditableAdapter()
-        renderer = ProgressRenderer(load_settings({}))
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
         renderer.register_context(
             SessionContext(
                 "s1",
