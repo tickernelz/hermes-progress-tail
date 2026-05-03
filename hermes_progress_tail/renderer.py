@@ -209,17 +209,20 @@ class ProgressRenderer:
         by_status = {"in_progress": [], "pending": [], "completed": [], "cancelled": []}
         for item in items:
             by_status.setdefault(item.status, []).append(item.content)
+        emoji = self.settings.renderer.style == "emoji"
+        labels = {
+            "in_progress": "🔄 in progress" if emoji else "in progress",
+            "pending": "⏳ pending" if emoji else "pending",
+            "completed": "✅ done" if emoji else "done",
+            "cancelled": "❌ cancelled" if emoji else "cancelled",
+        }
         lines = []
-        if by_status["in_progress"]:
-            lines.append(
-                "▶ "
-                + _truncate_local(by_status["in_progress"][0], self.settings.todo.max_item_chars)
-            )
         todo_settings = self.settings.todo
-        for status, label, limit in (
-            ("pending", "pending", todo_settings.max_pending),
-            ("completed", "done", todo_settings.max_completed),
-            ("cancelled", "cancelled", todo_settings.max_cancelled),
+        for status, limit in (
+            ("in_progress", 1),
+            ("pending", todo_settings.max_pending),
+            ("completed", todo_settings.max_completed),
+            ("cancelled", todo_settings.max_cancelled),
         ):
             values = by_status[status]
             if not values:
@@ -229,7 +232,7 @@ class ProgressRenderer:
             )
             hidden = len(values) - limit
             suffix = f" +{hidden} more" if hidden > 0 else ""
-            lines.append(f"{label}: {visible}{suffix}")
+            lines.append(f"{labels[status]} ({len(values)}): {visible}{suffix}")
         return lines or ["no tasks"]
 
     @staticmethod

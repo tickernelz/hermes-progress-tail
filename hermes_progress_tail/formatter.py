@@ -122,8 +122,108 @@ def _fmt_read(args: dict[str, Any], limit: int) -> str:
     return _truncate(path, limit)
 
 
-def _fmt_write_patch(args: dict[str, Any], limit: int) -> str:
+def _preview_text(value: Any, limit: int) -> str:
+    text = redact_text(str(value or "")).strip()
+    text = " ".join(text.split())
+    if not text:
+        return "<empty>"
+    return _truncate(text, limit)
+
+
+def _fmt_write(args: dict[str, Any], limit: int) -> str:
     return _truncate(_short_path(args.get("path") or args.get("file_path")), limit)
+
+
+def _patch_stats(raw_patch: str, max_files: int) -> str:
+    files: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for line in raw_patch.splitlines():
+        if line.startswith("*** Update File: "):
+            current = {
+                "op": "update",
+                "path": line.split(": ", 1)[1].strip(),
+                "add": 0,
+                "remove": 0,
+            }
+            files.append(current)
+            continue
+        if line.startswith("*** Add File: "):
+            current = {"op": "add", "path": line.split(": ", 1)[1].strip(), "add": 0, "remove": 0}
+            files.append(current)
+            continue
+        if line.startswith("*** Delete File: "):
+            current = {
+                "op": "delete",
+                "path": line.split(": ", 1)[1].strip(),
+                "add": 0,
+                "remove": 0,
+            }
+            files.append(current)
+            continue
+        if current is None:
+            continue
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+") and not line.startswith("***"):
+            current["add"] += 1
+        elif line.startswith("-") and not line.startswith("***"):
+            current["remove"] += 1
+    if not files:
+        return "patch text"
+    visible = files[:max_files]
+    chunks = []
+    for item in visible:
+        path = _short_path(item["path"])
+        add = int(item["add"])
+        remove = int(item["remove"])
+        if item["op"] == "add":
+            suffix = f" +{add}" if add else " add"
+        elif item["op"] == "delete":
+            suffix = f" -{remove}" if remove else " delete"
+        else:
+            parts = []
+            if add:
+                parts.append(f"+{add}")
+            if remove:
+                parts.append(f"-{remove}")
+            suffix = " " + "/".join(parts) if parts else " update"
+        chunks.append(path + suffix)
+    hidden = len(files) - len(visible)
+    if hidden > 0:
+        chunks.append(f"+{hidden} more")
+    file_word = "file" if len(files) == 1 else "files"
+    return f"{len(files)} {file_word} · " + " · ".join(chunks)
+
+
+def _fmt_patch(
+    args: dict[str, Any],
+    limit: int,
+    *,
+    detail: str = "smart",
+    preview_chars: int = 48,
+    max_files: int = 3,
+) -> str:
+    path = _short_path(args.get("path") or args.get("file_path"))
+    detail = detail if detail in {"off", "path", "smart", "stats"} else "smart"
+    if detail == "off":
+        return "patch"
+    if detail == "path":
+        return _truncate(path, limit)
+    mode = str(args.get("mode") or ("patch" if args.get("patch") else "replace")).strip().lower()
+    if mode == "patch" or args.get("patch"):
+        summary = _patch_stats(str(args.get("patch") or ""), max_files=max(1, int(max_files or 3)))
+        return _truncate(summary, limit)
+    if detail == "stats":
+        return _truncate(f"{path} replace", limit)
+    old = _preview_text(args.get("old_string"), preview_chars)
+    new_raw = args.get("new_string")
+    if new_raw in {None, ""}:
+        summary = f'{path} remove "{old}"'
+    else:
+        new = _preview_text(new_raw, preview_chars)
+        action = "replace all" if bool(args.get("replace_all")) else "replace"
+        summary = f'{path} {action} "{old}" → "{new}"'
+    return _truncate(summary, limit)
 
 
 def _fmt_delegate(args: dict[str, Any], limit: int) -> str:
@@ -159,6 +259,9 @@ def format_tool_line(
     args: dict[str, Any] | None,
     preview: str | None = None,
     preview_length: int = 120,
+    patch_detail: str = "smart",
+    patch_preview_chars: int = 48,
+    patch_max_files: int = 3,
 ) -> str:
     args = sanitize(args or {})
     display_name = "parallel" if tool_name == "multi_tool_use.parallel" else tool_name
@@ -171,8 +274,16 @@ def format_tool_line(
         summary = _fmt_search(args, limit)
     elif tool_name == "read_file":
         summary = _fmt_read(args, limit)
-    elif tool_name in {"write_file", "patch"}:
-        summary = _fmt_write_patch(args, limit)
+    elif tool_name == "write_file":
+        summary = _fmt_write(args, limit)
+    elif tool_name == "patch":
+        summary = _fmt_patch(
+            args,
+            limit,
+            detail=patch_detail,
+            preview_chars=patch_preview_chars,
+            max_files=patch_max_files,
+        )
     elif tool_name == "delegate_task":
         summary = _fmt_delegate(args, limit)
     elif tool_name == "multi_tool_use.parallel":

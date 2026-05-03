@@ -38,6 +38,13 @@ class TodoSettings:
 
 
 @dataclass(frozen=True)
+class PatchSettings:
+    detail: str = "smart"
+    preview_chars: int = 48
+    max_files: int = 3
+
+
+@dataclass(frozen=True)
 class ReasoningSettings:
     enabled: bool = True
     max_lines: int = 3
@@ -96,6 +103,7 @@ class Settings:
     enabled: bool = True
     tools: ToolSettings = ToolSettings()
     todo: TodoSettings = TodoSettings()
+    patch: PatchSettings = PatchSettings()
     reasoning: ReasoningSettings = ReasoningSettings()
     renderer: RendererSettings = RendererSettings()
     no_edit: NoEditSettings = NoEditSettings()
@@ -185,6 +193,11 @@ def _style(value: Any, default: str = "emoji") -> Literal["emoji", "plain"]:
     return "plain" if val == "plain" else "emoji"
 
 
+def _patch_detail(value: Any, default: str = "smart") -> str:
+    val = str(value or default).strip().lower()
+    return val if val in {"off", "path", "smart", "stats"} else default
+
+
 def load_settings(config: dict[str, Any] | None) -> Settings:
     section = _as_dict(config)
     legacy_defaults = section.get("defaults") if isinstance(section.get("defaults"), dict) else {}
@@ -195,6 +208,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     reasoning_raw = section.get("reasoning") if isinstance(section.get("reasoning"), dict) else {}
     no_edit_raw = section.get("no_edit") if isinstance(section.get("no_edit"), dict) else {}
     todo_raw = section.get("todo") if isinstance(section.get("todo"), dict) else {}
+    patch_raw = section.get("patch") if isinstance(section.get("patch"), dict) else {}
     tools = ToolSettings(
         enabled=_bool(tools_raw.get("enabled"), True),
         lines=_int(tools_raw.get("lines"), 3),
@@ -210,6 +224,11 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         max_completed=_int(todo_raw.get("max_completed"), 3),
         max_cancelled=_int(todo_raw.get("max_cancelled"), 2),
         max_item_chars=_int(todo_raw.get("max_item_chars"), 40, min_value=10),
+    )
+    patch = PatchSettings(
+        detail=_patch_detail(patch_raw.get("detail"), "smart"),
+        preview_chars=_int(patch_raw.get("preview_chars"), 48, min_value=10),
+        max_files=_int(patch_raw.get("max_files"), 3),
     )
     reasoning = ReasoningSettings(
         enabled=_bool(reasoning_raw.get("enabled"), True),
@@ -238,6 +257,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         enabled=_bool(section.get("enabled"), True),
         tools=tools,
         todo=todo,
+        patch=patch,
         reasoning=reasoning,
         renderer=renderer,
         no_edit=no_edit,

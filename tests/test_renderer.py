@@ -118,7 +118,7 @@ def test_tool_tail_adds_compact_event_timestamp():
             asyncio.get_running_loop(),
             "live_tail",
             timestamp=True,
-            timestamp_format="%H:%M",
+            timestamp_format="%M:%S",
         )
         renderer.register_context(ctx)
 
@@ -127,7 +127,7 @@ def test_tool_tail_adds_compact_event_timestamp():
             force=True,
         )
 
-        assert adapter.sent[0][1] == "🧰 Tools\n[07:00] terminal: npm test"
+        assert adapter.sent[0][1] == "🧰 Tools\n[00:00] terminal: npm test"
 
     asyncio.run(run())
 
@@ -165,9 +165,9 @@ def test_sticky_todo_survives_latest_tool_tail_and_resets_on_finalize():
 
         content = adapter.edits[-1][2]
         assert "📋 Todo" in content
-        assert "▶ implement sticky todo" in content
-        assert "pending: write tests, push tag" in content
-        assert "done: inspect repo" in content
+        assert "🔄 in progress (1): implement sticky todo" in content
+        assert "⏳ pending (2): write tests, push tag" in content
+        assert "✅ done (1): inspect repo" in content
         assert "📋 todo:" not in content
         assert "tool 2\ntool 3\ntool 4" in content
 
@@ -212,7 +212,9 @@ def test_plain_style_removes_section_emojis():
         content = adapter.edits[-1][2]
         assert "Todo" in content
         assert "Tools" in content
+        assert "in progress (1): ship clean UX" in content
         assert "📋 Todo" not in content
+        assert "🔄" not in content
         assert "🧰 Tools" not in content
 
     asyncio.run(run())

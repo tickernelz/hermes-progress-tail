@@ -1,5 +1,7 @@
 # hermes-progress-tail
 
+![hermes-progress-tail banner](assets/hermes-progress-tail-banner.png)
+
 Compact Hermes gateway plugin for live progress tails.
 
 ## What it does
@@ -10,6 +12,10 @@ Compact Hermes gateway plugin for live progress tails.
 - Falls back conservatively on no-edit platforms.
 - Redacts common secrets before rendering progress.
 - Disables Hermes built-in `display.show_reasoning` during install when plugin reasoning is enabled, to avoid duplicate final output.
+
+## Before / after
+
+![Before and after progress tail](assets/hermes-progress-tail-before-after.png)
 
 ## Install
 
@@ -62,6 +68,10 @@ progress_tail:
   todo:
     sticky: true
     hide_tool_line: true
+  patch:
+    detail: smart # off|path|smart|stats
+    preview_chars: 48
+    max_files: 3
   renderer:
     style: emoji # emoji|plain
   reasoning:

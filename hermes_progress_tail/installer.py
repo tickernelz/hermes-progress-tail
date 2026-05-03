@@ -32,6 +32,11 @@ DEFAULT_CONFIG = {
         "max_cancelled": 2,
         "max_item_chars": 40,
     },
+    "patch": {
+        "detail": "smart",
+        "preview_chars": 48,
+        "max_files": 3,
+    },
     "reasoning": {
         "enabled": True,
         "max_lines": 3,

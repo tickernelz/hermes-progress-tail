@@ -12,6 +12,9 @@ def test_load_settings_defaults():
     assert settings.tools.timestamp_format == "%H:%M"
     assert settings.todo.sticky is True
     assert settings.todo.hide_tool_line is True
+    assert settings.patch.detail == "smart"
+    assert settings.patch.preview_chars == 48
+    assert settings.patch.max_files == 3
     assert settings.renderer.style == "emoji"
 
 

@@ -31,7 +31,7 @@ def test_formats_file_tools_compactly():
         == "✍️ write_file: src/formatter.py"
     )
     assert (
-        format_tool_line("patch", {"path": "/tmp/project/src/renderer.py"})
+        format_tool_line("patch", {"path": "/tmp/project/src/renderer.py"}, patch_detail="path")
         == "🔧 patch: src/renderer.py"
     )
 
@@ -60,4 +60,100 @@ def test_formatter_truncates_and_redacts():
 
     assert "sk-secret" not in line
     assert len(line) <= 73
+    assert "[redacted_env]" in line
+
+
+def test_formats_patch_replace_with_intent_preview():
+    line = format_tool_line(
+        "patch",
+        {
+            "path": "/tmp/project/hermes_progress_tail/formatter.py",
+            "old_string": "todo: updating 5 task(s)",
+            "new_string": "todo: ▶ implement patch detail · 2 pending",
+        },
+        preview_length=140,
+    )
+
+    assert (
+        line
+        == '🔧 patch: hermes_progress_tail/formatter.py replace "todo: updating 5 task(s)" → "todo: ▶ implement patch detail · 2 pending"'
+    )
+
+
+def test_formats_patch_remove_and_replace_all():
+    assert (
+        format_tool_line(
+            "patch",
+            {
+                "path": "/tmp/project/src/renderer.py",
+                "old_string": "Still working...",
+                "new_string": "",
+            },
+            preview_length=100,
+        )
+        == '🔧 patch: src/renderer.py remove "Still working..."'
+    )
+    assert (
+        format_tool_line(
+            "patch",
+            {
+                "path": "/tmp/project/src/installer.py",
+                "old_string": "tool-progress-tail",
+                "new_string": "hermes-progress-tail",
+                "replace_all": True,
+            },
+            preview_length=110,
+        )
+        == '🔧 patch: src/installer.py replace all "tool-progress-tail" → "hermes-progress-tail"'
+    )
+
+
+def test_formats_multi_file_patch_stats_with_limit():
+    patch_text = """*** Begin Patch
+*** Update File: hermes_progress_tail/renderer.py
+@@
+-old
++new
++next
+*** Update File: hermes_progress_tail/formatter.py
+@@
+-a
+-b
++c
+*** Add File: tests/test_patch.py
++def test_patch():
++    pass
+*** Update File: README.md
+@@
+-old docs
++new docs
+*** End Patch
+"""
+
+    line = format_tool_line(
+        "patch",
+        {"mode": "patch", "patch": patch_text},
+        preview_length=140,
+        patch_max_files=3,
+    )
+
+    assert (
+        line
+        == "🔧 patch: 4 files · hermes_progress_tail/renderer.py +2/-1 · hermes_progress_tail/formatter.py +1/-2 · tests/test_patch.py +2 · +1 more"
+    )
+
+
+def test_patch_preview_redacts_secrets():
+    line = format_tool_line(
+        "patch",
+        {
+            "path": "/tmp/project/.env",
+            "old_string": "OPENAI_API_KEY=sk-oldsecret",
+            "new_string": "OPENAI_API_KEY=sk-newsecret",
+        },
+        preview_length=120,
+    )
+
+    assert "sk-oldsecret" not in line
+    assert "sk-newsecret" not in line
     assert "[redacted_env]" in line

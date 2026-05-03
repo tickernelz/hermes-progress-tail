@@ -176,7 +176,13 @@ def _on_pre_tool_call(
     if ctx is None or not ctx.tools_enabled:
         return None
     line = format_tool_line(
-        tool_name, args or {}, preview=preview, preview_length=ctx.preview_length
+        tool_name,
+        args or {},
+        preview=preview,
+        preview_length=ctx.preview_length,
+        patch_detail=renderer.settings.patch.detail,
+        patch_preview_chars=renderer.settings.patch.preview_chars,
+        patch_max_files=renderer.settings.patch.max_files,
     )
     event = ToolEvent(
         session_id=ctx.session_id,
@@ -289,6 +295,7 @@ def _command(raw_args: str = "") -> str:
             f"sessions={active}",
             f"tools={'enabled' if settings.tools.enabled else 'disabled'} lines={settings.tools.lines} timestamp={settings.tools.timestamp_format if settings.tools.timestamp else 'off'}",
             f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
+            f"patch=detail:{settings.patch.detail} preview_chars:{settings.patch.preview_chars} max_files:{settings.patch.max_files}",
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
             f"renderer=strategy:{settings.renderer.strategy} style:{settings.renderer.style} edit_interval:{settings.renderer.edit_interval}",
             f"monkeypatch={monkeypatch_active}",

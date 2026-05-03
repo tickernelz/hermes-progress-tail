@@ -26,6 +26,9 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert config["progress_tail"]["tools"]["timestamp_format"] == "%H:%M"
     assert config["progress_tail"]["todo"]["sticky"] is True
     assert config["progress_tail"]["todo"]["hide_tool_line"] is True
+    assert config["progress_tail"]["patch"]["detail"] == "smart"
+    assert config["progress_tail"]["patch"]["preview_chars"] == 48
+    assert config["progress_tail"]["patch"]["max_files"] == 3
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
     assert "progress_tail" in config
     assert (hermes_home / "hermes-progress-tail" / "backups").exists()
@@ -96,6 +99,7 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     assert config["progress_tail"]["tools"]["timestamp"] is False
     assert config["progress_tail"]["tools"]["timestamp_format"] == "%H:%M"
     assert config["progress_tail"]["todo"]["hide_tool_line"] is True
+    assert config["progress_tail"]["patch"]["detail"] == "smart"
     assert config["progress_tail"]["renderer"]["strategy"] == "live_tail"
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
     assert any("progress_tail.todo" in message for message in result.messages)
