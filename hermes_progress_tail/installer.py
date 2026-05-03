@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 import shutil
 import sys
@@ -23,6 +24,14 @@ DEFAULT_CONFIG = {
         "timestamp": True,
         "timestamp_format": "%H:%M",
     },
+    "todo": {
+        "sticky": True,
+        "hide_tool_line": True,
+        "max_pending": 3,
+        "max_completed": 3,
+        "max_cancelled": 2,
+        "max_item_chars": 40,
+    },
     "reasoning": {
         "enabled": True,
         "max_lines": 3,
@@ -37,6 +46,7 @@ DEFAULT_CONFIG = {
         "stale_ttl_seconds": 900,
         "redact_secrets": True,
         "mode": "sectioned",
+        "style": "emoji",
     },
     "no_edit": {
         "interval_seconds": 30,
@@ -147,8 +157,28 @@ def _builtin_reasoning_conflict(config: dict[str, Any]) -> bool:
     return _reasoning_tail_enabled(config) and display.get("show_reasoning") is True
 
 
-def _update_config(config: dict[str, Any], set_display_off: bool) -> tuple[dict[str, Any], bool]:
+def _merge_missing_defaults(
+    target: dict[str, Any], defaults: dict[str, Any], prefix: str = ""
+) -> list[str]:
+    added = []
+    for key, value in defaults.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if key not in target:
+            target[key] = copy.deepcopy(value)
+            added.append(path)
+            continue
+        if isinstance(value, dict):
+            if not isinstance(target.get(key), dict):
+                continue
+            added.extend(_merge_missing_defaults(target[key], value, path))
+    return added
+
+
+def _update_config(
+    config: dict[str, Any], set_display_off: bool
+) -> tuple[dict[str, Any], bool, list[str]]:
     changed = _migrate_legacy_config(config)
+    added_defaults: list[str] = []
     plugins = config.setdefault("plugins", {})
     if not isinstance(plugins, dict):
         config["plugins"] = plugins = {}
@@ -166,7 +196,14 @@ def _update_config(config: dict[str, Any], set_display_off: bool) -> tuple[dict[
         changed = True
     if "progress_tail" not in config or not isinstance(config.get("progress_tail"), dict):
         config["progress_tail"] = DEFAULT_CONFIG.copy()
+        added_defaults.append("progress_tail")
         changed = True
+    else:
+        added_defaults.extend(
+            f"progress_tail.{path}"
+            for path in _merge_missing_defaults(config["progress_tail"], DEFAULT_CONFIG)
+        )
+        changed = changed or bool(added_defaults)
     if set_display_off:
         display = config.setdefault("display", {})
         if not isinstance(display, dict):
@@ -178,7 +215,7 @@ def _update_config(config: dict[str, Any], set_display_off: bool) -> tuple[dict[
         if _reasoning_tail_enabled(config) and display.get("show_reasoning") is not False:
             display["show_reasoning"] = False
             changed = True
-    return config, changed
+    return config, changed, added_defaults
 
 
 def install(
@@ -195,7 +232,9 @@ def install(
     config_path = hermes_home / "config.yaml"
     config = _read_yaml(config_path)
     had_builtin_reasoning_conflict = _builtin_reasoning_conflict(config)
-    updated, config_changed = _update_config(config, set_display_off=set_display_off)
+    updated, config_changed, added_defaults = _update_config(
+        config, set_display_off=set_display_off
+    )
     has_builtin_reasoning_conflict = _builtin_reasoning_conflict(updated)
     plugin_changed = not target_dir.exists() or legacy_dir.exists()
     result = InstallResult(changed=config_changed or plugin_changed)
@@ -204,6 +243,8 @@ def install(
             "warning: display.show_reasoning=true while progress_tail.reasoning.enabled=true; "
             "duplicate reasoning/final output may occur"
         )
+    if added_defaults:
+        result.messages.append("Added missing default config keys: " + ", ".join(added_defaults))
     if dry_run:
         result.messages.append(f"Would copy plugin to {target_dir}")
         if legacy_dir.exists():

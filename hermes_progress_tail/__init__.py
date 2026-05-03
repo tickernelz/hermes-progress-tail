@@ -1,6 +1,7 @@
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .plugin import (
+    VERSION,
     _command,
     _get_renderer,
     _load_runtime_settings,
@@ -15,6 +16,7 @@ from .plugin import (
 
 __all__ = [
     "__version__",
+    "VERSION",
     "register",
     "_command",
     "_get_renderer",

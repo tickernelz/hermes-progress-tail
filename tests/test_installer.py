@@ -24,6 +24,9 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert config["display"]["show_reasoning"] is False
     assert config["progress_tail"]["tools"]["timestamp"] is True
     assert config["progress_tail"]["tools"]["timestamp_format"] == "%H:%M"
+    assert config["progress_tail"]["todo"]["sticky"] is True
+    assert config["progress_tail"]["todo"]["hide_tool_line"] is True
+    assert config["progress_tail"]["renderer"]["style"] == "emoji"
     assert "progress_tail" in config
     assert (hermes_home / "hermes-progress-tail" / "backups").exists()
 
@@ -64,6 +67,38 @@ def test_install_dry_run_does_not_modify_files(tmp_path):
     assert result.changed is True
     assert not (hermes_home / "plugins").exists()
     assert yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8")) == {}
+
+
+def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    (source / "__init__.py").write_text("def register(ctx): pass\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "progress_tail": {
+                    "enabled": True,
+                    "tools": {"lines": 5, "timestamp": False},
+                    "renderer": {"strategy": "live_tail"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = install(hermes_home, source, dry_run=False)
+
+    config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
+    assert config["progress_tail"]["tools"]["lines"] == 5
+    assert config["progress_tail"]["tools"]["timestamp"] is False
+    assert config["progress_tail"]["tools"]["timestamp_format"] == "%H:%M"
+    assert config["progress_tail"]["todo"]["hide_tool_line"] is True
+    assert config["progress_tail"]["renderer"]["strategy"] == "live_tail"
+    assert config["progress_tail"]["renderer"]["style"] == "emoji"
+    assert any("progress_tail.todo" in message for message in result.messages)
 
 
 def test_install_warns_when_builtin_reasoning_conflicts(tmp_path):

@@ -10,6 +10,9 @@ def test_load_settings_defaults():
     assert settings.no_edit.interval_seconds == 30
     assert settings.tools.timestamp is True
     assert settings.tools.timestamp_format == "%H:%M"
+    assert settings.todo.sticky is True
+    assert settings.todo.hide_tool_line is True
+    assert settings.renderer.style == "emoji"
 
 
 def test_resolve_platform_override():

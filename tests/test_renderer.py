@@ -168,10 +168,87 @@ def test_sticky_todo_survives_latest_tool_tail_and_resets_on_finalize():
         assert "▶ implement sticky todo" in content
         assert "pending: write tests, push tag" in content
         assert "done: inspect repo" in content
+        assert "📋 todo:" not in content
         assert "tool 2\ntool 3\ntool 4" in content
 
         await renderer.finalize(session_id="s1")
         assert renderer.sessions["s1"].todo_items == ()
+
+    asyncio.run(run())
+
+
+def test_plain_style_removes_section_emojis():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        todo_args = {"todos": [{"content": "ship clean UX", "status": "in_progress"}]}
+
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "discord",
+                format_tool_line("todo", todo_args),
+                tool_name="todo",
+                todo_items=extract_todo_items(todo_args),
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "discord", "terminal: pytest"), force=True
+        )
+
+        content = adapter.edits[-1][2]
+        assert "Todo" in content
+        assert "Tools" in content
+        assert "📋 Todo" not in content
+        assert "🧰 Tools" not in content
+
+    asyncio.run(run())
+
+
+def test_todo_tool_line_can_be_kept_when_configured():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "todo": {"hide_tool_line": False},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        todo_args = {"todos": [{"content": "keep line", "status": "in_progress"}]}
+
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "discord",
+                format_tool_line("todo", todo_args),
+                tool_name="todo",
+                todo_items=extract_todo_items(todo_args),
+            ),
+            force=True,
+        )
+
+        assert "📋 Todo" in adapter.sent[0][1]
+        assert "📋 todo:" in adapter.sent[0][1]
 
     asyncio.run(run())
 

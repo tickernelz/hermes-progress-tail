@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Literal
 
 VALID_STRATEGIES = {"auto", "live_tail", "snapshot", "summary_only", "off"}
 BATCH_DEFAULT_OFF = {"email", "sms", "webhook", "homeassistant"}
@@ -25,6 +25,16 @@ class ToolSettings:
     show_completed: bool = False
     timestamp: bool = True
     timestamp_format: str = "%H:%M"
+
+
+@dataclass(frozen=True)
+class TodoSettings:
+    sticky: bool = True
+    hide_tool_line: bool = True
+    max_pending: int = 3
+    max_completed: int = 3
+    max_cancelled: int = 2
+    max_item_chars: int = 40
 
 
 @dataclass(frozen=True)
@@ -54,6 +64,7 @@ class RendererSettings:
     stale_ttl_seconds: int = 900
     redact_secrets: bool = True
     mode: str = "sectioned"
+    style: Literal["emoji", "plain"] = "emoji"
 
 
 @dataclass(frozen=True)
@@ -84,6 +95,7 @@ class PlatformSettings:
 class Settings:
     enabled: bool = True
     tools: ToolSettings = ToolSettings()
+    todo: TodoSettings = TodoSettings()
     reasoning: ReasoningSettings = ReasoningSettings()
     renderer: RendererSettings = RendererSettings()
     no_edit: NoEditSettings = NoEditSettings()
@@ -168,6 +180,11 @@ def _strategy(value: Any, default: str = "auto") -> str:
     return val if val in VALID_STRATEGIES else default
 
 
+def _style(value: Any, default: str = "emoji") -> Literal["emoji", "plain"]:
+    val = str(value or default).strip().lower()
+    return "plain" if val == "plain" else "emoji"
+
+
 def load_settings(config: dict[str, Any] | None) -> Settings:
     section = _as_dict(config)
     legacy_defaults = section.get("defaults") if isinstance(section.get("defaults"), dict) else {}
@@ -177,6 +194,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     )
     reasoning_raw = section.get("reasoning") if isinstance(section.get("reasoning"), dict) else {}
     no_edit_raw = section.get("no_edit") if isinstance(section.get("no_edit"), dict) else {}
+    todo_raw = section.get("todo") if isinstance(section.get("todo"), dict) else {}
     tools = ToolSettings(
         enabled=_bool(tools_raw.get("enabled"), True),
         lines=_int(tools_raw.get("lines"), 3),
@@ -184,6 +202,14 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         show_completed=_bool(tools_raw.get("show_completed"), False),
         timestamp=_bool(tools_raw.get("timestamp"), True),
         timestamp_format=str(tools_raw.get("timestamp_format") or "%H:%M"),
+    )
+    todo = TodoSettings(
+        sticky=_bool(todo_raw.get("sticky"), True),
+        hide_tool_line=_bool(todo_raw.get("hide_tool_line"), True),
+        max_pending=_int(todo_raw.get("max_pending"), 3),
+        max_completed=_int(todo_raw.get("max_completed"), 3),
+        max_cancelled=_int(todo_raw.get("max_cancelled"), 2),
+        max_item_chars=_int(todo_raw.get("max_item_chars"), 40, min_value=10),
     )
     reasoning = ReasoningSettings(
         enabled=_bool(reasoning_raw.get("enabled"), True),
@@ -199,6 +225,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         stale_ttl_seconds=_int(renderer_raw.get("stale_ttl_seconds"), 900),
         redact_secrets=_bool(renderer_raw.get("redact_secrets"), True),
         mode=str(renderer_raw.get("mode") or "sectioned").strip().lower() or "sectioned",
+        style=_style(renderer_raw.get("style"), "emoji"),
     )
     no_edit = NoEditSettings(
         interval_seconds=_int(no_edit_raw.get("interval_seconds"), 30),
@@ -210,6 +237,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     return Settings(
         enabled=_bool(section.get("enabled"), True),
         tools=tools,
+        todo=todo,
         reasoning=reasoning,
         renderer=renderer,
         no_edit=no_edit,

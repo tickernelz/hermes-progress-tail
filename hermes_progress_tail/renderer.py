@@ -90,8 +90,12 @@ class ProgressRenderer:
             ctx.new_events_since_snapshot += 1
             if isinstance(event, ToolEvent):
                 if event.tool_name == "todo" and event.todo_items:
-                    ctx.todo_items = event.todo_items
-                    ctx.todo_updated_at = event.created_at
+                    if self.settings.todo.sticky:
+                        ctx.todo_items = event.todo_items
+                        ctx.todo_updated_at = event.created_at
+                    if self.settings.todo.hide_tool_line:
+                        await self._render_for_strategy(ctx, event, force=force)
+                        return
                 ctx.tool_lines.append(self._format_tool_line(ctx, event))
             else:
                 pending = self._append_reasoning(ctx, event.text)
@@ -103,18 +107,23 @@ class ProgressRenderer:
                     return
                 if not force and pending < self.settings.reasoning.min_update_chars:
                     return
-            if ctx.strategy == "summary_only":
+            await self._render_for_strategy(ctx, event, force=force)
+
+    async def _render_for_strategy(
+        self, ctx: SessionContext, event: ProgressEvent, force: bool = False
+    ) -> None:
+        if ctx.strategy == "summary_only":
+            return
+        if ctx.strategy == "live_tail":
+            await self._render_live(ctx, force=force)
+            return
+        if ctx.strategy == "snapshot":
+            if (
+                isinstance(event, ReasoningEvent)
+                and self.settings.reasoning.no_edit_strategy == "off"
+            ):
                 return
-            if ctx.strategy == "live_tail":
-                await self._render_live(ctx, force=force)
-                return
-            if ctx.strategy == "snapshot":
-                if (
-                    isinstance(event, ReasoningEvent)
-                    and self.settings.reasoning.no_edit_strategy == "off"
-                ):
-                    return
-                await self._render_snapshot(ctx, force=force)
+            await self._render_snapshot(ctx, force=force)
 
     async def finalize(
         self, session_id: str = "", session_key: str = "", purge: bool = False
@@ -153,14 +162,18 @@ class ProgressRenderer:
         parts = []
         reasoning = self._reasoning_tail(ctx)
         if reasoning:
-            parts.append("💭 Reasoning\n" + reasoning)
+            parts.append(self._section("Reasoning", "💭", reasoning))
         todo = self._todo_section(ctx)
         if todo:
             parts.append(todo)
         if ctx.tool_lines:
-            parts.append("🧰 Tools\n" + "\n".join(ctx.tool_lines))
+            parts.append(self._section("Tools", "🧰", "\n".join(ctx.tool_lines)))
         content = "\n\n".join(parts)
         return redact_text(content) if self.settings.renderer.redact_secrets else content
+
+    def _section(self, title: str, emoji: str, body: str) -> str:
+        header = f"{emoji} {title}" if self.settings.renderer.style == "emoji" else title
+        return header + "\n" + body
 
     def _format_tool_line(self, ctx: SessionContext, event: ToolEvent) -> str:
         timestamp_enabled = (
@@ -180,7 +193,8 @@ class ProgressRenderer:
         )
         timestamp_format = ctx.timestamp_format or self.settings.tools.timestamp_format
         timestamp = self._timestamp(ctx.todo_updated_at, timestamp_format)
-        header = f"📋 Todo [{timestamp}]" if timestamp_enabled else "📋 Todo"
+        title = f"Todo [{timestamp}]" if timestamp_enabled else "Todo"
+        header = f"📋 {title}" if self.settings.renderer.style == "emoji" else title
         lines = self._todo_lines(ctx.todo_items)
         return header + "\n" + "\n".join(lines)
 
@@ -191,23 +205,28 @@ class ProgressRenderer:
         except Exception:
             return time.strftime("%H:%M", time.localtime(value))
 
-    @staticmethod
-    def _todo_lines(items: tuple[TodoItem, ...]) -> list[str]:
+    def _todo_lines(self, items: tuple[TodoItem, ...]) -> list[str]:
         by_status = {"in_progress": [], "pending": [], "completed": [], "cancelled": []}
         for item in items:
             by_status.setdefault(item.status, []).append(item.content)
         lines = []
         if by_status["in_progress"]:
-            lines.append("▶ " + _truncate_local(by_status["in_progress"][0], 80))
+            lines.append(
+                "▶ "
+                + _truncate_local(by_status["in_progress"][0], self.settings.todo.max_item_chars)
+            )
+        todo_settings = self.settings.todo
         for status, label, limit in (
-            ("pending", "pending", 3),
-            ("completed", "done", 3),
-            ("cancelled", "cancelled", 2),
+            ("pending", "pending", todo_settings.max_pending),
+            ("completed", "done", todo_settings.max_completed),
+            ("cancelled", "cancelled", todo_settings.max_cancelled),
         ):
             values = by_status[status]
             if not values:
                 continue
-            visible = ", ".join(_truncate_local(value, 40) for value in values[:limit])
+            visible = ", ".join(
+                _truncate_local(value, todo_settings.max_item_chars) for value in values[:limit]
+            )
             hidden = len(values) - limit
             suffix = f" +{hidden} more" if hidden > 0 else ""
             lines.append(f"{label}: {visible}{suffix}")

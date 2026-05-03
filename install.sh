@@ -2,37 +2,46 @@
 set -euo pipefail
 
 REPO="${HPT_REPO:-tickernelz/hermes-progress-tail}"
-REF="${HPT_REF:-main}"
+REF="${HPT_REF:-v0.1.1}"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 DRY_RUN="${HPT_DRY_RUN:-0}"
+SOURCE_DIR="${HPT_SOURCE_DIR:-}"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "error: python3 is required" >&2
   exit 1
 fi
 
-if command -v curl >/dev/null 2>&1; then
-  FETCH=(curl -fsSL)
-elif command -v wget >/dev/null 2>&1; then
-  FETCH=(wget -qO-)
-else
-  echo "error: curl or wget is required" >&2
-  exit 1
-fi
-
-TMP_DIR="$(mktemp -d)"
+TMP_DIR=""
 cleanup() {
-  rm -rf "$TMP_DIR"
+  if [[ -n "$TMP_DIR" ]]; then
+    rm -rf "$TMP_DIR"
+  fi
 }
 trap cleanup EXIT
 
-ARCHIVE_URL="https://github.com/${REPO}/archive/${REF}.tar.gz"
-echo "Downloading hermes-progress-tail from ${REPO}@${REF}"
-"${FETCH[@]}" "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR"
+if [[ -n "$SOURCE_DIR" ]]; then
+  SRC_DIR="$SOURCE_DIR"
+else
+  if command -v curl >/dev/null 2>&1; then
+    FETCH=(curl -fsSL)
+  elif command -v wget >/dev/null 2>&1; then
+    FETCH=(wget -qO-)
+  else
+    echo "error: curl or wget is required" >&2
+    exit 1
+  fi
 
-SRC_DIR="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-if [[ -z "$SRC_DIR" ]]; then
-  echo "error: downloaded archive did not contain a source directory" >&2
+  TMP_DIR="$(mktemp -d)"
+  ARCHIVE_URL="https://github.com/${REPO}/archive/${REF}.tar.gz"
+  echo "Downloading hermes-progress-tail from ${REPO}@${REF}"
+  "${FETCH[@]}" "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR"
+
+  SRC_DIR="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+fi
+
+if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR" ]]; then
+  echo "error: source directory not found" >&2
   exit 1
 fi
 

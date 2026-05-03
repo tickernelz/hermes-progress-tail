@@ -16,6 +16,7 @@ from .state import ReasoningEvent, SessionContext, ToolEvent
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
+VERSION = "0.1.1"
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -282,10 +283,19 @@ def _command(raw_args: str = "") -> str:
             monkeypatch_active = bool(getattr(AIAgent, "_hermes_progress_tail_patched", False))
         except Exception:
             monkeypatch_active = False
-        status = f"hermes-progress-tail active · sessions={active} · tools={renderer.settings.tools.enabled} · reasoning={renderer.settings.reasoning.enabled} · monkeypatch={monkeypatch_active}"
+        settings = renderer.settings
+        lines = [
+            f"hermes-progress-tail {VERSION}",
+            f"sessions={active}",
+            f"tools={'enabled' if settings.tools.enabled else 'disabled'} lines={settings.tools.lines} timestamp={settings.tools.timestamp_format if settings.tools.timestamp else 'off'}",
+            f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
+            f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
+            f"renderer=strategy:{settings.renderer.strategy} style:{settings.renderer.style} edit_interval:{settings.renderer.edit_interval}",
+            f"monkeypatch={monkeypatch_active}",
+        ]
         if _builtin_reasoning_conflict(_load_runtime_config()):
-            status += "\n" + _reasoning_conflict_warning()
-        return status
+            lines.append(_reasoning_conflict_warning())
+        return "\n".join(lines)
     if args == "test":
         return "hermes-progress-tail is loaded. Send a normal request with tool calls/reasoning to test live rendering."
     return "Usage: /progresstail status | test"
