@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import PurePosixPath
+import re
+import shlex
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .redaction import redact_text, sanitize
@@ -37,15 +39,50 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit - 3] + "..."
 
 
+def _project_relative_path(raw: str) -> str | None:
+    if not raw.startswith("/"):
+        return raw or None
+    try:
+        resolved = Path(raw).expanduser().resolve(strict=False)
+    except Exception:
+        resolved = Path(raw)
+    cwd = Path.cwd().resolve(strict=False)
+    candidates = [cwd]
+    for marker in ("Projects", "projects"):
+        parts = resolved.parts
+        if marker in parts:
+            idx = parts.index(marker)
+            if idx + 2 <= len(parts):
+                candidates.append(Path(*parts[: idx + 2]))
+    for base in candidates:
+        try:
+            return resolved.relative_to(base).as_posix() or resolved.name
+        except ValueError:
+            continue
+    home = Path.home().resolve(strict=False)
+    try:
+        return "~/" + resolved.relative_to(home).as_posix()
+    except ValueError:
+        return None
+
+
 def _short_path(path: Any, *, keep_parent: bool = True) -> str:
-    raw = redact_text(str(path or "")).strip()
+    raw = str(path or "").strip()
     if not raw:
         return "<unknown>"
+    if raw.startswith("[redacted_blob]") and "/" not in raw:
+        return raw
+    relative = _project_relative_path(raw)
+    raw = redact_text(relative) if relative else redact_text(raw)
     p = PurePosixPath(raw)
     parts = [part for part in p.parts if part not in {"/", ""}]
-    if keep_parent and len(parts) >= 2:
-        return "/".join(parts[-2:])
-    return parts[-1] if parts else raw
+    if not parts:
+        return raw
+    if raw.startswith("~/"):
+        return raw
+    if keep_parent:
+        return "/".join(parts) if relative else "/".join(parts[-2:])
+    return parts[-1]
 
 
 def extract_todo_items(args: dict[str, Any] | None) -> tuple[TodoItem, ...]:
@@ -94,9 +131,63 @@ def _fmt_todo(args: dict[str, Any], preview: str | None, limit: int) -> str:
     return summarize_todo_items(items, limit)
 
 
+def _shell_words(command: str) -> list[str]:
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return command.split()
+
+
+def _compact_command_path(token: str) -> str:
+    prefix = ""
+    body = token
+    while body and body[0] in "<>0123456789":
+        prefix += body[0]
+        body = body[1:]
+    if not body.startswith(("/", "~/")):
+        return token
+    return prefix + _short_path(body, keep_parent=True)
+
+
+def _fmt_terminal_command(command: str) -> str:
+    command = redact_text(command).strip()
+    if not command:
+        return "<empty>"
+    lines = [line for line in command.splitlines() if line.strip()]
+    if len(lines) > 1:
+        first = lines[0].strip()
+        if re.match(r"^(python3?|python)\s+-\s*<<", first) or first.startswith("python3 - <<"):
+            return f"python inline script · {len(lines)} lines"
+        return f"shell script · {len(lines)} lines"
+    words = _shell_words(command)
+    joined = " ".join(words)
+    if not words:
+        return command
+    if words[0] in {"python", "python3"} and "-" in words[:3] and "<<" in command:
+        return "python inline script"
+    if words[0] == "node" and len(words) >= 5 and "typescript/bin/tsc" in joined:
+        return "tsc " + " ".join(word for word in words[2:] if word in {"-p", ".", "--noEmit"})
+    if words[0] in {"cat", "rm", "cp", "mv", "mkdir", "touch", "stat", "chmod", "chown"}:
+        return " ".join([words[0], *(_compact_command_path(word) for word in words[1:4])])
+    if words[0] in {"npm", "pnpm", "yarn"}:
+        if len(words) >= 3 and words[1] == "run":
+            return " ".join(words[:3])
+        return " ".join(words[: min(len(words), 4)])
+    if words[0] in {"pytest", "ruff", "pre-commit"}:
+        return " ".join(words[: min(len(words), 4)])
+    if words[0] == "python" and len(words) >= 4 and words[1:3] == ["-m", "pytest"]:
+        return " ".join(words[: min(len(words), 5)])
+    if words[0] == "python" and len(words) >= 4 and words[1:3] == ["-m", "pre_commit"]:
+        return "pre-commit " + " ".join(words[3:5])
+    if words[0] == "git":
+        return " ".join(words[: min(len(words), 4)])
+    if re.search(r"[;&|<>]", command):
+        return " ".join(_compact_command_path(word) for word in words[: min(len(words), 5)])
+    return " ".join(_compact_command_path(word) for word in words)
+
+
 def _fmt_terminal(args: dict[str, Any], limit: int) -> str:
-    cmd = str(args.get("command") or "").strip()
-    cmd = redact_text(cmd) if cmd else "<empty>"
+    cmd = _fmt_terminal_command(str(args.get("command") or ""))
     cwd = args.get("workdir")
     text = f"{cmd} · cwd {_short_path(cwd, keep_parent=False)}" if cwd else cmd
     return _truncate(text, limit)
@@ -107,7 +198,7 @@ def _fmt_search(args: dict[str, Any], limit: int) -> str:
     path = str(args.get("path") or "").strip()
     text = f'"{_truncate(pattern, 50)}"'
     if path:
-        text += f" in {redact_text(path)}"
+        text += f" in {_short_path(path, keep_parent=True)}"
     return _truncate(text, limit)
 
 
@@ -263,7 +354,7 @@ def format_tool_line(
     patch_preview_chars: int = 48,
     patch_max_files: int = 3,
 ) -> str:
-    args = sanitize(args or {})
+    args = args or {}
     display_name = "parallel" if tool_name == "multi_tool_use.parallel" else tool_name
     limit = max(10, int(preview_length or 120))
     if tool_name == "todo":

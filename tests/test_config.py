@@ -15,7 +15,9 @@ def test_load_settings_defaults():
     assert settings.patch.detail == "smart"
     assert settings.patch.preview_chars == 48
     assert settings.patch.max_files == 3
+    assert settings.tools.show_duration is True
     assert settings.renderer.style == "emoji"
+    assert settings.renderer.density == "normal"
 
 
 def test_resolve_platform_override():

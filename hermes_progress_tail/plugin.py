@@ -11,12 +11,13 @@ from .compat import platform_name, source_chat_id, source_thread_id
 from .config import load_settings, resolve_platform_settings
 from .formatter import extract_todo_items, format_tool_line
 from .monkeypatches import install_monkeypatches
+from .redaction import redact_text
 from .renderer import ProgressRenderer
 from .state import ReasoningEvent, SessionContext, ToolEvent
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -162,6 +163,43 @@ def _schedule_render(ctx: SessionContext, event: ToolEvent | ReasoningEvent) -> 
         logger.debug("hermes-progress-tail schedule failed: %s", exc)
 
 
+def _compact_result_status(result: Any) -> str:
+    if result is None or result == "":
+        return "done"
+    data = result
+    if isinstance(result, str):
+        try:
+            import json
+
+            data = json.loads(result)
+        except Exception:
+            data = None
+    if isinstance(data, dict):
+        success = data.get("success")
+        if success is False:
+            return "failed"
+        exit_code = data.get("exit_code")
+        if isinstance(exit_code, int) and exit_code != 0:
+            return "failed"
+        error = data.get("error")
+        if error not in {None, "", False} and success is not True:
+            return "failed"
+        return "done"
+    text = str(result).lower()
+    if "traceback" in text or "exception" in text:
+        return "failed"
+    return "done"
+
+
+def _duration_text(duration_ms: int | float | None) -> str:
+    if not isinstance(duration_ms, (int, float)) or duration_ms < 0:
+        return ""
+    seconds = duration_ms / 1000
+    if seconds < 10:
+        return f"{seconds:.1f}s"
+    return f"{seconds:.0f}s"
+
+
 def _on_pre_tool_call(
     tool_name: str,
     args: dict | None = None,
@@ -184,6 +222,8 @@ def _on_pre_tool_call(
         patch_preview_chars=renderer.settings.patch.preview_chars,
         patch_max_files=renderer.settings.patch.max_files,
     )
+    if renderer.settings.tools.show_completed:
+        line = f"{line} · running"
     event = ToolEvent(
         session_id=ctx.session_id,
         session_key=ctx.session_key,
@@ -211,8 +251,21 @@ def _on_post_tool_call(
     ctx = renderer.find_context(session_id or task_id, task_id)
     if ctx is None or not ctx.tools_enabled or not renderer.settings.tools.show_completed:
         return None
-    duration = f" {duration_ms / 1000:.1f}s" if isinstance(duration_ms, int) else ""
-    line = f"✅ {tool_name}{duration}"
+    base = format_tool_line(
+        tool_name,
+        args or {},
+        preview_length=ctx.preview_length,
+        patch_detail=renderer.settings.patch.detail,
+        patch_preview_chars=renderer.settings.patch.preview_chars,
+        patch_max_files=renderer.settings.patch.max_files,
+    )
+    status = _compact_result_status(result)
+    marker = "✅" if status == "done" else "❌"
+    suffix = f" · {status}"
+    duration = _duration_text(duration_ms) if renderer.settings.tools.show_duration else ""
+    if duration:
+        suffix += f" · {duration}"
+    line = f"{marker} {base} {suffix}"
     _schedule_render(
         ctx,
         ToolEvent(
@@ -222,6 +275,7 @@ def _on_post_tool_call(
             line,
             tool_call_id=tool_call_id or "",
             tool_name=tool_name,
+            replace_existing=bool(tool_call_id),
         ),
     )
     return None
@@ -280,7 +334,7 @@ def _on_session_finalize(session_id: str = "", platform: str = "", **_: Any):
 def _command(raw_args: str = "") -> str:
     args = (raw_args or "").strip().lower()
     renderer = _get_renderer()
-    if args in {"", "status"}:
+    if args in {"", "status", "doctor"}:
         active = len(renderer.sessions)
         monkeypatch_active = False
         try:
@@ -290,22 +344,66 @@ def _command(raw_args: str = "") -> str:
         except Exception:
             monkeypatch_active = False
         settings = renderer.settings
+        runtime_config = _load_runtime_config()
+        display = (
+            runtime_config.get("display") if isinstance(runtime_config.get("display"), dict) else {}
+        )
+        plugins = (
+            runtime_config.get("plugins") if isinstance(runtime_config.get("plugins"), dict) else {}
+        )
+        enabled_plugins = plugins.get("enabled") if isinstance(plugins.get("enabled"), list) else []
         lines = [
             f"hermes-progress-tail {VERSION}",
+            f"plugin={'enabled' if 'hermes-progress-tail' in enabled_plugins else 'not listed'}",
             f"sessions={active}",
-            f"tools={'enabled' if settings.tools.enabled else 'disabled'} lines={settings.tools.lines} timestamp={settings.tools.timestamp_format if settings.tools.timestamp else 'off'}",
+            f"tools={'enabled' if settings.tools.enabled else 'disabled'} lines={settings.tools.lines} completed={settings.tools.show_completed} duration={settings.tools.show_duration} timestamp={settings.tools.timestamp_format if settings.tools.timestamp else 'off'}",
             f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
             f"patch=detail:{settings.patch.detail} preview_chars:{settings.patch.preview_chars} max_files:{settings.patch.max_files}",
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
-            f"renderer=strategy:{settings.renderer.strategy} style:{settings.renderer.style} edit_interval:{settings.renderer.edit_interval}",
+            f"renderer=strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval}",
+            f"display.tool_progress={display.get('tool_progress', '<unset>')}",
+            f"display.show_reasoning={display.get('show_reasoning', '<unset>')}",
             f"monkeypatch={monkeypatch_active}",
         ]
-        if _builtin_reasoning_conflict(_load_runtime_config()):
+        if args == "doctor":
+            if display.get("tool_progress") != "off":
+                lines.append("warning: display.tool_progress is not off; progress may duplicate")
+            if _builtin_reasoning_conflict(runtime_config):
+                lines.append(_reasoning_conflict_warning())
+            for sid, ctx in renderer.sessions.items():
+                label = ctx.session_key or sid
+                lines.append(
+                    f"session {label}: strategy={ctx.strategy} disabled={ctx.disabled} events={ctx.total_events}"
+                )
+                if ctx.downgrade_reason:
+                    lines.append(f"session {label}: downgraded={redact_text(ctx.downgrade_reason)}")
+                if ctx.last_error:
+                    lines.append(f"session {label}: last_error={redact_text(ctx.last_error)}")
+        elif _builtin_reasoning_conflict(runtime_config):
             lines.append(_reasoning_conflict_warning())
         return "\n".join(lines)
-    if args == "test":
-        return "hermes-progress-tail is loaded. Send a normal request with tool calls/reasoning to test live rendering."
-    return "Usage: /progresstail status | test"
+    if args in {"test", "demo", "demo plain", "demo failed"}:
+        plain = args == "demo plain"
+        failed = args == "demo failed"
+        style_prefix = "" if plain else "📋 "
+        tools_header = "Tools" if plain else "🧰 Tools"
+        failed_line = (
+            "terminal: pytest · failed · 2.1s" if failed else "terminal: pytest · done · 2.1s"
+        )
+        return "\n".join(
+            [
+                f"{style_prefix}Todo [22:41]",
+                "in progress (1): polish progress tail",
+                "pending (2): run tests, review diff",
+                "done (1): inspect renderer",
+                "",
+                tools_header,
+                "[22:41] patch: renderer.py replace status labels",
+                f"[22:42] {failed_line}",
+                "[22:43] terminal: git diff --check",
+            ]
+        )
+    return "Usage: /progresstail status | doctor | demo [plain|failed]"
 
 
 def register(ctx):
@@ -322,5 +420,5 @@ def register(ctx):
         "progresstail",
         _command,
         description="Show hermes-progress-tail plugin status",
-        args_hint="status|test",
+        args_hint="status|doctor|demo",
     )

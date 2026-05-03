@@ -23,6 +23,7 @@ class ToolSettings:
     lines: int = 3
     preview_length: int = 120
     show_completed: bool = False
+    show_duration: bool = True
     timestamp: bool = True
     timestamp_format: str = "%H:%M"
 
@@ -72,6 +73,7 @@ class RendererSettings:
     redact_secrets: bool = True
     mode: str = "sectioned"
     style: Literal["emoji", "plain"] = "emoji"
+    density: Literal["compact", "normal", "debug"] = "normal"
 
 
 @dataclass(frozen=True)
@@ -142,6 +144,7 @@ def _legacy_to_progress_tail(section: dict[str, Any]) -> dict[str, Any]:
             "lines": defaults.get("lines", 3),
             "preview_length": defaults.get("preview_length", 120),
             "show_completed": defaults.get("show_completed", False),
+            "show_duration": defaults.get("show_duration", True),
             "timestamp": defaults.get("timestamp", True),
             "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
         },
@@ -193,6 +196,11 @@ def _style(value: Any, default: str = "emoji") -> Literal["emoji", "plain"]:
     return "plain" if val == "plain" else "emoji"
 
 
+def _density(value: Any, default: str = "normal") -> Literal["compact", "normal", "debug"]:
+    val = str(value or default).strip().lower()
+    return val if val in {"compact", "normal", "debug"} else "normal"
+
+
 def _patch_detail(value: Any, default: str = "smart") -> str:
     val = str(value or default).strip().lower()
     return val if val in {"off", "path", "smart", "stats"} else default
@@ -214,6 +222,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         lines=_int(tools_raw.get("lines"), 3),
         preview_length=_int(tools_raw.get("preview_length"), 120),
         show_completed=_bool(tools_raw.get("show_completed"), False),
+        show_duration=_bool(tools_raw.get("show_duration"), True),
         timestamp=_bool(tools_raw.get("timestamp"), True),
         timestamp_format=str(tools_raw.get("timestamp_format") or "%H:%M"),
     )
@@ -245,6 +254,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         redact_secrets=_bool(renderer_raw.get("redact_secrets"), True),
         mode=str(renderer_raw.get("mode") or "sectioned").strip().lower() or "sectioned",
         style=_style(renderer_raw.get("style"), "emoji"),
+        density=_density(renderer_raw.get("density"), "normal"),
     )
     no_edit = NoEditSettings(
         interval_seconds=_int(no_edit_raw.get("interval_seconds"), 30),

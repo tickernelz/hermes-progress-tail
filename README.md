@@ -20,19 +20,19 @@ Compact Hermes gateway plugin for live progress tails.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.2/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.3/install.sh | bash
 ```
 
 Dry-run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.2/install.sh | env HPT_DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.3/install.sh | env HPT_DRY_RUN=1 bash
 ```
 
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.2/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.3/uninstall.sh | bash
 ```
 
 Local install:
@@ -63,6 +63,8 @@ progress_tail:
   tools:
     enabled: true
     lines: 3
+    show_completed: false
+    show_duration: true
     timestamp: true
     timestamp_format: "%H:%M"
   todo:
@@ -74,6 +76,7 @@ progress_tail:
     max_files: 3
   renderer:
     style: emoji # emoji|plain
+    density: normal # compact|normal|debug
   reasoning:
     enabled: true
     max_lines: 3
@@ -84,7 +87,10 @@ progress_tail:
 
 ```text
 /progresstail status
-/progresstail test
+/progresstail doctor
+/progresstail demo
+/progresstail demo plain
+/progresstail demo failed
 ```
 
 ## Development

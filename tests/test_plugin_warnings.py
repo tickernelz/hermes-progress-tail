@@ -27,12 +27,14 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
 
     status = plugin._command("status")
 
-    assert "hermes-progress-tail 0.1.2" in status
+    assert "hermes-progress-tail 0.1.3" in status
     assert "tools=enabled" in status
+    assert "completed=False" in status
+    assert "duration=True" in status
     assert "todo=sticky:True hide_tool_line:True" in status
     assert "patch=detail:smart preview_chars:48 max_files:3" in status
-    assert "renderer=strategy:auto style:emoji" in status
-    assert "display.show_reasoning=true" in status
+    assert "renderer=strategy:auto style:emoji density:normal" in status
+    assert "display.show_reasoning=True" in status
 
 
 def test_register_logs_warning_once_for_reasoning_conflict(monkeypatch, caplog):
@@ -51,3 +53,44 @@ def test_register_logs_warning_once_for_reasoning_conflict(monkeypatch, caplog):
     assert any("display.show_reasoning=true" in record.message for record in caplog.records)
     assert len(ctx.hooks) == 6
     assert ctx.commands[0][0] == "progresstail"
+
+
+def test_doctor_reports_display_warning_and_session_errors(monkeypatch):
+    plugin._renderer = None
+    config = {
+        "plugins": {"enabled": ["hermes-progress-tail"]},
+        "display": {"tool_progress": "all", "show_reasoning": False},
+        "progress_tail": {"enabled": True},
+    }
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
+    renderer = plugin._get_renderer()
+
+    class Adapter:
+        async def send(self, *args, **kwargs):
+            return None
+
+    from hermes_progress_tail.state import SessionContext
+
+    ctx = SessionContext("s1", "key", "discord", "chat", None, Adapter(), None, "snapshot")
+    ctx.downgrade_reason = "edit not supported"
+    ctx.last_error = "edit not supported"
+    renderer.register_context(ctx)
+
+    doctor = plugin._command("doctor")
+
+    assert "warning: display.tool_progress is not off" in doctor
+    assert "session key: strategy=snapshot" in doctor
+    assert "downgraded=edit not supported" in doctor
+
+
+def test_demo_commands_return_sample_progress(monkeypatch):
+    plugin._renderer = None
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: {})
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings({}))
+
+    demo = plugin._command("demo failed")
+
+    assert "Todo [22:41]" in demo
+    assert "terminal: pytest · failed · 2.1s" in demo
+    assert "git diff --check" in demo

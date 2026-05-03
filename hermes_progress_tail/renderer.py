@@ -30,12 +30,16 @@ class ProgressRenderer:
         if existing is not None:
             ctx.message_id = existing.message_id
             ctx.tool_lines = existing.tool_lines
+            ctx.active_tool_lines = existing.active_tool_lines
             ctx.todo_items = existing.todo_items
             ctx.todo_updated_at = existing.todo_updated_at
             ctx.reasoning_text = existing.reasoning_text
             ctx.reasoning_pending_chars = existing.reasoning_pending_chars
             ctx.total_events = existing.total_events
             ctx.snapshots_sent = existing.snapshots_sent
+            ctx.last_error = existing.last_error
+            ctx.downgrade_reason = existing.downgrade_reason
+            ctx.downgrade_at = existing.downgrade_at
             ctx.last_render_at = existing.last_render_at
             ctx.new_events_since_snapshot = existing.new_events_since_snapshot
             ctx.lock = existing.lock
@@ -96,7 +100,22 @@ class ProgressRenderer:
                     if self.settings.todo.hide_tool_line:
                         await self._render_for_strategy(ctx, event, force=force)
                         return
-                ctx.tool_lines.append(self._format_tool_line(ctx, event))
+                line = self._format_tool_line(ctx, event)
+                if event.replace_existing and event.tool_call_id:
+                    previous = ctx.active_tool_lines.get(event.tool_call_id)
+                    if previous in ctx.tool_lines:
+                        items = list(ctx.tool_lines)
+                        items[items.index(previous)] = line
+                        ctx.tool_lines.clear()
+                        ctx.tool_lines.extend(items)
+                    else:
+                        ctx.tool_lines.append(line)
+                    ctx.active_tool_lines[event.tool_call_id] = line
+                    force = True
+                else:
+                    ctx.tool_lines.append(line)
+                    if event.tool_call_id:
+                        ctx.active_tool_lines[event.tool_call_id] = line
             else:
                 pending = self._append_reasoning(ctx, event.text)
                 if (
@@ -168,12 +187,24 @@ class ProgressRenderer:
             parts.append(todo)
         if ctx.tool_lines:
             parts.append(self._section("Tools", "🧰", "\n".join(ctx.tool_lines)))
+        if self.settings.renderer.density == "debug":
+            debug = self._debug_section(ctx)
+            if debug:
+                parts.append(debug)
         content = "\n\n".join(parts)
         return redact_text(content) if self.settings.renderer.redact_secrets else content
 
     def _section(self, title: str, emoji: str, body: str) -> str:
         header = f"{emoji} {title}" if self.settings.renderer.style == "emoji" else title
         return header + "\n" + body
+
+    def _debug_section(self, ctx: SessionContext) -> str:
+        lines = [f"strategy={ctx.strategy}", f"events={ctx.total_events}"]
+        if ctx.downgrade_reason:
+            lines.append(f"downgrade={ctx.downgrade_reason}")
+        if ctx.last_error:
+            lines.append(f"last_error={ctx.last_error}")
+        return self._section("Debug", "🛠️", "\n".join(lines))
 
     def _format_tool_line(self, ctx: SessionContext, event: ToolEvent) -> str:
         timestamp_enabled = (
@@ -194,9 +225,33 @@ class ProgressRenderer:
         timestamp_format = ctx.timestamp_format or self.settings.tools.timestamp_format
         timestamp = self._timestamp(ctx.todo_updated_at, timestamp_format)
         title = f"Todo [{timestamp}]" if timestamp_enabled else "Todo"
+        if self.settings.renderer.density == "compact":
+            return self._todo_compact(ctx.todo_items, title)
         header = f"📋 {title}" if self.settings.renderer.style == "emoji" else title
         lines = self._todo_lines(ctx.todo_items)
         return header + "\n" + "\n".join(lines)
+
+    def _todo_compact(self, items: tuple[TodoItem, ...], title: str) -> str:
+        counts = {"in_progress": 0, "pending": 0, "completed": 0, "cancelled": 0}
+        current = ""
+        for item in items:
+            if item.status in counts:
+                counts[item.status] += 1
+            if item.status == "in_progress" and not current:
+                current = item.content
+        parts = []
+        if current:
+            parts.append("active: " + _truncate_local(current, self.settings.todo.max_item_chars))
+        for status, label in (
+            ("pending", "pending"),
+            ("completed", "done"),
+            ("cancelled", "cancelled"),
+        ):
+            if counts[status]:
+                parts.append(f"{counts[status]} {label}")
+        body = " · ".join(parts) or "no tasks"
+        prefix = "📋 " if self.settings.renderer.style == "emoji" else ""
+        return f"{prefix}{title}: {body}"
 
     @staticmethod
     def _timestamp(value: float, fmt: str) -> str:
@@ -239,6 +294,7 @@ class ProgressRenderer:
     def _reset_turn(ctx: SessionContext) -> None:
         ctx.message_id = None
         ctx.tool_lines.clear()
+        ctx.active_tool_lines.clear()
         ctx.todo_items = ()
         ctx.todo_updated_at = 0.0
         ctx.reasoning_text = ""
@@ -283,14 +339,19 @@ class ProgressRenderer:
                 )
             except Exception as exc:
                 logger.debug("hermes-progress-tail edit failed: %s", exc)
+                ctx.last_error = str(exc)
                 result = _Result(False, ctx.message_id, str(exc))
             if getattr(result, "success", False):
                 ctx.reasoning_pending_chars = 0
                 ctx.last_render_at = time.monotonic()
                 return
             if self._is_unsupported_edit(getattr(result, "error", "")):
+                error = str(getattr(result, "error", "") or "edit failed")
                 ctx.strategy = "snapshot"
                 ctx.can_edit = False
+                ctx.downgrade_reason = error
+                ctx.downgrade_at = time.time()
+                ctx.last_error = error
                 await self._render_snapshot(ctx, force=True)
                 return
             ctx.can_edit = False
@@ -298,6 +359,7 @@ class ProgressRenderer:
             result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
         except Exception as exc:
             logger.debug("hermes-progress-tail send failed: %s", exc)
+            ctx.last_error = str(exc)
             ctx.disabled = True
             return
         if getattr(result, "success", False):
@@ -305,6 +367,7 @@ class ProgressRenderer:
             ctx.reasoning_pending_chars = 0
             ctx.last_render_at = time.monotonic()
         else:
+            ctx.last_error = str(getattr(result, "error", "send failed") or "send failed")
             ctx.disabled = True
 
     async def _render_snapshot(
@@ -333,6 +396,7 @@ class ProgressRenderer:
             result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
         except Exception as exc:
             logger.debug("hermes-progress-tail snapshot send failed: %s", exc)
+            ctx.last_error = str(exc)
             ctx.disabled = True
             return
         if getattr(result, "success", False):
@@ -341,6 +405,9 @@ class ProgressRenderer:
             ctx.reasoning_pending_chars = 0
             ctx.last_render_at = time.monotonic()
         else:
+            ctx.last_error = str(
+                getattr(result, "error", "snapshot send failed") or "snapshot send failed"
+            )
             ctx.disabled = True
 
     @staticmethod

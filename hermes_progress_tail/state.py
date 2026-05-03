@@ -33,6 +33,7 @@ class SessionContext:
     can_edit: bool = True
     disabled: bool = False
     tool_lines: deque[str] = field(default_factory=lambda: deque(maxlen=3))
+    active_tool_lines: dict[str, str] = field(default_factory=dict)
     todo_items: tuple[TodoItem, ...] = ()
     todo_updated_at: float = 0.0
     reasoning_text: str = ""
@@ -42,6 +43,9 @@ class SessionContext:
     new_events_since_snapshot: int = 0
     snapshots_sent: int = 0
     total_events: int = 0
+    last_error: str = ""
+    downgrade_reason: str = ""
+    downgrade_at: float = 0.0
     tools_enabled: bool = True
     reasoning_enabled: bool = True
     timestamp: bool | None = None
@@ -75,6 +79,7 @@ class ToolEvent:
     line: str
     tool_call_id: str = ""
     tool_name: str = ""
+    replace_existing: bool = False
     todo_items: tuple[TodoItem, ...] = ()
     created_at: float = field(default_factory=time.time)
     kind: Literal["tool"] = "tool"

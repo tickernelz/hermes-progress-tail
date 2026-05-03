@@ -345,3 +345,139 @@ def test_parallel_sessions_do_not_cross_edit():
         assert adapter2.sent[0][1] == "🧰 Tools\ntwo"
 
     asyncio.run(run())
+
+
+def test_tool_completion_updates_existing_line_when_tool_call_id_matches():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {"progress_tail": {"tools": {"timestamp": False, "show_completed": True}}}
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "discord", "terminal: pytest · running", tool_call_id="call-1"),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "discord",
+                "✅ terminal: pytest · done · 2.1s",
+                tool_call_id="call-1",
+                replace_existing=True,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "terminal: pytest · running" not in content
+        assert "✅ terminal: pytest · done · 2.1s" in content
+
+    asyncio.run(run())
+
+
+def test_renderer_compact_density_and_debug_downgrade_visibility():
+    async def run():
+        adapter = FailingEditAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"density": "debug"},
+                        "no_edit": {"min_new_events": 1},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "one"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "two"), force=True)
+
+        assert renderer.sessions["s1"].downgrade_reason == "edit not supported"
+        assert "downgrade=edit not supported" in adapter.sent[-1][1]
+        assert "🛠️ Debug" in adapter.sent[-1][1]
+
+    asyncio.run(run())
+
+
+def test_compact_density_renders_one_line_todo():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"density": "compact"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        todo_args = {
+            "todos": [
+                {"content": "polish doctor", "status": "in_progress"},
+                {"content": "run tests", "status": "pending"},
+            ]
+        }
+
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "discord",
+                format_tool_line("todo", todo_args),
+                tool_name="todo",
+                todo_items=extract_todo_items(todo_args),
+            ),
+            force=True,
+        )
+
+        assert adapter.sent[0][1] == "📋 Todo: active: polish doctor · 1 pending"
+
+    asyncio.run(run())
+
+
+def test_completion_replacement_bypasses_live_tail_throttle():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False, "show_completed": True},
+                        "renderer": {"edit_interval": 999},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "discord", "terminal: pytest · running", tool_call_id="call-1")
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "discord",
+                "✅ terminal: pytest · done · 2.1s",
+                tool_call_id="call-1",
+                replace_existing=True,
+            )
+        )
+
+        assert adapter.sent[0][1] == "🧰 Tools\nterminal: pytest · running"
+        assert adapter.edits[-1][2] == "🧰 Tools\n✅ terminal: pytest · done · 2.1s"
+
+    asyncio.run(run())

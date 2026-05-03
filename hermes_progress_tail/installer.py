@@ -21,6 +21,7 @@ DEFAULT_CONFIG = {
         "lines": 3,
         "preview_length": 120,
         "show_completed": False,
+        "show_duration": True,
         "timestamp": True,
         "timestamp_format": "%H:%M",
     },
@@ -52,6 +53,7 @@ DEFAULT_CONFIG = {
         "redact_secrets": True,
         "mode": "sectioned",
         "style": "emoji",
+        "density": "normal",
     },
     "no_edit": {
         "interval_seconds": 30,
@@ -119,6 +121,7 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
                 "lines": defaults.get("lines", 3),
                 "preview_length": defaults.get("preview_length", 120),
                 "show_completed": defaults.get("show_completed", False),
+                "show_duration": defaults.get("show_duration", True),
                 "timestamp": defaults.get("timestamp", True),
                 "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
             },

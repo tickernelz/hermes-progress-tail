@@ -42,6 +42,24 @@ def test_formats_search_terminal_and_parallel():
         == "💻 terminal: npm run build · cwd project"
     )
     assert (
+        format_tool_line("terminal", {"command": "python3 - <<'PY'\nprint('x')\nPY"})
+        == "💻 terminal: python inline script · 3 lines"
+    )
+    assert (
+        format_tool_line("terminal", {"command": "npm run build >/tmp/build.log 2>&1; echo ok"})
+        == "💻 terminal: npm run build"
+    )
+    assert (
+        format_tool_line("terminal", {"command": "cat /home/alice/.ssh/id_rsa"})
+        == "💻 terminal: cat .ssh/id_rsa"
+    )
+    assert (
+        format_tool_line(
+            "terminal", {"command": "cat /home/alice/.ssh/id_rsa >/home/alice/out.txt"}
+        )
+        == "💻 terminal: cat .ssh/id_rsa >alice/out.txt"
+    )
+    assert (
         format_tool_line("search_files", {"pattern": "tool_progress", "path": "gateway"})
         == '🔎 search_files: "tool_progress" in gateway'
     )
@@ -156,4 +174,36 @@ def test_patch_preview_redacts_secrets():
 
     assert "sk-oldsecret" not in line
     assert "sk-newsecret" not in line
+    assert "[redacted_env]" in line
+
+
+def test_formats_project_paths_without_home_prefix(monkeypatch, tmp_path):
+    project = tmp_path / "Projects" / "tail"
+    project.mkdir(parents=True)
+    monkeypatch.chdir(project)
+
+    assert (
+        format_tool_line(
+            "read_file",
+            {"path": str(project / "src" / "fmt.py"), "offset": 4, "limit": 8},
+        )
+        == "📖 read_file: src/fmt.py:4+8"
+    )
+    assert (
+        format_tool_line(
+            "search_files", {"pattern": "progress_tail", "path": str(project / "tests")}
+        )
+        == '🔎 search_files: "progress_tail" in tests'
+    )
+
+
+def test_project_relative_paths_still_redact_secret_like_components(monkeypatch, tmp_path):
+    project = tmp_path / "Projects" / "tail"
+    secret_dir = project / "API_KEY=supersecret1234567890"
+    secret_dir.mkdir(parents=True)
+    monkeypatch.chdir(project)
+
+    line = format_tool_line("read_file", {"path": str(secret_dir / "file.py")}, preview_length=120)
+
+    assert "supersecret" not in line
     assert "[redacted_env]" in line
