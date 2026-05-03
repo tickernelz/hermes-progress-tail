@@ -1,0 +1,41 @@
+[project]
+name = "hermes-progress-tail"
+version = "0.1.0"
+description = "Compact tool and reasoning progress tail for Hermes gateway platforms"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6"]
+
+[project.optional-dependencies]
+dev = [
+  "pre-commit>=4.3.0",
+  "pytest>=8",
+  "ruff>=0.15.12",
+]
+
+[project.scripts]
+hermes-progress-tail = "hermes_progress_tail.installer:main"
+hermes_progress_tail = "hermes_progress_tail.installer:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+  "E501",
+  "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
