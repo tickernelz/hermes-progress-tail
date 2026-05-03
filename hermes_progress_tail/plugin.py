@@ -16,7 +16,7 @@ from .state import ReasoningEvent, SessionContext, ToolEvent
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 
 def _load_runtime_config() -> dict[str, Any]:
