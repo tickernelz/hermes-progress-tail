@@ -16,6 +16,10 @@ dev = [
 hermes-progress-tail = "hermes_progress_tail.installer:main"
 hermes_progress_tail = "hermes_progress_tail.installer:main"
 
+[tool.setuptools.packages.find]
+include = ["hermes_progress_tail*"]
+exclude = ["assets*", "tests*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
