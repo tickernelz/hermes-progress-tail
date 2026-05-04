@@ -272,6 +272,67 @@ def test_gpt55_inline_adjacent_bold_heading_is_own_line_after_normalization():
     assert rendered == "**Implementing Tool Use**\nI need to implement carefully."
 
 
+def test_gpt55_inline_bold_heading_without_space_is_own_line_after_normalization():
+    text = (
+        "**Continuing implementation steps**\n\n"
+        "I need to keep going and ensure fields are correct for request types and statuses."
+        "**Reviewing cancellation status logic**\n"
+        "I'm examining the cancellation status."
+    )
+
+    normalized = normalize_reasoning_text(text)
+
+    assert "statuses.\n\n**Reviewing cancellation status logic**\n" in normalized
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
+    assert (
+        rendered
+        == "**Reviewing cancellation status logic**\nI'm examining the cancellation status."
+    )
+
+
+def test_gpt55_inline_bold_heading_with_following_body_without_newline_gets_clean_spacing():
+    text = (
+        "**Continuing implementation steps**\n\n"
+        "I should verify statuses.**Reviewing cancellation status logic**"
+        "I'm examining the cancellation status."
+    )
+
+    normalized = normalize_reasoning_text(text)
+
+    assert "statuses.\n\n**Reviewing cancellation status logic**\nI'm examining" in normalized
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
+    assert (
+        rendered
+        == "**Reviewing cancellation status logic**\nI'm examining the cancellation status."
+    )
+
+
+def test_gpt55_reasoning_tail_can_show_two_complete_heading_blocks_when_budget_allows():
+    text = (
+        "**Continuing implementation steps**\n\n"
+        "I need to keep going with the implementation."
+        "**Reviewing cancellation status logic**"
+        "I'm examining the cancellation status."
+    )
+
+    rendered = render_reasoning_tail(text, max_lines=4, max_chars=600, redact=False)
+
+    assert rendered == (
+        "**Continuing implementation steps**\n"
+        "I need to keep going with the implementation.\n\n"
+        "**Reviewing cancellation status logic**\n"
+        "I'm examining the cancellation status."
+    )
+
+
+def test_inline_bold_heading_normalization_preserves_sentence_after_non_heading_bold():
+    text = "Previous body. **This is very important.**Next sentence continues."
+
+    normalized = normalize_reasoning_text(text)
+
+    assert normalized == text
+
+
 def test_inline_bold_sentence_not_heading_does_not_drop_content():
     text = "I found a critical observation. **This is very important.**\nNow continue with implementation."
 

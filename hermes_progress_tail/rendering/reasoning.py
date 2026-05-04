@@ -10,7 +10,9 @@ _CODE_FENCE_RE = re.compile(r"^`{3,}")
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 _BOLD_HEADING_RE = re.compile(r"^(?:\*\*|__)(?P<title>[^*_\n][^\n]*?)(?:\*\*|__)\s*$")
 _INLINE_BOLD_HEADING_RE = re.compile(
-    r"(?P<prefix>[.!?])\s+(?P<heading>(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__))(?=\s*(?:\n|$))"
+    r"(?P<prefix>[.!?])\s*"
+    r"(?P<heading>(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__))"
+    r"[ \t]*(?=\n|$|[A-Z])"
 )
 _CHANNEL_ARTIFACT_RE = re.compile(
     r"<\|(?:channel\|>\s*analysis|start\|>|end\|>|message\|>|assistant\|>|analysis\|>)",
@@ -84,7 +86,13 @@ def render_reasoning_tail(
         return ""
     blocks = split_reasoning_blocks(normalized)
     if blocks:
-        rendered = _render_latest_block(blocks[-1], max_lines=max_lines)
+        headed_blocks = [block for block in blocks if block.heading]
+        if len(headed_blocks) >= 2:
+            rendered = _render_block_tail(headed_blocks, max_lines=max_lines)
+        else:
+            rendered = _render_latest_block(blocks[-1], max_lines=max_lines)
+        if max_chars > 0 and len(rendered) > max_chars and "\n\n" in rendered:
+            rendered = _render_latest_block(blocks[-1], max_lines=max_lines)
         rendered = _cap_chars(rendered, max_chars, preserve_first_line=bool(blocks[-1].heading))
     else:
         rendered = _render_paragraph_or_line_tail(normalized, max_lines=max_lines)
@@ -208,7 +216,33 @@ def _clean_heading(value: str) -> str:
     return value
 
 
+def _render_block_tail(blocks: list[ReasoningBlock], *, max_lines: int) -> str:
+    if not blocks:
+        return ""
+    selected: list[ReasoningBlock] = []
+    used_lines = 0
+    for block in reversed(blocks):
+        block_lines = _render_block_lines(block, max_lines=max_lines)
+        if not block_lines:
+            continue
+        line_count = len(block_lines)
+        if selected and used_lines + line_count > max_lines:
+            break
+        selected.append(block)
+        used_lines += line_count
+        if used_lines >= max_lines:
+            break
+    selected.reverse()
+    return "\n\n".join(
+        _render_latest_block(block, max_lines=max_lines) for block in selected
+    ).strip()
+
+
 def _render_latest_block(block: ReasoningBlock, *, max_lines: int) -> str:
+    return "\n".join(_render_block_lines(block, max_lines=max_lines)).strip()
+
+
+def _render_block_lines(block: ReasoningBlock, *, max_lines: int) -> list[str]:
     parts = []
     if block.heading:
         heading = block.heading
@@ -219,7 +253,7 @@ def _render_latest_block(block: ReasoningBlock, *, max_lines: int) -> str:
         body_lines = [line.strip() for line in block.body.splitlines() if line.strip()]
         body_budget = max(max_lines - len(parts), 1)
         parts.extend(body_lines[:body_budget])
-    return "\n".join(parts).strip()
+    return parts[:max_lines]
 
 
 def _render_paragraph_or_line_tail(text: str, *, max_lines: int) -> str:
