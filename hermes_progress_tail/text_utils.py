@@ -2,6 +2,6 @@ from __future__ import annotations
 
 import sys
 
-from .settings import config as _module
+from .utils import text as _module
 
 sys.modules[__name__] = _module

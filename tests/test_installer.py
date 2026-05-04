@@ -6,6 +6,8 @@ import yaml
 from hermes_progress_tail.installer import (
     DEFAULT_CONFIG,
     _builtin_reasoning_conflict,
+    _default_source_dir,
+    _generated_plugin_yaml,
     install,
     install_many,
     uninstall,
@@ -201,6 +203,55 @@ def test_install_many_all_profiles_includes_default(tmp_path):
     assert (
         hermes_home / "profiles" / "worker" / "plugins" / "hermes-progress-tail" / "plugin.yaml"
     ).exists()
+
+
+def test_default_source_dir_resolves_plugin_root_after_package_restructure():
+    source_dir = _default_source_dir()
+
+    assert (source_dir / "plugin.yaml").exists()
+    assert (source_dir / "hermes_progress_tail" / "__init__.py").exists()
+
+
+def test_module_cli_default_source_dir_installs_valid_plugin_layout(tmp_path):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text("{}\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "hermes_progress_tail.installer",
+            "install",
+            "--hermes-home",
+            str(hermes_home),
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    plugin_dir = hermes_home / "plugins" / "hermes-progress-tail"
+    assert "Updated plugin" in result.stdout or "Installed plugin" in result.stdout
+    assert (plugin_dir / "plugin.yaml").exists()
+    assert (plugin_dir / "hermes_progress_tail" / "__init__.py").exists()
+
+
+def test_package_source_install_generates_plugin_yaml(tmp_path):
+    package_source = tmp_path / "hermes_progress_tail"
+    (package_source / "runtime").mkdir(parents=True)
+    (package_source / "rendering").mkdir()
+    (package_source / "__init__.py").write_text("", encoding="utf-8")
+    (package_source / "runtime" / "plugin.py").write_text("", encoding="utf-8")
+    (package_source / "rendering" / "renderer.py").write_text("", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text("{}\n", encoding="utf-8")
+
+    install(hermes_home, package_source, dry_run=False)
+
+    plugin_yaml = hermes_home / "plugins" / "hermes-progress-tail" / "plugin.yaml"
+    assert plugin_yaml.read_text(encoding="utf-8") == _generated_plugin_yaml()
 
 
 def test_interactive_cli_selects_profiles_and_features(tmp_path):

@@ -1,6 +1,7 @@
 import asyncio
 
 from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.delegate_renderer import DelegateProgressRenderer
 from hermes_progress_tail.formatter import extract_todo_items, format_tool_line
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import DelegateEvent, SessionContext, ToolEvent
@@ -1215,9 +1216,12 @@ def test_delegate_cwd_home_relative_paths_are_cross_platform(monkeypatch):
     monkeypatch.setenv("HOME", "/Users/alice")
     monkeypatch.setenv("USERPROFILE", r"C:\\Users\\Alice")
 
-    assert ProgressRenderer._delegate_cwd("/Users/alice/projects/app") == "~/projects/app"
-    assert ProgressRenderer._delegate_cwd(r"C:\\Users\\Alice\\projects\\app") == "~/projects/app"
-    assert ProgressRenderer._delegate_cwd("/opt/app") == "/opt/app"
+    assert DelegateProgressRenderer._delegate_cwd("/Users/alice/projects/app") == "~/projects/app"
+    assert (
+        DelegateProgressRenderer._delegate_cwd(r"C:\\Users\\Alice\\projects\\app")
+        == "~/projects/app"
+    )
+    assert DelegateProgressRenderer._delegate_cwd("/opt/app") == "/opt/app"
 
 
 def test_delegate_compact_density_active_tool_renders_text_not_internal_repr():
