@@ -16,6 +16,10 @@ def test_load_settings_defaults():
     assert settings.patch.preview_chars == 48
     assert settings.patch.max_files == 3
     assert settings.tools.show_duration is True
+    assert settings.delegates.enabled is True
+    assert settings.delegates.max_delegates == 4
+    assert settings.delegates.lines_per_delegate == 2
+    assert settings.delegates.thinking == "off"
     assert settings.renderer.style == "emoji"
     assert settings.renderer.density == "normal"
 
@@ -25,7 +29,15 @@ def test_resolve_platform_override():
         {
             "progress_tail": {
                 "tools": {"lines": 4, "preview_length": 90, "timestamp": False},
-                "platforms": {"discord": {"enabled": True, "strategy": "live_tail", "lines": 2}},
+                "delegates": {"max_delegates": 2, "lines_per_delegate": 1},
+                "platforms": {
+                    "discord": {
+                        "enabled": True,
+                        "strategy": "live_tail",
+                        "lines": 2,
+                        "delegates": False,
+                    }
+                },
             }
         }
     )
@@ -37,6 +49,9 @@ def test_resolve_platform_override():
     assert platform.lines == 2
     assert platform.preview_length == 90
     assert platform.timestamp is False
+    assert platform.delegates_enabled is False
+    assert settings.delegates.max_delegates == 2
+    assert settings.delegates.lines_per_delegate == 1
 
 
 def test_invalid_values_fall_back_safely():

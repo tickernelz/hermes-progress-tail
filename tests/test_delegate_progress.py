@@ -1,0 +1,194 @@
+import asyncio
+from types import SimpleNamespace
+
+import hermes_progress_tail.plugin as plugin
+from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.monkeypatches import (
+    install_delegate_monkeypatches,
+    uninstall_delegate_monkeypatches,
+)
+from hermes_progress_tail.plugin import _on_pre_gateway_dispatch
+
+
+class Result:
+    def __init__(self, success=True, message_id=None, error=""):
+        self.success = success
+        self.message_id = message_id
+        self.error = error
+
+
+class EditableAdapter:
+    name = "editable"
+
+    def __init__(self):
+        self.sent = []
+        self.edits = []
+        self.next_id = 1
+
+    async def send(self, chat_id, content, metadata=None):
+        message_id = f"m{self.next_id}"
+        self.next_id += 1
+        self.sent.append((chat_id, content, metadata))
+        return Result(True, message_id)
+
+    async def edit_message(self, chat_id, message_id, content):
+        self.edits.append((chat_id, message_id, content))
+        return Result(True, message_id)
+
+
+class Source:
+    platform = type("P", (), {"value": "discord"})()
+    chat_id = "chat"
+    thread_id = "thread"
+    user_id = "user"
+    chat_type = "group"
+
+
+class Event:
+    source = Source()
+
+
+class SessionEntry:
+    session_id = "session-1"
+    session_key = "key-1"
+
+
+class SessionStore:
+    def get_or_create_session(self, source):
+        return SessionEntry()
+
+
+class Gateway:
+    def __init__(self, adapter):
+        self.adapters = {Source.platform: adapter}
+        self.config = type(
+            "Config", (), {"group_sessions_per_user": True, "thread_sessions_per_user": False}
+        )()
+
+
+class ParentAgent:
+    session_id = "session-1"
+    gateway_session_key = "key-1"
+    _delegate_spinner = None
+    tool_progress_callback = None
+
+
+def test_delegate_monkeypatch_renders_even_when_builtin_progress_callback_is_none(monkeypatch):
+    async def run():
+        adapter = EditableAdapter()
+        plugin._renderer = None
+        monkeypatch.setattr(
+            plugin,
+            "_load_runtime_settings",
+            lambda: load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "delegates": {"lines_per_delegate": 2},
+                    }
+                }
+            ),
+        )
+        _on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
+
+        calls = []
+
+        def original_builder(*args, **kwargs):
+            _ = args, kwargs
+            return None
+
+        delegate_module = SimpleNamespace(_build_child_progress_callback=original_builder)
+        uninstall_delegate_monkeypatches(delegate_module)
+        assert install_delegate_monkeypatches(delegate_module) is True
+
+        cb = delegate_module._build_child_progress_callback(
+            0, "review delegate path", ParentAgent(), 1
+        )
+        cb(
+            "subagent.tool",
+            "terminal",
+            "pytest tests/test_delegate_progress.py",
+            {"command": "pytest"},
+            subagent_id="sa-1",
+            task_index=0,
+            task_count=1,
+            goal="review delegate path",
+            tool_count=1,
+        )
+        await asyncio.sleep(0.05)
+
+        assert adapter.sent
+        assert "🔀 Delegates" in adapter.sent[0][1]
+        assert "terminal: pytest tests/test_delegate_progress.py" in adapter.sent[0][1]
+        assert calls == []
+        uninstall_delegate_monkeypatches(delegate_module)
+
+    asyncio.run(run())
+
+
+def test_delegate_monkeypatch_preserves_original_callback_and_flush(monkeypatch):
+    async def run():
+        adapter = EditableAdapter()
+        plugin._renderer = None
+        monkeypatch.setattr(
+            plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
+        )
+        _on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
+
+        calls = []
+        flushes = []
+
+        def original_builder(*args, **kwargs):
+            _ = args, kwargs
+
+            def original_cb(event_type, tool_name=None, preview=None, cb_args=None, **event_kwargs):
+                calls.append((event_type, tool_name, preview, cb_args, event_kwargs))
+
+            original_cb._flush = lambda: flushes.append("flushed")
+            return original_cb
+
+        delegate_module = SimpleNamespace(_build_child_progress_callback=original_builder)
+        uninstall_delegate_monkeypatches(delegate_module)
+        assert install_delegate_monkeypatches(delegate_module) is True
+
+        cb = delegate_module._build_child_progress_callback(
+            task_index=1,
+            goal="implement delegate UI",
+            parent_agent=ParentAgent(),
+            task_count=2,
+        )
+        assert hasattr(cb, "_flush")
+        cb(
+            "subagent.start",
+            preview="implement delegate UI",
+            subagent_id="sa-2",
+            task_count=2,
+        )
+        cb._flush()
+        await asyncio.sleep(0.05)
+
+        assert calls[0][0] == "subagent.start"
+        assert flushes == ["flushed"]
+        assert adapter.sent
+        assert "[2/2] running · implement delegate UI" in adapter.sent[0][1]
+        uninstall_delegate_monkeypatches(delegate_module)
+
+    asyncio.run(run())
+
+
+def test_delegate_monkeypatch_is_idempotent_and_uninstall_restores_original():
+    def original_builder():
+        return "original"
+
+    delegate_module = SimpleNamespace(_build_child_progress_callback=original_builder)
+    uninstall_delegate_monkeypatches(delegate_module)
+
+    assert install_delegate_monkeypatches(delegate_module) is True
+    patched_once = delegate_module._build_child_progress_callback
+    assert install_delegate_monkeypatches(delegate_module) is True
+    assert delegate_module._build_child_progress_callback is patched_once
+
+    assert uninstall_delegate_monkeypatches(delegate_module) is True
+    assert delegate_module._build_child_progress_callback is original_builder

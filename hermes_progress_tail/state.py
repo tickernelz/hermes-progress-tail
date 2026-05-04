@@ -16,6 +16,27 @@ class TodoItem:
 
 
 @dataclass
+class DelegateBranch:
+    subagent_id: str
+    task_index: int = 0
+    task_count: int = 1
+    goal: str = ""
+    status: str = "pending"
+    model: str = ""
+    tool_count: int = 0
+    started_at: float = 0.0
+    updated_at: float = field(default_factory=time.time)
+    completed_at: float = 0.0
+    duration_seconds: float = 0.0
+    lines: deque[str] = field(default_factory=lambda: deque(maxlen=2))
+
+    def resize(self, lines_per_delegate: int) -> None:
+        if self.lines.maxlen == lines_per_delegate:
+            return
+        self.lines = deque(list(self.lines)[-lines_per_delegate:], maxlen=lines_per_delegate)
+
+
+@dataclass
 class SessionContext:
     session_id: str
     session_key: str
@@ -34,6 +55,8 @@ class SessionContext:
     disabled: bool = False
     tool_lines: deque[str] = field(default_factory=lambda: deque(maxlen=3))
     active_tool_lines: dict[str, str] = field(default_factory=dict)
+    delegate_branches: dict[str, DelegateBranch] = field(default_factory=dict)
+    delegate_order: deque[str] = field(default_factory=deque)
     todo_items: tuple[TodoItem, ...] = ()
     todo_updated_at: float = 0.0
     reasoning_text: str = ""
@@ -48,6 +71,7 @@ class SessionContext:
     downgrade_at: float = 0.0
     tools_enabled: bool = True
     reasoning_enabled: bool = True
+    delegates_enabled: bool = True
     timestamp: bool | None = None
     timestamp_format: str = ""
     lock: Any = field(default_factory=asyncio.Lock)
@@ -86,6 +110,27 @@ class ToolEvent:
 
 
 @dataclass(frozen=True)
+class DelegateEvent:
+    session_id: str
+    session_key: str
+    platform: str
+    subagent_id: str
+    task_index: int = 0
+    task_count: int = 1
+    goal: str = ""
+    event_type: str = "subagent.tool"
+    tool_name: str = ""
+    preview: str = ""
+    status: str = ""
+    model: str = ""
+    tool_count: int = 0
+    duration_seconds: float = 0.0
+    summary: str = ""
+    created_at: float = field(default_factory=time.time)
+    kind: Literal["delegate"] = "delegate"
+
+
+@dataclass(frozen=True)
 class ReasoningEvent:
     session_id: str
     session_key: str
@@ -95,4 +140,4 @@ class ReasoningEvent:
     kind: Literal["reasoning"] = "reasoning"
 
 
-ProgressEvent = ToolEvent | ReasoningEvent
+ProgressEvent = ToolEvent | DelegateEvent | ReasoningEvent

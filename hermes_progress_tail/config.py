@@ -29,6 +29,19 @@ class ToolSettings:
 
 
 @dataclass(frozen=True)
+class DelegateSettings:
+    enabled: bool = True
+    max_delegates: int = 4
+    lines_per_delegate: int = 2
+    max_goal_chars: int = 48
+    max_line_chars: int = 120
+    show_model: bool = False
+    show_tool_count: bool = True
+    show_completion: bool = True
+    thinking: Literal["off", "summary"] = "off"
+
+
+@dataclass(frozen=True)
 class TodoSettings:
     sticky: bool = True
     hide_tool_line: bool = True
@@ -96,6 +109,7 @@ class PlatformSettings:
     show_completed: bool = False
     tools_enabled: bool = True
     reasoning_enabled: bool = True
+    delegates_enabled: bool = True
     timestamp: bool = True
     timestamp_format: str = "%H:%M"
 
@@ -104,6 +118,7 @@ class PlatformSettings:
 class Settings:
     enabled: bool = True
     tools: ToolSettings = ToolSettings()
+    delegates: DelegateSettings = DelegateSettings()
     todo: TodoSettings = TodoSettings()
     patch: PatchSettings = PatchSettings()
     reasoning: ReasoningSettings = ReasoningSettings()
@@ -148,6 +163,7 @@ def _legacy_to_progress_tail(section: dict[str, Any]) -> dict[str, Any]:
             "timestamp": defaults.get("timestamp", True),
             "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
         },
+        "delegates": section.get("delegates", {}),
         "renderer": {
             "strategy": "auto",
             "edit_interval": defaults.get("edit_interval", 1.5),
@@ -206,6 +222,11 @@ def _patch_detail(value: Any, default: str = "smart") -> str:
     return val if val in {"off", "path", "smart", "stats"} else default
 
 
+def _delegate_thinking(value: Any, default: str = "off") -> Literal["off", "summary"]:
+    val = str(value or default).strip().lower()
+    return "summary" if val == "summary" else "off"
+
+
 def load_settings(config: dict[str, Any] | None) -> Settings:
     section = _as_dict(config)
     legacy_defaults = section.get("defaults") if isinstance(section.get("defaults"), dict) else {}
@@ -213,6 +234,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     renderer_raw = (
         section.get("renderer") if isinstance(section.get("renderer"), dict) else legacy_defaults
     )
+    delegates_raw = section.get("delegates") if isinstance(section.get("delegates"), dict) else {}
     reasoning_raw = section.get("reasoning") if isinstance(section.get("reasoning"), dict) else {}
     no_edit_raw = section.get("no_edit") if isinstance(section.get("no_edit"), dict) else {}
     todo_raw = section.get("todo") if isinstance(section.get("todo"), dict) else {}
@@ -225,6 +247,17 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         show_duration=_bool(tools_raw.get("show_duration"), True),
         timestamp=_bool(tools_raw.get("timestamp"), True),
         timestamp_format=str(tools_raw.get("timestamp_format") or "%H:%M"),
+    )
+    delegates = DelegateSettings(
+        enabled=_bool(delegates_raw.get("enabled"), True),
+        max_delegates=_int(delegates_raw.get("max_delegates"), 4),
+        lines_per_delegate=_int(delegates_raw.get("lines_per_delegate"), 2),
+        max_goal_chars=_int(delegates_raw.get("max_goal_chars"), 48, min_value=12),
+        max_line_chars=_int(delegates_raw.get("max_line_chars"), 120, min_value=24),
+        show_model=_bool(delegates_raw.get("show_model"), False),
+        show_tool_count=_bool(delegates_raw.get("show_tool_count"), True),
+        show_completion=_bool(delegates_raw.get("show_completion"), True),
+        thinking=_delegate_thinking(delegates_raw.get("thinking"), "off"),
     )
     todo = TodoSettings(
         sticky=_bool(todo_raw.get("sticky"), True),
@@ -266,6 +299,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     return Settings(
         enabled=_bool(section.get("enabled"), True),
         tools=tools,
+        delegates=delegates,
         todo=todo,
         patch=patch,
         reasoning=reasoning,
@@ -292,6 +326,7 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         show_completed=settings.tools.show_completed,
         tools_enabled=settings.tools.enabled,
         reasoning_enabled=settings.reasoning.enabled,
+        delegates_enabled=settings.delegates.enabled,
         timestamp=settings.tools.timestamp,
         timestamp_format=settings.tools.timestamp_format,
     )
@@ -311,6 +346,9 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         tools_enabled=_bool(raw.get("tools", raw.get("tools_enabled")), base.tools_enabled),
         reasoning_enabled=_bool(
             raw.get("reasoning", raw.get("reasoning_enabled")), base.reasoning_enabled
+        ),
+        delegates_enabled=_bool(
+            raw.get("delegates", raw.get("delegates_enabled")), base.delegates_enabled
         ),
         timestamp=_bool(raw.get("timestamp"), base.timestamp),
         timestamp_format=str(raw.get("timestamp_format") or base.timestamp_format),

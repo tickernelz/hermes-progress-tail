@@ -3,7 +3,7 @@ import asyncio
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.formatter import extract_todo_items, format_tool_line
 from hermes_progress_tail.renderer import ProgressRenderer
-from hermes_progress_tail.state import SessionContext, ToolEvent
+from hermes_progress_tail.state import DelegateEvent, SessionContext, ToolEvent
 
 
 class Result:
@@ -479,5 +479,155 @@ def test_completion_replacement_bypasses_live_tail_throttle():
 
         assert adapter.sent[0][1] == "🧰 Tools\nterminal: pytest · running"
         assert adapter.edits[-1][2] == "🧰 Tools\n✅ terminal: pytest · done · 2.1s"
+
+    asyncio.run(run())
+
+
+def test_delegate_progress_renders_grouped_section_and_resets_on_finalize():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "delegates": {"lines_per_delegate": 2},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-1",
+                task_index=0,
+                task_count=2,
+                goal="review renderer implementation",
+                event_type="subagent.start",
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-1",
+                task_index=0,
+                task_count=2,
+                goal="review renderer implementation",
+                event_type="subagent.tool",
+                tool_name="read_file",
+                preview="renderer.py",
+                tool_count=1,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-1",
+                task_index=0,
+                task_count=2,
+                goal="review renderer implementation",
+                event_type="subagent.tool",
+                tool_name="terminal",
+                preview="pytest tests/test_renderer.py",
+                tool_count=2,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-1",
+                task_index=0,
+                task_count=2,
+                goal="review renderer implementation",
+                event_type="subagent.complete",
+                status="completed",
+                duration_seconds=12.3,
+                summary="PASS: renderer grouped delegates correctly",
+                tool_count=2,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "🔀 Delegates" in content
+        assert "[1/2] completed · review renderer implementation · 2 tools · 12s" in content
+        assert "read_file: renderer.py" not in content
+        assert "terminal: pytest tests/test_renderer.py" in content
+        assert "PASS: renderer grouped delegates correctly" in content
+
+        await renderer.finalize(session_id="s1")
+        assert renderer.sessions["s1"].delegate_branches == {}
+        assert list(renderer.sessions["s1"].delegate_order) == []
+
+    asyncio.run(run())
+
+
+def test_delegate_progress_redacts_secrets_at_renderer_boundary():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-secret",
+                goal="inspect auth",
+                event_type="subagent.tool",
+                tool_name="terminal",
+                preview="curl -H 'Authorization: Bearer sk-secret1234567890' https://example.test",
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "sk-secret1234567890" not in content
+        assert "[redacted" in content
+
+    asyncio.run(run())
+
+
+def test_delegate_progress_can_be_disabled_per_platform():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(load_settings({}))
+        ctx = make_ctx(adapter)
+        ctx.delegates_enabled = False
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-1",
+                goal="hidden delegate",
+                event_type="subagent.tool",
+                tool_name="terminal",
+                preview="pytest",
+            ),
+            force=True,
+        )
+
+        assert adapter.sent == []
 
     asyncio.run(run())

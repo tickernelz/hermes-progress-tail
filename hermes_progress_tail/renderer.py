@@ -8,7 +8,15 @@ from typing import Any
 from .compat import adapter_supports_edit
 from .config import Settings
 from .redaction import redact_text
-from .state import ProgressEvent, ReasoningEvent, SessionContext, TodoItem, ToolEvent
+from .state import (
+    DelegateBranch,
+    DelegateEvent,
+    ProgressEvent,
+    ReasoningEvent,
+    SessionContext,
+    TodoItem,
+    ToolEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +39,8 @@ class ProgressRenderer:
             ctx.message_id = existing.message_id
             ctx.tool_lines = existing.tool_lines
             ctx.active_tool_lines = existing.active_tool_lines
+            ctx.delegate_branches = existing.delegate_branches
+            ctx.delegate_order = existing.delegate_order
             ctx.todo_items = existing.todo_items
             ctx.todo_updated_at = existing.todo_updated_at
             ctx.reasoning_text = existing.reasoning_text
@@ -87,6 +97,8 @@ class ProgressRenderer:
                 return
             if isinstance(event, ToolEvent) and not ctx.tools_enabled:
                 return
+            if isinstance(event, DelegateEvent) and not ctx.delegates_enabled:
+                return
             if isinstance(event, ReasoningEvent) and not ctx.reasoning_enabled:
                 return
             ctx.last_event_at = time.monotonic()
@@ -116,6 +128,8 @@ class ProgressRenderer:
                     ctx.tool_lines.append(line)
                     if event.tool_call_id:
                         ctx.active_tool_lines[event.tool_call_id] = line
+            elif isinstance(event, DelegateEvent):
+                self._apply_delegate_event(ctx, event)
             else:
                 pending = self._append_reasoning(ctx, event.text)
                 if (
@@ -185,6 +199,9 @@ class ProgressRenderer:
         todo = self._todo_section(ctx)
         if todo:
             parts.append(todo)
+        delegates = self._delegate_section(ctx)
+        if delegates:
+            parts.append(delegates)
         if ctx.tool_lines:
             parts.append(self._section("Tools", "🧰", "\n".join(ctx.tool_lines)))
         if self.settings.renderer.density == "debug":
@@ -215,6 +232,123 @@ class ProgressRenderer:
         timestamp_format = ctx.timestamp_format or self.settings.tools.timestamp_format
         timestamp = self._timestamp(event.created_at, timestamp_format)
         return f"[{timestamp}] {event.line}"
+
+    def _apply_delegate_event(self, ctx: SessionContext, event: DelegateEvent) -> None:
+        key = event.subagent_id or f"task-{event.task_index}"
+        branch = ctx.delegate_branches.get(key)
+        if branch is None:
+            branch = DelegateBranch(
+                subagent_id=key,
+                task_index=event.task_index,
+                task_count=event.task_count,
+                goal=event.goal,
+                model=event.model,
+                started_at=event.created_at,
+            )
+            branch.resize(self.settings.delegates.lines_per_delegate)
+            ctx.delegate_branches[key] = branch
+            ctx.delegate_order.append(key)
+        else:
+            branch.task_index = event.task_index
+            branch.task_count = event.task_count or branch.task_count
+            branch.goal = event.goal or branch.goal
+            branch.model = event.model or branch.model
+            branch.resize(self.settings.delegates.lines_per_delegate)
+        branch.updated_at = event.created_at
+        if event.tool_count:
+            branch.tool_count = event.tool_count
+        event_type = event.event_type
+        if event_type in {"subagent.spawn_requested", "subagent.start"}:
+            branch.status = "running" if event_type == "subagent.start" else "queued"
+            if not branch.started_at:
+                branch.started_at = event.created_at
+            return
+        if event_type in {"subagent.complete", "subagent.failed"}:
+            branch.status = event.status or (
+                "failed" if event_type == "subagent.failed" else "completed"
+            )
+            branch.completed_at = event.created_at
+            branch.duration_seconds = event.duration_seconds
+            if event.summary and self.settings.delegates.show_completion:
+                branch.lines.append(
+                    self._delegate_line(event.summary, self.settings.delegates.max_line_chars)
+                )
+            return
+        if event_type in {"subagent.thinking", "delegate.task_thinking", "_thinking"}:
+            if self.settings.delegates.thinking != "summary":
+                return
+            text = event.preview or event.tool_name or event.summary
+            if text:
+                branch.lines.append(
+                    self._delegate_line(f"thinking: {text}", self.settings.delegates.max_line_chars)
+                )
+            return
+        line = self._format_delegate_progress_line(event)
+        if line:
+            branch.status = event.status or branch.status or "running"
+            branch.lines.append(line)
+
+    def _format_delegate_progress_line(self, event: DelegateEvent) -> str:
+        text = event.preview or event.summary or ""
+        if event.tool_name:
+            text = f"{event.tool_name}: {text}" if text else event.tool_name
+        if not text:
+            return ""
+        return self._delegate_line(text, self.settings.delegates.max_line_chars)
+
+    @staticmethod
+    def _delegate_line(text: str, limit: int) -> str:
+        text = re.sub(r"\s+", " ", str(text or "")).strip()
+        return _truncate_local(text, limit)
+
+    def _delegate_section(self, ctx: SessionContext) -> str:
+        if not ctx.delegate_branches:
+            return ""
+        settings = self.settings.delegates
+        visible_keys = list(ctx.delegate_order)[-settings.max_delegates :]
+        lines: list[str] = []
+        for key in visible_keys:
+            branch = ctx.delegate_branches.get(key)
+            if branch is None:
+                continue
+            title = self._delegate_title(branch)
+            if self.settings.renderer.density == "compact":
+                current = branch.lines[-1] if branch.lines else branch.status or "running"
+                lines.append(f"{title}: {current}")
+                continue
+            lines.append(title)
+            for item in branch.lines:
+                lines.append(f"  - {item}")
+        hidden = len(ctx.delegate_order) - len(visible_keys)
+        if hidden > 0:
+            lines.append(f"+{hidden} older delegate{'s' if hidden != 1 else ''}")
+        return self._section("Delegates", "🔀", "\n".join(lines)) if lines else ""
+
+    def _delegate_title(self, branch: DelegateBranch) -> str:
+        settings = self.settings.delegates
+        label = _truncate_local(
+            branch.goal or f"task {branch.task_index + 1}", settings.max_goal_chars
+        )
+        parts = [f"[{branch.task_index + 1}/{branch.task_count}] {branch.status or 'running'}"]
+        if label:
+            parts.append(label)
+        if settings.show_tool_count and branch.tool_count:
+            parts.append(f"{branch.tool_count} tools")
+        if settings.show_model and branch.model:
+            parts.append(branch.model)
+        if settings.show_completion and branch.duration_seconds:
+            parts.append(self._duration(branch.duration_seconds))
+        return " · ".join(parts)
+
+    @staticmethod
+    def _duration(seconds: float) -> str:
+        try:
+            value = float(seconds)
+        except (TypeError, ValueError):
+            return ""
+        if value < 10:
+            return f"{value:.1f}s"
+        return f"{value:.0f}s"
 
     def _todo_section(self, ctx: SessionContext) -> str:
         if not ctx.todo_items:
@@ -295,6 +429,8 @@ class ProgressRenderer:
         ctx.message_id = None
         ctx.tool_lines.clear()
         ctx.active_tool_lines.clear()
+        ctx.delegate_branches.clear()
+        ctx.delegate_order.clear()
         ctx.todo_items = ()
         ctx.todo_updated_at = 0.0
         ctx.reasoning_text = ""
@@ -384,11 +520,12 @@ class ProgressRenderer:
             return
         if not final and not under_cap:
             return
-        title = (
-            "Progress tail — final"
-            if final
-            else f"Progress tail — latest {len(ctx.tool_lines)} tools"
-        )
+        if final:
+            title = "Progress tail — final"
+        elif ctx.tool_lines:
+            title = f"Progress tail — latest {len(ctx.tool_lines)} tools"
+        else:
+            title = "Progress tail — latest updates"
         if ctx.total_events:
             title += f" of {ctx.total_events} events"
         content = title + "\n" + content_body

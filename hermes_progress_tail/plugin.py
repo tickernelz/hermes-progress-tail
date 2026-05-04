@@ -13,11 +13,11 @@ from .formatter import extract_todo_items, format_tool_line
 from .monkeypatches import install_monkeypatches
 from .redaction import redact_text
 from .renderer import ProgressRenderer
-from .state import ReasoningEvent, SessionContext, ToolEvent
+from .state import DelegateEvent, ReasoningEvent, SessionContext, ToolEvent
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -138,6 +138,7 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
         edit_interval=settings.edit_interval,
         tools_enabled=settings.tools_enabled,
         reasoning_enabled=settings.reasoning_enabled,
+        delegates_enabled=settings.delegates_enabled,
         timestamp=settings.timestamp,
         timestamp_format=settings.timestamp_format,
     )
@@ -145,7 +146,9 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
     return None
 
 
-def _schedule_render(ctx: SessionContext, event: ToolEvent | ReasoningEvent) -> None:
+def _schedule_render(
+    ctx: SessionContext, event: ToolEvent | ReasoningEvent | DelegateEvent
+) -> None:
     renderer = _get_renderer()
     if ctx.loop is None:
         return
@@ -293,6 +296,56 @@ def on_reasoning_delta_from_agent(agent: Any, text: str) -> None:
     _schedule_render(ctx, ReasoningEvent(ctx.session_id, ctx.session_key, ctx.platform, text))
 
 
+def on_delegate_progress_from_agent(
+    parent_agent: Any,
+    event_type: str,
+    tool_name: str | None = None,
+    preview: str | None = None,
+    args: dict | None = None,
+    **kwargs: Any,
+) -> None:
+    _ = args
+    renderer = _get_renderer()
+    session_id = str(getattr(parent_agent, "session_id", "") or "")
+    session_key = str(getattr(parent_agent, "gateway_session_key", "") or "")
+    ctx = renderer.find_context(session_id, session_key)
+    if ctx is None or not ctx.delegates_enabled:
+        return
+    subagent_id = str(kwargs.get("subagent_id") or f"task-{kwargs.get('task_index', 0)}")
+    event = DelegateEvent(
+        session_id=ctx.session_id,
+        session_key=ctx.session_key,
+        platform=ctx.platform,
+        subagent_id=subagent_id,
+        task_index=_int_kw(kwargs.get("task_index"), 0),
+        task_count=_int_kw(kwargs.get("task_count"), 1),
+        goal=str(kwargs.get("goal") or ""),
+        event_type=str(event_type or ""),
+        tool_name=str(tool_name or ""),
+        preview=str(preview or ""),
+        status=str(kwargs.get("status") or ""),
+        model=str(kwargs.get("model") or ""),
+        tool_count=_int_kw(kwargs.get("tool_count"), 0),
+        duration_seconds=_float_kw(kwargs.get("duration_seconds"), 0.0),
+        summary=str(kwargs.get("summary") or ""),
+    )
+    _schedule_render(ctx, event)
+
+
+def _int_kw(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _float_kw(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _schedule_finalize(session_id: str = "", platform: str = "", *, purge: bool = False) -> None:
     renderer = _get_renderer()
     ctx = renderer.find_context(session_id)
@@ -337,12 +390,21 @@ def _command(raw_args: str = "") -> str:
     if args in {"", "status", "doctor"}:
         active = len(renderer.sessions)
         monkeypatch_active = False
+        delegate_monkeypatch_active = False
         try:
             from run_agent import AIAgent
 
             monkeypatch_active = bool(getattr(AIAgent, "_hermes_progress_tail_patched", False))
         except Exception:
             monkeypatch_active = False
+        try:
+            from tools import delegate_tool
+
+            delegate_monkeypatch_active = bool(
+                getattr(delegate_tool, "_hermes_progress_tail_delegate_patched", False)
+            )
+        except Exception:
+            delegate_monkeypatch_active = False
         settings = renderer.settings
         runtime_config = _load_runtime_config()
         display = (
@@ -360,10 +422,12 @@ def _command(raw_args: str = "") -> str:
             f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
             f"patch=detail:{settings.patch.detail} preview_chars:{settings.patch.preview_chars} max_files:{settings.patch.max_files}",
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
+            f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} thinking={settings.delegates.thinking}",
             f"renderer=strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval}",
             f"display.tool_progress={display.get('tool_progress', '<unset>')}",
             f"display.show_reasoning={display.get('show_reasoning', '<unset>')}",
             f"monkeypatch={monkeypatch_active}",
+            f"delegate_monkeypatch={delegate_monkeypatch_active}",
         ]
         if args == "doctor":
             if display.get("tool_progress") != "off":

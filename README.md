@@ -7,6 +7,7 @@ Compact Hermes gateway plugin for live progress tails.
 ## What it does
 
 - Shows the latest tool calls in one compact progress bubble.
+- Shows delegated subagent progress from `delegate_task` in a grouped `Delegates` section.
 - Shows live reasoning/thinking tail when Hermes exposes reasoning deltas.
 - Keeps editable platforms tidy by updating one message instead of spamming chat.
 - Falls back conservatively on no-edit platforms.
@@ -20,19 +21,19 @@ Compact Hermes gateway plugin for live progress tails.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.3/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.4/install.sh | bash
 ```
 
 Dry-run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.3/install.sh | env HPT_DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.4/install.sh | env HPT_DRY_RUN=1 bash
 ```
 
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.3/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.4/uninstall.sh | bash
 ```
 
 Local install:
@@ -67,6 +68,11 @@ progress_tail:
     show_duration: true
     timestamp: true
     timestamp_format: "%H:%M"
+  delegates:
+    enabled: true
+    max_delegates: 4
+    lines_per_delegate: 2
+    thinking: off # off|summary
   todo:
     sticky: true
     hide_tool_line: true
@@ -113,4 +119,4 @@ git diff --check
 
 ## Notes
 
-Reasoning tail uses guarded plugin-local monkeypatches around Hermes `AIAgent` internals. Hermes source files are not modified. If upstream internals change, the plugin should fail closed and `/progresstail status` should show the issue.
+Reasoning and delegate progress use guarded plugin-local monkeypatches around Hermes `AIAgent` / `delegate_task` internals. Hermes source files are not modified. If upstream internals change, the plugin should fail closed and `/progresstail status` should show the issue.

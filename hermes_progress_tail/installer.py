@@ -25,6 +25,17 @@ DEFAULT_CONFIG = {
         "timestamp": True,
         "timestamp_format": "%H:%M",
     },
+    "delegates": {
+        "enabled": True,
+        "max_delegates": 4,
+        "lines_per_delegate": 2,
+        "max_goal_chars": 48,
+        "max_line_chars": 120,
+        "show_model": False,
+        "show_tool_count": True,
+        "show_completion": True,
+        "thinking": "off",
+    },
     "todo": {
         "sticky": True,
         "hide_tool_line": True,
@@ -125,6 +136,7 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
                 "timestamp": defaults.get("timestamp", True),
                 "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
             },
+            "delegates": DEFAULT_CONFIG["delegates"].copy(),
             "reasoning": DEFAULT_CONFIG["reasoning"].copy(),
             "renderer": {
                 "strategy": "auto",
