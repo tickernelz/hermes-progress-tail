@@ -29,6 +29,7 @@ class DelegateBranch:
     completed_at: float = 0.0
     duration_seconds: float = 0.0
     lines: deque[str] = field(default_factory=lambda: deque(maxlen=2))
+    completion_line: str = ""
 
     def resize(self, lines_per_delegate: int) -> None:
         if self.lines.maxlen == lines_per_delegate:
@@ -121,6 +122,7 @@ class DelegateEvent:
     event_type: str = "subagent.tool"
     tool_name: str = ""
     preview: str = ""
+    args: dict[str, Any] | None = None
     status: str = ""
     model: str = ""
     tool_count: int = 0

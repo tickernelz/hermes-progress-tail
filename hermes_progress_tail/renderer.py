@@ -7,6 +7,7 @@ from typing import Any
 
 from .compat import adapter_supports_edit
 from .config import Settings
+from .formatter import format_tool_line
 from .redaction import redact_text
 from .state import (
     DelegateBranch,
@@ -19,6 +20,30 @@ from .state import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def event_preview_args(event: DelegateEvent) -> dict[str, Any]:
+    preview = str(event.preview or "").strip()
+    args = dict(event.args) if isinstance(event.args, dict) else {}
+    if event.tool_name == "terminal" and preview:
+        command = str(args.get("command") or "").strip()
+        if not command or len(preview) > len(command):
+            args["command"] = preview
+    if args:
+        return args
+    if not preview:
+        return {}
+    if event.tool_name == "terminal":
+        return {"command": preview}
+    if event.tool_name in {"read_file", "write_file"}:
+        return {"path": preview}
+    if event.tool_name == "search_files":
+        return {"pattern": preview}
+    if event.tool_name == "patch":
+        if "*** " in preview:
+            return {"mode": "patch", "patch": preview}
+        return {"path": preview, "old_string": "", "new_string": ""}
+    return {}
 
 
 def _truncate_local(text: str, limit: int) -> str:
@@ -234,6 +259,7 @@ class ProgressRenderer:
         return f"[{timestamp}] {event.line}"
 
     def _apply_delegate_event(self, ctx: SessionContext, event: DelegateEvent) -> None:
+        event_type = event.event_type
         key = event.subagent_id or f"task-{event.task_index}"
         branch = ctx.delegate_branches.get(key)
         if branch is None:
@@ -249,6 +275,8 @@ class ProgressRenderer:
             ctx.delegate_branches[key] = branch
             ctx.delegate_order.append(key)
         else:
+            if event_type in {"subagent.spawn_requested", "subagent.start"}:
+                branch.completion_line = ""
             branch.task_index = event.task_index
             branch.task_count = event.task_count or branch.task_count
             branch.goal = event.goal or branch.goal
@@ -257,7 +285,6 @@ class ProgressRenderer:
         branch.updated_at = event.created_at
         if event.tool_count:
             branch.tool_count = event.tool_count
-        event_type = event.event_type
         if event_type in {"subagent.spawn_requested", "subagent.start"}:
             branch.status = "running" if event_type == "subagent.start" else "queued"
             if not branch.started_at:
@@ -270,9 +297,7 @@ class ProgressRenderer:
             branch.completed_at = event.created_at
             branch.duration_seconds = event.duration_seconds
             if event.summary and self.settings.delegates.show_completion:
-                branch.lines.append(
-                    self._delegate_line(event.summary, self.settings.delegates.max_line_chars)
-                )
+                branch.completion_line = self._format_delegate_completion_line(event)
             return
         if event_type in {"subagent.thinking", "delegate.task_thinking", "_thinking"}:
             if self.settings.delegates.thinking != "summary":
@@ -289,12 +314,58 @@ class ProgressRenderer:
             branch.lines.append(line)
 
     def _format_delegate_progress_line(self, event: DelegateEvent) -> str:
-        text = event.preview or event.summary or ""
+        text = ""
         if event.tool_name:
-            text = f"{event.tool_name}: {text}" if text else event.tool_name
+            if (
+                event.tool_name == "patch"
+                and event.preview
+                and not event.args
+                and "*** " not in event.preview
+            ):
+                return self._delegate_line(
+                    f"patch: {event.preview}", self.settings.delegates.max_line_chars
+                )
+            text = format_tool_line(
+                event.tool_name,
+                event_preview_args(event),
+                preview=event.preview,
+                preview_length=self.settings.delegates.max_line_chars,
+                patch_detail=self.settings.patch.detail,
+                patch_preview_chars=self.settings.patch.preview_chars,
+                patch_max_files=self.settings.patch.max_files,
+            )
+            text = self._strip_tool_emoji(text)
+        else:
+            text = event.preview or event.summary or ""
         if not text:
             return ""
         return self._delegate_line(text, self.settings.delegates.max_line_chars)
+
+    def _format_delegate_completion_line(self, event: DelegateEvent) -> str:
+        summary = self._brief_completion_summary(event.summary)
+        if not summary:
+            return ""
+        label = (
+            "failed"
+            if event.event_type == "subagent.failed" or event.status == "failed"
+            else "done"
+        )
+        return self._delegate_line(f"{label}: {summary}", self.settings.delegates.max_line_chars)
+
+    @staticmethod
+    def _strip_tool_emoji(text: str) -> str:
+        return re.sub(r"^[^\w\s]+\s+", "", str(text or "")).strip()
+
+    @staticmethod
+    def _brief_completion_summary(text: str) -> str:
+        value = re.sub(r"\s+", " ", str(text or "")).strip()
+        if not value:
+            return ""
+        if value.startswith("{") or value.startswith("["):
+            return value
+        parts = re.split(r"(?:\s+-\s+|[.!?]\s+)", value, maxsplit=1)
+        brief = parts[0].strip(" -•\t")
+        return brief or value
 
     @staticmethod
     def _delegate_line(text: str, limit: int) -> str:
@@ -313,12 +384,16 @@ class ProgressRenderer:
                 continue
             title = self._delegate_title(branch)
             if self.settings.renderer.density == "compact":
-                current = branch.lines[-1] if branch.lines else branch.status or "running"
+                current = branch.completion_line or (
+                    branch.lines[-1] if branch.lines else branch.status or "running"
+                )
                 lines.append(f"{title}: {current}")
                 continue
             lines.append(title)
             for item in branch.lines:
                 lines.append(f"  - {item}")
+            if branch.completion_line:
+                lines.append(f"  - {branch.completion_line}")
         hidden = len(ctx.delegate_order) - len(visible_keys)
         if hidden > 0:
             lines.append(f"+{hidden} older delegate{'s' if hidden != 1 else ''}")

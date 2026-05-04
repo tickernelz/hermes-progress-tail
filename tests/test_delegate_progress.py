@@ -126,6 +126,53 @@ def test_delegate_monkeypatch_renders_even_when_builtin_progress_callback_is_non
     asyncio.run(run())
 
 
+def test_delegate_monkeypatch_captures_args_before_original_callback_mutates(monkeypatch):
+    async def run():
+        adapter = EditableAdapter()
+        plugin._renderer = None
+        monkeypatch.setattr(
+            plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
+        )
+        _on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
+
+        def original_builder(*args, **kwargs):
+            _ = args, kwargs
+
+            def original_cb(event_type, tool_name=None, preview=None, cb_args=None, **event_kwargs):
+                _ = event_type, tool_name, preview, event_kwargs
+                cb_args["command"] = "MUTATED COMMAND"
+
+            return original_cb
+
+        delegate_module = SimpleNamespace(_build_child_progress_callback=original_builder)
+        uninstall_delegate_monkeypatches(delegate_module)
+        assert install_delegate_monkeypatches(delegate_module) is True
+
+        cb = delegate_module._build_child_progress_callback(
+            0, "review delegate args", ParentAgent(), 1
+        )
+        cb(
+            "subagent.tool",
+            "terminal",
+            "pytest tests/test_delegate_progress.py",
+            {"command": "pytest tests/test_delegate_progress.py"},
+            subagent_id="sa-copy",
+            task_index=0,
+            task_count=1,
+            goal="review delegate args",
+        )
+        await asyncio.sleep(0.05)
+
+        content = adapter.sent[0][1]
+        assert "pytest tests/test_delegate_progress.py" in content
+        assert "MUTATED COMMAND" not in content
+        uninstall_delegate_monkeypatches(delegate_module)
+
+    asyncio.run(run())
+
+
 def test_delegate_monkeypatch_preserves_original_callback_and_flush(monkeypatch):
     async def run():
         adapter = EditableAdapter()

@@ -104,6 +104,7 @@ def install_delegate_monkeypatches(delegate_module: Any | None = None) -> bool:
             cb_args=None,
             **event_kwargs,
         ):
+            captured_args = dict(cb_args) if isinstance(cb_args, dict) else cb_args
             if original_cb is not None:
                 try:
                     original_cb(event_type, tool_name, preview, cb_args, **event_kwargs)
@@ -123,7 +124,7 @@ def install_delegate_monkeypatches(delegate_module: Any | None = None) -> bool:
                     str(event_type or ""),
                     tool_name,
                     preview,
-                    cb_args,
+                    captured_args,
                     **event_kwargs,
                 )
             except Exception:

@@ -565,13 +565,181 @@ def test_delegate_progress_renders_grouped_section_and_resets_on_finalize():
         content = adapter.edits[-1][2]
         assert "🔀 Delegates" in content
         assert "[1/2] completed · review renderer implementation · 2 tools · 12s" in content
-        assert "read_file: renderer.py" not in content
+        assert "read_file: renderer.py" in content
         assert "terminal: pytest tests/test_renderer.py" in content
-        assert "PASS: renderer grouped delegates correctly" in content
+        assert "done: PASS: renderer grouped delegates correctly" in content
 
         await renderer.finalize(session_id="s1")
         assert renderer.sessions["s1"].delegate_branches == {}
         assert list(renderer.sessions["s1"].delegate_order) == []
+
+    asyncio.run(run())
+
+
+def test_delegate_completion_does_not_replace_latest_tool_line():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "delegates": {"lines_per_delegate": 1, "max_line_chars": 90},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-brief",
+                goal="test delegate polish",
+                event_type="subagent.tool",
+                tool_name="read_file",
+                args={"path": "/home/zhafron/.hermes/plugins/hermes-progress-tail/plugin.yaml"},
+                tool_count=1,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-brief",
+                goal="test delegate polish",
+                event_type="subagent.complete",
+                status="completed",
+                duration_seconds=22,
+                summary="Selesai dites. - Menjalankan `pwd && date` di `/home/zhafron` - Output path: `/home/zhafron` - Waktu: `Mon May 4 07:46:41 AM WIB 2026`",
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "read_file: ~/.hermes/plugins/hermes-progress-tail/plugin.yaml" in content
+        assert "done: Selesai dites" in content
+        assert "Menjalankan `pwd && date`" not in content
+        assert "- read_file" in content
+        assert "- done:" in content
+
+    asyncio.run(run())
+
+
+def test_delegate_progress_uses_args_for_tool_details():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-args",
+                goal="inspect files",
+                event_type="subagent.tool",
+                tool_name="search_files",
+                args={"pattern": "delegate", "path": "/home/zhafron/Projects/hermes-progress-tail"},
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert 'search_files: "delegate" in .' in content
+
+    asyncio.run(run())
+
+
+def test_delegate_patch_preview_only_renders_as_patch_path_not_empty_remove():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-patch",
+                goal="patch renderer",
+                event_type="subagent.tool",
+                tool_name="patch",
+                preview="renderer.py",
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "patch: renderer.py" in content
+        assert "<empty>" not in content
+        assert "remove" not in content
+
+    asyncio.run(run())
+
+
+def test_delegate_compact_density_prefers_completion_line():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"density": "compact"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-compact",
+                goal="compact completion",
+                event_type="subagent.tool",
+                tool_name="terminal",
+                preview="pytest tests/test_renderer.py",
+                tool_count=1,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-compact",
+                goal="compact completion",
+                event_type="subagent.complete",
+                status="completed",
+                summary="PASS. Extra verbose details should not dominate compact mode.",
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "done: PASS" in content
+        assert "pytest tests/test_renderer.py" not in content
 
     asyncio.run(run())
 

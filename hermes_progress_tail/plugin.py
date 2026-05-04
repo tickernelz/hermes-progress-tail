@@ -17,7 +17,7 @@ from .state import DelegateEvent, ReasoningEvent, SessionContext, ToolEvent
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -323,6 +323,7 @@ def on_delegate_progress_from_agent(
         event_type=str(event_type or ""),
         tool_name=str(tool_name or ""),
         preview=str(preview or ""),
+        args=dict(args) if isinstance(args, dict) else {},
         status=str(kwargs.get("status") or ""),
         model=str(kwargs.get("model") or ""),
         tool_count=_int_kw(kwargs.get("tool_count"), 0),
