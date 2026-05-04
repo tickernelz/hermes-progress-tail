@@ -8,7 +8,7 @@ from hermes_progress_tail.monkeypatches import (
 )
 from hermes_progress_tail.plugin import _on_pre_gateway_dispatch
 from hermes_progress_tail.renderer import ProgressRenderer
-from hermes_progress_tail.rendering.reasoning import render_reasoning_tail
+from hermes_progress_tail.rendering.reasoning import normalize_reasoning_text, render_reasoning_tail
 from hermes_progress_tail.state import ReasoningEvent, SessionContext
 
 
@@ -243,6 +243,59 @@ I need to avoid weird command typos, so using larger text and fewer repetitions 
         "I need to avoid weird command typos, so using larger text and fewer repetitions might help. I'll write a new prompt ensuring no misspellings or the word terminal is used."
     )
     assert "simpler approach" not in rendered
+
+
+def test_gpt55_inline_adjacent_bold_heading_starts_latest_block():
+    text = """**Planning implementation steps**
+
+Some further work to complete it, which might be a bit complex. We should inspect more, maybe execute some code to ensure it's robust. We will plan in the analysis and remember to use the right tools for editing, ensuring we understand the status config and look at line 500 onwards of the mixin for that. **Implementing Tool Use**
+
+I need to implement a careful plan using the tools available, but I should also inspect whether to continue with existing tasks or APIs. Perhaps existing tests could guide this process.
+"""
+
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
+
+    assert rendered.startswith("**Implementing Tool Use**\n")
+    assert "Some further work" not in rendered
+    assert "ome further work" not in rendered
+    assert "for that. **Implementing Tool Use**" not in rendered
+    assert "I need to implement a careful plan" in rendered
+
+
+def test_gpt55_inline_adjacent_bold_heading_is_own_line_after_normalization():
+    text = "Previous body sentence. **Implementing Tool Use**\nI need to implement carefully."
+
+    normalized = normalize_reasoning_text(text)
+
+    assert "sentence.\n\n**Implementing Tool Use**\n" in normalized
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
+    assert rendered == "**Implementing Tool Use**\nI need to implement carefully."
+
+
+def test_inline_bold_sentence_not_heading_does_not_drop_content():
+    text = "I found a critical observation. **This is very important.**\nNow continue with implementation."
+
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
+
+    assert "**This is very important.**" in rendered
+    assert "Now continue with implementation." in rendered
+
+
+def test_inline_bold_overlong_heading_candidate_does_not_drop_content():
+    text = "Previous body. **This bold section title is intentionally far too long to be accepted as a compact heading by the formatter rules**\nNow continue with implementation."
+
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
+
+    assert "intentionally far too long" in rendered
+    assert "Now continue with implementation." in rendered
+
+
+def test_inline_bold_phrase_not_heading_when_mid_sentence_continues():
+    text = "I should use **safe defaults** here instead of adding config knobs. Then continue normally."
+
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
+
+    assert rendered == text
 
 
 def test_gpt55_markdown_reasoning_tail_preserves_bold_heading_marker():

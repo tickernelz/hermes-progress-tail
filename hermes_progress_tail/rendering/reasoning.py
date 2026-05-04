@@ -9,6 +9,9 @@ _REASONING_TAG_NAMES = r"think|thinking|reasoning|thought|analysis|REASONING_SCR
 _CODE_FENCE_RE = re.compile(r"^`{3,}")
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 _BOLD_HEADING_RE = re.compile(r"^(?:\*\*|__)(?P<title>[^*_\n][^\n]*?)(?:\*\*|__)\s*$")
+_INLINE_BOLD_HEADING_RE = re.compile(
+    r"(?P<prefix>[.!?])\s+(?P<heading>(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__))(?=\s*(?:\n|$))"
+)
 _CHANNEL_ARTIFACT_RE = re.compile(
     r"<\|(?:channel\|>\s*analysis|start\|>|end\|>|message\|>|assistant\|>|analysis\|>)",
     re.IGNORECASE,
@@ -48,6 +51,7 @@ def normalize_reasoning_text(text: str) -> str:
     text = text.replace("◁think▷", "<think>").replace("◁/think▷", "</think>")
     text = text.replace("<|begin_of_thought|>", "<think>").replace("<|end_of_thought|>", "</think>")
     text = _extract_reasoning_tag_bodies(text)
+    text = _normalize_inline_heading_boundaries(text)
     lines = []
     for raw_line in text.split("\n"):
         line = re.sub(r"[ \t]+", " ", raw_line).strip()
@@ -128,6 +132,16 @@ def split_reasoning_blocks(text: str) -> list[ReasoningBlock]:
     if saw_heading:
         return blocks
     return []
+
+
+def _normalize_inline_heading_boundaries(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        heading = match.group("heading")
+        if not _detect_heading(heading):
+            return match.group(0)
+        return f"{match.group('prefix')}\n\n{heading}\n"
+
+    return _INLINE_BOLD_HEADING_RE.sub(replace, text)
 
 
 def _extract_reasoning_tag_bodies(text: str) -> str:
