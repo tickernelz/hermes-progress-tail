@@ -18,7 +18,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.14"
+VERSION = "0.1.15"
 
 
 def _load_runtime_config() -> dict[str, Any]:

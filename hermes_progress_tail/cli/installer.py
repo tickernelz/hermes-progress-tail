@@ -301,7 +301,11 @@ def _apply_config_overrides(
 
 
 def _update_config(
-    config: dict[str, Any], set_display_off: bool, feature_overrides: dict[str, Any] | None = None
+    config: dict[str, Any],
+    set_display_off: bool,
+    feature_overrides: dict[str, Any] | None = None,
+    *,
+    force_default_config: bool = False,
 ) -> tuple[dict[str, Any], bool, list[str]]:
     changed = _migrate_legacy_config(config)
     added_defaults: list[str] = []
@@ -320,7 +324,12 @@ def _update_config(
     if PLUGIN_NAME not in enabled:
         enabled.append(PLUGIN_NAME)
         changed = True
-    if "progress_tail" not in config or not isinstance(config.get("progress_tail"), dict):
+    if force_default_config:
+        if config.get("progress_tail") != DEFAULT_CONFIG:
+            config["progress_tail"] = copy.deepcopy(DEFAULT_CONFIG)
+            changed = True
+            added_defaults.append("progress_tail")
+    elif "progress_tail" not in config or not isinstance(config.get("progress_tail"), dict):
         config["progress_tail"] = copy.deepcopy(DEFAULT_CONFIG)
         added_defaults.append("progress_tail")
         changed = True
@@ -353,6 +362,7 @@ def install(
     set_display_off: bool = False,
     dry_run: bool = False,
     feature_overrides: dict[str, Any] | None = None,
+    force_default_config: bool = False,
 ) -> InstallResult:
     hermes_home = Path(hermes_home).expanduser().resolve()
     source_dir = Path(source_dir or _default_source_dir()).resolve()
@@ -362,7 +372,10 @@ def install(
     config = _read_yaml(config_path)
     had_builtin_reasoning_conflict = _builtin_reasoning_conflict(config)
     updated, _config_changed, added_defaults = _update_config(
-        config, set_display_off=set_display_off, feature_overrides=feature_overrides
+        config,
+        set_display_off=set_display_off,
+        feature_overrides=feature_overrides,
+        force_default_config=force_default_config,
     )
     has_builtin_reasoning_conflict = _builtin_reasoning_conflict(updated)
     result = InstallResult(changed=True)
@@ -405,6 +418,7 @@ def install_many(
     set_display_off: bool = False,
     dry_run: bool = False,
     feature_overrides: dict[str, Any] | None = None,
+    force_default_config: bool = False,
 ) -> InstallResult:
     messages: list[str] = []
     changed = False
@@ -415,6 +429,7 @@ def install_many(
             set_display_off=set_display_off,
             dry_run=dry_run,
             feature_overrides=feature_overrides,
+            force_default_config=force_default_config,
         )
         changed = changed or result.changed
         messages.append(f"[{name}] {home}")
@@ -541,6 +556,33 @@ def _prompt_choice(
     return answer
 
 
+def _prompt_setup_mode(input_stream: Any = sys.stdin) -> str:
+    answer = (
+        _prompt(
+            input_stream,
+            "Setup mode (default|simple|advance/advanced) [default]: ",
+        )
+        .strip()
+        .lower()
+    )
+    if not answer:
+        return "default"
+    aliases = {
+        "d": "default",
+        "s": "simple",
+        "a": "advance",
+        "adv": "advance",
+        "advanced": "advance",
+    }
+    answer = aliases.get(answer, answer)
+    if answer not in {"default", "simple", "advance"}:
+        raise ValueError(
+            "invalid choice for 'Setup mode': "
+            f"{answer}. Expected one of: default, simple, advance, advanced"
+        )
+    return answer
+
+
 def _select_profiles_interactive(
     hermes_home: Path, input_stream: Any = sys.stdin, *, action: str = "install"
 ) -> tuple[list[str] | None, bool]:
@@ -577,13 +619,25 @@ def _select_profiles_interactive(
     return selected or ["default"], False
 
 
-def _interactive_install_options(
-    hermes_home: Path, input_stream: Any = sys.stdin
-) -> tuple[list[str] | None, bool, bool, dict[str, Any]]:
-    print("hermes-progress-tail interactive installer")
-    print("Press Enter to accept the recommended default shown in brackets.")
-    profiles, all_profiles = _select_profiles_interactive(hermes_home, input_stream)
+def _simple_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]:
+    print("\nSimple setup")
+    return {
+        "tools": {"enabled": _confirm("Enable tool progress tail", True, input_stream)},
+        "delegates": {
+            "enabled": _confirm("Enable delegate_task/subagent progress", True, input_stream)
+        },
+        "todo": {"sticky": _confirm("Enable sticky todo section", True, input_stream)},
+        "reasoning": {"enabled": _confirm("Enable reasoning/thinking tail", True, input_stream)},
+        "renderer": {
+            "style": _prompt_choice("Renderer style", ("emoji", "plain"), "emoji", input_stream),
+            "density": _prompt_choice(
+                "Renderer density", ("compact", "normal", "debug"), "normal", input_stream
+            ),
+        },
+    }
 
+
+def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]:
     print("\nTool progress")
     tools = {
         "enabled": _confirm("Enable tool progress tail", True, input_stream),
@@ -685,12 +739,7 @@ def _interactive_install_options(
         "max_snapshots_per_turn": _prompt_int("Maximum snapshots per turn", 5, input_stream),
     }
 
-    set_display_off = _confirm(
-        "Disable Hermes built-in progress/reasoning display to avoid duplicates",
-        True,
-        input_stream,
-    )
-    overrides = {
+    return {
         "tools": tools,
         "delegates": delegates,
         "todo": todo,
@@ -699,7 +748,39 @@ def _interactive_install_options(
         "renderer": renderer,
         "no_edit": no_edit,
     }
-    return profiles, all_profiles, set_display_off, overrides
+
+
+def _interactive_install_options(
+    hermes_home: Path, input_stream: Any = sys.stdin
+) -> tuple[list[str] | None, bool, bool, dict[str, Any], bool]:
+    print("hermes-progress-tail interactive installer")
+    print("Press Enter to accept the recommended default shown in brackets.")
+    profiles, all_profiles = _select_profiles_interactive(hermes_home, input_stream)
+    print("\nSetup mode")
+    print("  default: reset/apply recommended defaults without extra questions")
+    print("  simple: ask only the core UX choices")
+    print("  advance: ask every public config option")
+    setup_mode = _prompt_setup_mode(input_stream)
+    set_display_off = True
+    force_default_config = setup_mode == "default"
+    if setup_mode == "default":
+        print("Applying recommended defaults.")
+        overrides: dict[str, Any] = {}
+    elif setup_mode == "simple":
+        overrides = _simple_install_overrides(input_stream)
+        set_display_off = _confirm(
+            "Disable Hermes built-in progress/reasoning display to avoid duplicates",
+            True,
+            input_stream,
+        )
+    else:
+        overrides = _advanced_install_overrides(input_stream)
+        set_display_off = _confirm(
+            "Disable Hermes built-in progress/reasoning display to avoid duplicates",
+            True,
+            input_stream,
+        )
+    return profiles, all_profiles, set_display_off, overrides, force_default_config
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -725,6 +806,7 @@ def main(argv: list[str] | None = None) -> int:
     all_profiles = args.all_profiles
     set_display_off = args.set_display_off
     feature_overrides: dict[str, Any] = {}
+    force_default_config = False
     prompt_stream = sys.stdin
     prompt_file = None
     if args.prompt_input:
@@ -734,11 +816,21 @@ def main(argv: list[str] | None = None) -> int:
         except OSError as exc:
             print(f"error: cannot open prompt input {args.prompt_input}: {exc}", file=sys.stderr)
             return 2
-    if args.interactive and args.action == "install":
-        profiles, all_profiles, set_display_off, feature_overrides = _interactive_install_options(
-            hermes_home.expanduser().resolve(), prompt_stream
-        )
-    else:
+    try:
+        if args.interactive and args.action == "install":
+            profiles, all_profiles, set_display_off, feature_overrides, force_default_config = (
+                _interactive_install_options(hermes_home.expanduser().resolve(), prompt_stream)
+            )
+        elif args.interactive and args.action == "uninstall":
+            profiles, all_profiles = _select_profiles_interactive(
+                hermes_home.expanduser().resolve(), prompt_stream, action="uninstall"
+            )
+    except (EOFError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        if prompt_file is not None:
+            prompt_file.close()
+        return 2
+    if not (args.interactive and args.action in {"install", "uninstall"}):
         toggles = {
             "tools": args.enable_tools,
             "delegates": args.enable_delegates,
@@ -763,12 +855,9 @@ def main(argv: list[str] | None = None) -> int:
                 set_display_off=set_display_off,
                 dry_run=args.dry_run,
                 feature_overrides=feature_overrides,
+                force_default_config=force_default_config,
             )
         else:
-            if args.interactive:
-                profiles, all_profiles = _select_profiles_interactive(
-                    hermes_home.expanduser().resolve(), prompt_stream, action="uninstall"
-                )
             result = uninstall_many(
                 hermes_home,
                 profiles=profiles,

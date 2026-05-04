@@ -256,6 +256,236 @@ def test_package_source_install_generates_plugin_yaml(tmp_path):
     assert plugin_yaml.read_text(encoding="utf-8") == _generated_plugin_yaml()
 
 
+def test_interactive_cli_default_mode_applies_recommended_defaults_after_profile_selection(
+    tmp_path,
+):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    work_home = hermes_home / "profiles" / "work"
+    work_home.mkdir(parents=True)
+    (work_home / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "display": {"tool_progress": "all", "show_reasoning": True},
+                "progress_tail": {
+                    "tools": {"enabled": False, "lines": 9},
+                    "renderer": {"style": "plain", "density": "debug"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    answers_path = tmp_path / "answers.txt"
+    answers_path.write_text(
+        "1\n"  # profile: work
+        "\n",  # setup mode: default
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "hermes_progress_tail.installer",
+            "install",
+            "--hermes-home",
+            str(hermes_home),
+            "--source-dir",
+            str(source),
+            "--interactive",
+            "--prompt-input",
+            str(answers_path),
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert "Setup mode" in result.stdout
+    assert "Applying recommended defaults" in result.stdout
+    config = yaml.safe_load((work_home / "config.yaml").read_text(encoding="utf-8"))
+    assert config["progress_tail"] == DEFAULT_CONFIG
+    assert config["display"]["tool_progress"] == "off"
+    assert config["display"]["show_reasoning"] is False
+
+
+def test_interactive_cli_simple_mode_asks_core_questions_only(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    work_home = hermes_home / "profiles" / "work"
+    work_home.mkdir(parents=True)
+    (work_home / "config.yaml").write_text("{}\n", encoding="utf-8")
+    answers_path = tmp_path / "answers.txt"
+    answers_path.write_text(
+        "1\n"  # profile: work
+        "simple\n"  # setup mode
+        "n\n"  # tools.enabled
+        "y\n"  # delegates.enabled
+        "n\n"  # todo.sticky
+        "y\n"  # reasoning.enabled
+        "plain\n"  # renderer.style
+        "compact\n"  # renderer.density
+        "y\n",  # set_display_off
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "hermes_progress_tail.installer",
+            "install",
+            "--hermes-home",
+            str(hermes_home),
+            "--source-dir",
+            str(source),
+            "--interactive",
+            "--prompt-input",
+            str(answers_path),
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert "Simple setup" in result.stdout
+    assert "Tool preview max characters" not in result.stdout
+    assert "Patch formatter" not in result.stdout
+    config = yaml.safe_load((work_home / "config.yaml").read_text(encoding="utf-8"))
+    progress_tail = config["progress_tail"]
+    assert progress_tail["tools"]["enabled"] is False
+    assert progress_tail["tools"]["lines"] == DEFAULT_CONFIG["tools"]["lines"]
+    assert progress_tail["delegates"]["enabled"] is True
+    assert progress_tail["todo"]["sticky"] is False
+    assert progress_tail["reasoning"]["enabled"] is True
+    assert progress_tail["renderer"]["style"] == "plain"
+    assert progress_tail["renderer"]["density"] == "compact"
+    assert progress_tail["patch"] == DEFAULT_CONFIG["patch"]
+    assert config["display"]["tool_progress"] == "off"
+
+
+def test_interactive_cli_accepts_advanced_alias_for_full_setup(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    work_home = hermes_home / "profiles" / "work"
+    work_home.mkdir(parents=True)
+    (work_home / "config.yaml").write_text("{}\n", encoding="utf-8")
+    answers_path = tmp_path / "answers.txt"
+    answers_path.write_text(
+        "1\n"  # profile: work
+        "advanced\n"  # setup mode alias
+        "\n"  # tools.enabled
+        "\n"  # tools.lines
+        "\n"  # tools.preview_length
+        "\n"  # tools.show_completed
+        "\n"  # tools.show_duration
+        "\n"  # tools.timestamp
+        "\n"  # delegates.enabled
+        "\n"  # delegates.max_delegates
+        "\n"  # delegates.lines_per_delegate
+        "\n"  # delegates.max_goal_chars
+        "\n"  # delegates.max_line_chars
+        "\n"  # delegates.show_model
+        "\n"  # delegates.show_tool_count
+        "\n"  # delegates.show_completion
+        "\n"  # delegates.thinking
+        "\n"  # todo.sticky
+        "\n"  # todo.hide_tool_line
+        "\n"  # todo.max_pending
+        "\n"  # todo.max_completed
+        "\n"  # todo.max_cancelled
+        "\n"  # todo.max_item_chars
+        "\n"  # reasoning.enabled
+        "\n"  # reasoning.max_lines
+        "\n"  # reasoning.max_chars
+        "\n"  # reasoning.min_update_chars
+        "\n"  # reasoning.no_edit_strategy
+        "\n"  # patch.detail
+        "\n"  # patch.preview_chars
+        "\n"  # patch.max_files
+        "\n"  # renderer.strategy
+        "\n"  # renderer.mode
+        "\n"  # renderer.style
+        "\n"  # renderer.density
+        "\n"  # renderer.edit_interval
+        "\n"  # renderer.stale_ttl_seconds
+        "\n"  # renderer.redact_secrets
+        "\n"  # no_edit.interval_seconds
+        "\n"  # no_edit.min_new_events
+        "\n"  # no_edit.final_summary
+        "\n"  # no_edit.max_snapshots_per_turn
+        "\n",  # set_display_off
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "hermes_progress_tail.installer",
+            "install",
+            "--hermes-home",
+            str(hermes_home),
+            "--source-dir",
+            str(source),
+            "--interactive",
+            "--prompt-input",
+            str(answers_path),
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert "Tool progress" in result.stdout
+    config = yaml.safe_load((work_home / "config.yaml").read_text(encoding="utf-8"))
+    assert config["progress_tail"] == DEFAULT_CONFIG
+
+
+def test_interactive_cli_invalid_setup_mode_exits_cleanly(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    (hermes_home / "profiles" / "work").mkdir(parents=True)
+    (hermes_home / "profiles" / "work" / "config.yaml").write_text("{}\n", encoding="utf-8")
+    answers_path = tmp_path / "answers.txt"
+    answers_path.write_text(
+        "1\n"  # profile: work
+        "expert\n",  # invalid setup mode
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "hermes_progress_tail.installer",
+            "install",
+            "--hermes-home",
+            str(hermes_home),
+            "--source-dir",
+            str(source),
+            "--interactive",
+            "--prompt-input",
+            str(answers_path),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "invalid choice for 'Setup mode'" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_interactive_cli_selects_profiles_and_features(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
@@ -267,6 +497,7 @@ def test_interactive_cli_selects_profiles_and_features(tmp_path):
     answers_path = tmp_path / "answers.txt"
     answers_path.write_text(
         "1\n"  # profile: work
+        "advance\n"  # setup mode
         "y\n"  # tools.enabled
         "4\n"  # tools.lines
         "160\n"  # tools.preview_length
