@@ -2,10 +2,29 @@
 set -euo pipefail
 
 REPO="${HPT_REPO:-tickernelz/hermes-progress-tail}"
-REF="${HPT_REF:-v0.1.5}"
+REF="${HPT_REF:-v0.1.6}"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 DRY_RUN="${HPT_DRY_RUN:-0}"
 SOURCE_DIR="${HPT_SOURCE_DIR:-}"
+INSTALL_ARGS=()
+if [[ -n "${HPT_PROFILES:-}" ]]; then
+  INSTALL_ARGS+=(--profile "$HPT_PROFILES")
+fi
+if [[ "${HPT_ALL_PROFILES:-0}" == "1" || "${HPT_ALL_PROFILES:-0}" == "true" ]]; then
+  INSTALL_ARGS+=(--all-profiles)
+fi
+INTERACTIVE_DEFAULT=1
+if [[ "$DRY_RUN" == "1" || "$DRY_RUN" == "true" || -n "${HPT_PROFILES:-}" || "${HPT_ALL_PROFILES:-0}" == "1" || "${HPT_ALL_PROFILES:-0}" == "true" ]]; then
+  INTERACTIVE_DEFAULT=0
+fi
+INTERACTIVE="${HPT_INTERACTIVE:-$INTERACTIVE_DEFAULT}"
+if [[ "$INTERACTIVE" != "0" && "$INTERACTIVE" != "false" ]]; then
+  if [[ -r /dev/tty ]]; then
+    INSTALL_ARGS+=(--interactive --prompt-input /dev/tty)
+  else
+    echo "warning: interactive install requested but /dev/tty is unavailable; falling back to non-interactive" >&2
+  fi
+fi
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "error: python3 is required" >&2
@@ -46,6 +65,7 @@ if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR" ]]; then
 fi
 
 ARGS=(install --hermes-home "$HERMES_HOME" --source-dir "$SRC_DIR" --set-display-off)
+ARGS+=("${INSTALL_ARGS[@]}")
 if [[ "$DRY_RUN" == "1" || "$DRY_RUN" == "true" ]]; then
   ARGS+=(--dry-run)
 fi

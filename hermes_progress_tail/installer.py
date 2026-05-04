@@ -93,6 +93,50 @@ def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
+def _discover_profile_names(hermes_home: Path) -> list[str]:
+    profiles_dir = hermes_home / "profiles"
+    if not profiles_dir.exists():
+        return []
+    names = []
+    for path in sorted(profiles_dir.iterdir()):
+        if not path.is_dir():
+            continue
+        if (path / "config.yaml").exists() or (path / "plugins").exists():
+            names.append(path.name)
+    return names
+
+
+def _resolve_profile_targets(
+    hermes_home: Path,
+    profiles: list[str] | None = None,
+    *,
+    all_profiles: bool = False,
+) -> list[tuple[str, Path]]:
+    hermes_home = Path(hermes_home).expanduser().resolve()
+    discovered = _discover_profile_names(hermes_home)
+    known = {
+        "default": hermes_home,
+        **{name: hermes_home / "profiles" / name for name in discovered},
+    }
+    requested = ["default", *discovered] if all_profiles else (profiles or ["default"])
+    targets: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for raw in requested:
+        name = str(raw or "").strip()
+        if not name:
+            continue
+        if name in {"base", "main"}:
+            name = "default"
+        if name not in known:
+            available = ", ".join(known) or "default"
+            raise ValueError(f"unknown Hermes profile '{name}'. Available profiles: {available}")
+        if name in seen:
+            continue
+        seen.add(name)
+        targets.append((name, known[name]))
+    return targets or [("default", hermes_home)]
+
+
 def _backup_config(hermes_home: Path) -> Path | None:
     config = hermes_home / "config.yaml"
     if not config.exists():
@@ -194,8 +238,28 @@ def _merge_missing_defaults(
     return added
 
 
+def _apply_config_overrides(
+    target: dict[str, Any], overrides: dict[str, Any], prefix: str = ""
+) -> bool:
+    changed = False
+    for key, value in overrides.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            current = target.get(key)
+            if not isinstance(current, dict):
+                target[key] = {}
+                current = target[key]
+                changed = True
+            changed = _apply_config_overrides(current, value, path) or changed
+            continue
+        if target.get(key) != value:
+            target[key] = copy.deepcopy(value)
+            changed = True
+    return changed
+
+
 def _update_config(
-    config: dict[str, Any], set_display_off: bool
+    config: dict[str, Any], set_display_off: bool, feature_overrides: dict[str, Any] | None = None
 ) -> tuple[dict[str, Any], bool, list[str]]:
     changed = _migrate_legacy_config(config)
     added_defaults: list[str] = []
@@ -215,7 +279,7 @@ def _update_config(
         enabled.append(PLUGIN_NAME)
         changed = True
     if "progress_tail" not in config or not isinstance(config.get("progress_tail"), dict):
-        config["progress_tail"] = DEFAULT_CONFIG.copy()
+        config["progress_tail"] = copy.deepcopy(DEFAULT_CONFIG)
         added_defaults.append("progress_tail")
         changed = True
     else:
@@ -224,6 +288,8 @@ def _update_config(
             for path in _merge_missing_defaults(config["progress_tail"], DEFAULT_CONFIG)
         )
         changed = changed or bool(added_defaults)
+    if feature_overrides:
+        changed = _apply_config_overrides(config["progress_tail"], feature_overrides) or changed
     if set_display_off:
         display = config.setdefault("display", {})
         if not isinstance(display, dict):
@@ -244,6 +310,7 @@ def install(
     *,
     set_display_off: bool = False,
     dry_run: bool = False,
+    feature_overrides: dict[str, Any] | None = None,
 ) -> InstallResult:
     hermes_home = Path(hermes_home).expanduser().resolve()
     source_dir = Path(source_dir or Path(__file__).resolve().parents[1]).resolve()
@@ -252,12 +319,11 @@ def install(
     config_path = hermes_home / "config.yaml"
     config = _read_yaml(config_path)
     had_builtin_reasoning_conflict = _builtin_reasoning_conflict(config)
-    updated, config_changed, added_defaults = _update_config(
-        config, set_display_off=set_display_off
+    updated, _config_changed, added_defaults = _update_config(
+        config, set_display_off=set_display_off, feature_overrides=feature_overrides
     )
     has_builtin_reasoning_conflict = _builtin_reasoning_conflict(updated)
-    plugin_changed = not target_dir.exists() or legacy_dir.exists()
-    result = InstallResult(changed=config_changed or plugin_changed)
+    result = InstallResult(changed=True)
     if had_builtin_reasoning_conflict or has_builtin_reasoning_conflict:
         result.messages.append(
             "warning: display.show_reasoning=true while progress_tail.reasoning.enabled=true; "
@@ -265,8 +331,11 @@ def install(
         )
     if added_defaults:
         result.messages.append("Added missing default config keys: " + ", ".join(added_defaults))
+    action = "Updated" if target_dir.exists() else "Installed"
     if dry_run:
         result.messages.append(f"Would copy plugin to {target_dir}")
+        if target_dir.exists():
+            result.messages.append(f"Would update existing plugin {target_dir}")
         if legacy_dir.exists():
             result.messages.append(f"Would remove legacy plugin {legacy_dir}")
         result.messages.append(f"Would update {config_path}")
@@ -280,9 +349,35 @@ def install(
         result.messages.append(f"Removed legacy plugin {legacy_dir}")
     _copy_plugin(source_dir, target_dir)
     _write_yaml(config_path, updated)
-    result.messages.append(f"Installed plugin to {target_dir}")
+    result.messages.append(f"{action} plugin at {target_dir}")
     result.messages.append("Restart Hermes gateway for changes to take effect")
     return result
+
+
+def install_many(
+    hermes_home: Path,
+    source_dir: Path | None = None,
+    *,
+    profiles: list[str] | None = None,
+    all_profiles: bool = False,
+    set_display_off: bool = False,
+    dry_run: bool = False,
+    feature_overrides: dict[str, Any] | None = None,
+) -> InstallResult:
+    messages: list[str] = []
+    changed = False
+    for name, home in _resolve_profile_targets(hermes_home, profiles, all_profiles=all_profiles):
+        result = install(
+            home,
+            source_dir,
+            set_display_off=set_display_off,
+            dry_run=dry_run,
+            feature_overrides=feature_overrides,
+        )
+        changed = changed or result.changed
+        messages.append(f"[{name}] {home}")
+        messages.extend(f"[{name}] {message}" for message in result.messages)
+    return InstallResult(changed=changed, messages=messages)
 
 
 def uninstall(hermes_home: Path, *, dry_run: bool = False) -> InstallResult:
@@ -319,6 +414,113 @@ def uninstall(hermes_home: Path, *, dry_run: bool = False) -> InstallResult:
     return result
 
 
+def uninstall_many(
+    hermes_home: Path,
+    *,
+    profiles: list[str] | None = None,
+    all_profiles: bool = False,
+    dry_run: bool = False,
+) -> InstallResult:
+    messages: list[str] = []
+    changed = False
+    for name, home in _resolve_profile_targets(hermes_home, profiles, all_profiles=all_profiles):
+        result = uninstall(home, dry_run=dry_run)
+        changed = changed or result.changed
+        messages.append(f"[{name}] {home}")
+        messages.extend(f"[{name}] {message}" for message in result.messages)
+    return InstallResult(changed=changed, messages=messages)
+
+
+def _parse_profile_list(values: list[str] | None) -> list[str] | None:
+    if not values:
+        return None
+    profiles: list[str] = []
+    for value in values:
+        profiles.extend(item.strip() for item in value.split(",") if item.strip())
+    return profiles or None
+
+
+def _prompt(input_stream: Any, prompt: str) -> str:
+    print(prompt, end="", flush=True)
+    line = input_stream.readline()
+    if line == "":
+        raise EOFError("interactive input ended unexpectedly")
+    return line.strip()
+
+
+def _confirm(prompt: str, default: bool = True, input_stream: Any = sys.stdin) -> bool:
+    suffix = "Y/n" if default else "y/N"
+    answer = _prompt(input_stream, f"{prompt} [{suffix}]: ").lower()
+    if not answer:
+        return default
+    return answer in {"y", "yes", "1", "true", "on"}
+
+
+def _select_profiles_interactive(
+    hermes_home: Path, input_stream: Any = sys.stdin, *, action: str = "install"
+) -> tuple[list[str] | None, bool]:
+    discovered = _discover_profile_names(hermes_home)
+    if not discovered:
+        print("No Hermes profiles found; installing to default only.")
+        return ["default"], False
+    print("Available targets:")
+    print("  0) default")
+    for idx, name in enumerate(discovered, start=1):
+        print(f"  {idx}) {name}")
+    print("  a) all")
+    raw = _prompt(
+        input_stream,
+        f"{action.title()} target profiles (comma-separated numbers/names, default: all): ",
+    )
+    if not raw or raw.lower() in {"a", "all"}:
+        return None, True
+    selected: list[str] = []
+    for item in raw.split(","):
+        token = item.strip()
+        if not token:
+            continue
+        if token.isdigit():
+            idx = int(token)
+            if idx == 0:
+                selected.append("default")
+            elif 1 <= idx <= len(discovered):
+                selected.append(discovered[idx - 1])
+            else:
+                raise ValueError(f"invalid profile selection index: {token}")
+        else:
+            selected.append("default" if token in {"base", "main"} else token)
+    return selected or ["default"], False
+
+
+def _interactive_install_options(
+    hermes_home: Path, input_stream: Any = sys.stdin
+) -> tuple[list[str] | None, bool, bool, dict[str, Any]]:
+    print("hermes-progress-tail interactive installer")
+    profiles, all_profiles = _select_profiles_interactive(hermes_home, input_stream)
+    tools = _confirm("Enable tool progress tail?", True, input_stream)
+    delegates = _confirm("Enable delegate_task/subagent progress?", True, input_stream)
+    todo = _confirm("Enable sticky todo section?", True, input_stream)
+    reasoning = _confirm("Enable reasoning/thinking tail?", True, input_stream)
+    plain = _confirm("Use plain renderer style instead of emoji?", False, input_stream)
+    compact = _confirm("Use compact renderer density?", False, input_stream)
+    set_display_off = _confirm(
+        "Disable Hermes built-in progress/reasoning display to avoid duplicates?",
+        True,
+        input_stream,
+    )
+    overrides = {
+        "tools": {"enabled": tools},
+        "delegates": {"enabled": delegates},
+        "todo": {"sticky": todo},
+        "reasoning": {"enabled": reasoning},
+        "renderer": {
+            "style": "plain" if plain else "emoji",
+            "density": "compact" if compact else "normal",
+        },
+    }
+    return profiles, all_profiles, set_display_off, overrides
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hermes_progress_tail")
     parser.add_argument("action", choices=["install", "uninstall"])
@@ -326,18 +528,79 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-dir", default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument("--set-display-off", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--profile", action="append", default=[])
+    parser.add_argument("--all-profiles", action="store_true")
+    parser.add_argument("--interactive", "-i", action="store_true")
+    parser.add_argument("--prompt-input", default="")
+    parser.add_argument("--enable-tools", choices=["on", "off"])
+    parser.add_argument("--enable-delegates", choices=["on", "off"])
+    parser.add_argument("--enable-todo", choices=["on", "off"])
+    parser.add_argument("--enable-reasoning", choices=["on", "off"])
+    parser.add_argument("--renderer-style", choices=["emoji", "plain"])
+    parser.add_argument("--renderer-density", choices=["compact", "normal", "debug"])
     args = parser.parse_args(argv)
-    if args.action == "install":
-        result = install(
-            Path(args.hermes_home),
-            Path(args.source_dir),
-            set_display_off=args.set_display_off,
-            dry_run=args.dry_run,
+    hermes_home = Path(args.hermes_home)
+    profiles = _parse_profile_list(args.profile)
+    all_profiles = args.all_profiles
+    set_display_off = args.set_display_off
+    feature_overrides: dict[str, Any] = {}
+    prompt_stream = sys.stdin
+    prompt_file = None
+    if args.prompt_input:
+        try:
+            prompt_file = Path(args.prompt_input).open(encoding="utf-8")  # noqa: SIM115
+            prompt_stream = prompt_file
+        except OSError as exc:
+            print(f"error: cannot open prompt input {args.prompt_input}: {exc}", file=sys.stderr)
+            return 2
+    if args.interactive and args.action == "install":
+        profiles, all_profiles, set_display_off, feature_overrides = _interactive_install_options(
+            hermes_home.expanduser().resolve(), prompt_stream
         )
     else:
-        result = uninstall(Path(args.hermes_home), dry_run=args.dry_run)
+        toggles = {
+            "tools": args.enable_tools,
+            "delegates": args.enable_delegates,
+            "reasoning": args.enable_reasoning,
+        }
+        for section, value in toggles.items():
+            if value:
+                feature_overrides.setdefault(section, {})["enabled"] = value == "on"
+        if args.enable_todo:
+            feature_overrides.setdefault("todo", {})["sticky"] = args.enable_todo == "on"
+        if args.renderer_style:
+            feature_overrides.setdefault("renderer", {})["style"] = args.renderer_style
+        if args.renderer_density:
+            feature_overrides.setdefault("renderer", {})["density"] = args.renderer_density
+    try:
+        if args.action == "install":
+            result = install_many(
+                hermes_home,
+                Path(args.source_dir),
+                profiles=profiles,
+                all_profiles=all_profiles,
+                set_display_off=set_display_off,
+                dry_run=args.dry_run,
+                feature_overrides=feature_overrides,
+            )
+        else:
+            if args.interactive:
+                profiles, all_profiles = _select_profiles_interactive(
+                    hermes_home.expanduser().resolve(), prompt_stream, action="uninstall"
+                )
+            result = uninstall_many(
+                hermes_home,
+                profiles=profiles,
+                all_profiles=all_profiles,
+                dry_run=args.dry_run,
+            )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     for msg in result.messages:
         print(msg)
+    if prompt_file is not None:
+        prompt_file.close()
     return 0
 
 
