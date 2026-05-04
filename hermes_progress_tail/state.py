@@ -16,6 +16,14 @@ class TodoItem:
 
 
 @dataclass
+class DelegateLine:
+    kind: str
+    text: str
+    details: tuple[str, ...] = ()
+    tool_name: str = ""
+
+
+@dataclass
 class DelegateBranch:
     subagent_id: str
     task_index: int = 0
@@ -28,7 +36,7 @@ class DelegateBranch:
     updated_at: float = field(default_factory=time.time)
     completed_at: float = 0.0
     duration_seconds: float = 0.0
-    lines: deque[str] = field(default_factory=lambda: deque(maxlen=2))
+    lines: deque[DelegateLine] = field(default_factory=lambda: deque(maxlen=2))
     completion_line: str = ""
     lifecycle_started: bool = False
 

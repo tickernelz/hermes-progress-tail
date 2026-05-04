@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
+from contextlib import suppress
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from .compat import adapter_supports_edit
 from .config import Settings
-from .formatter import EMOJI, format_tool_line
+from .formatter import format_tool_line
 from .redaction import redact_text
 from .state import (
     DelegateBranch,
     DelegateEvent,
+    DelegateLine,
     ProgressEvent,
     ReasoningEvent,
     SessionContext,
@@ -30,6 +34,13 @@ def event_preview_args(event: DelegateEvent) -> dict[str, Any]:
         if not command or len(preview) > len(command):
             args["command"] = preview
     if args:
+        if preview:
+            if event.tool_name in {"read_file", "write_file"} and not (
+                args.get("path") or args.get("file_path")
+            ):
+                args["path"] = preview
+            elif event.tool_name == "search_files" and not (args.get("pattern") or args.get("q")):
+                args["pattern"] = preview
         return args
     if not preview:
         return {}
@@ -311,42 +322,159 @@ class ProgressRenderer:
             text = event.preview or event.tool_name or event.summary
             if text:
                 branch.lines.append(
-                    self._delegate_line(f"thinking: {text}", self.settings.delegates.max_line_chars)
+                    DelegateLine(
+                        "update",
+                        self._delegate_line(
+                            f"thinking: {text}", self.settings.delegates.max_line_chars
+                        ),
+                    )
                 )
             return
+        branch.status = event.status or (
+            "running" if branch.status in {"", "pending"} else branch.status
+        )
         line = self._format_delegate_progress_line(event)
         if line:
-            branch.status = event.status or branch.status or "running"
             branch.lines.append(line)
 
-    def _format_delegate_progress_line(self, event: DelegateEvent) -> str:
-        text = ""
+    def _format_delegate_progress_line(self, event: DelegateEvent) -> DelegateLine | None:
         if event.tool_name:
-            if (
-                event.tool_name == "patch"
-                and event.preview
-                and not event.args
-                and "*** " not in event.preview
-            ):
-                return self._delegate_line(
-                    f"patch: {event.preview}", self.settings.delegates.max_line_chars
-                )
-            text = format_tool_line(
-                event.tool_name,
-                event_preview_args(event),
-                preview=event.preview,
-                preview_length=self.settings.delegates.max_line_chars,
-                patch_detail=self.settings.patch.detail,
-                patch_preview_chars=self.settings.patch.preview_chars,
-                patch_max_files=self.settings.patch.max_files,
-            )
-            if self.settings.renderer.style != "emoji":
-                text = self._strip_tool_emoji(text)
-        else:
-            text = event.preview or event.summary or ""
+            return self._format_delegate_tool_line(event)
+        text = self._delegate_line(
+            event.preview or event.summary or "", self.settings.delegates.max_line_chars
+        )
         if not text:
+            return None
+        return DelegateLine("update", text)
+
+    def _format_delegate_tool_line(self, event: DelegateEvent) -> DelegateLine | None:
+        args = event_preview_args(event)
+        if self._delegate_tool_detail_is_missing(event.tool_name, args, event.preview):
+            if self.settings.renderer.density != "debug":
+                return None
+            return DelegateLine("debug", f"{event.tool_name}: <unknown>", tool_name=event.tool_name)
+        if (
+            event.tool_name == "patch"
+            and event.preview
+            and not event.args
+            and "*** " not in event.preview
+        ):
+            text = self._delegate_line(
+                f"patch: {event.preview}", self.settings.delegates.max_line_chars
+            )
+            return DelegateLine("tool", text, tool_name=event.tool_name)
+        text = format_tool_line(
+            event.tool_name,
+            args,
+            preview=event.preview,
+            preview_length=self.settings.delegates.max_line_chars,
+            patch_detail=self.settings.patch.detail,
+            patch_preview_chars=self.settings.patch.preview_chars,
+            patch_max_files=self.settings.patch.max_files,
+        )
+        if self.settings.renderer.style != "emoji":
+            text = self._strip_tool_emoji(text)
+        text = self._delegate_line(text, self.settings.delegates.max_line_chars)
+        if not text:
+            return None
+        return DelegateLine(
+            "tool",
+            text,
+            details=self._delegate_tool_details(event, args),
+            tool_name=event.tool_name,
+        )
+
+    @staticmethod
+    def _delegate_tool_detail_is_missing(
+        tool_name: str, args: dict[str, Any], preview: str
+    ) -> bool:
+        if tool_name == "terminal":
+            return not str(args.get("command") or preview or "").strip()
+        if tool_name == "read_file":
+            return not str(args.get("path") or preview or "").strip()
+        if tool_name == "write_file":
+            return not str(args.get("path") or args.get("file_path") or preview or "").strip()
+        if tool_name == "search_files":
+            return not str(args.get("pattern") or args.get("q") or preview or "").strip()
+        return False
+
+    def _delegate_tool_details(self, event: DelegateEvent, args: dict[str, Any]) -> tuple[str, ...]:
+        if self.settings.renderer.density != "normal" or event.tool_name != "terminal":
+            return ()
+        details: list[str] = []
+        cwd = args.get("workdir") or args.get("cwd")
+        if cwd:
+            details.append(f"cwd: {self._delegate_cwd(cwd)}")
+        first = self._terminal_first_line(str(args.get("command") or event.preview or ""))
+        if first:
+            details.append(f"first: {first}")
+        return tuple(details[:2])
+
+    @staticmethod
+    def _terminal_first_line(command: str) -> str:
+        lines = [line.strip() for line in str(command or "").splitlines() if line.strip()]
+        if not lines:
             return ""
-        return self._delegate_line(text, self.settings.delegates.max_line_chars)
+        return _truncate_local(redact_text(lines[0]), 80)
+
+    @staticmethod
+    def _delegate_cwd(value: Any) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        if raw in {".", "./"}:
+            return "."
+        normalized = raw.replace("\\", "/")
+        if normalized.endswith("/hermes-progress-tail"):
+            return "."
+        home_display = ProgressRenderer._home_relative_path(raw)
+        if home_display:
+            return _truncate_local(redact_text(home_display), 80)
+        return _truncate_local(redact_text(raw), 80)
+
+    @staticmethod
+    def _home_relative_path(raw: str) -> str:
+        candidates = []
+        with suppress(Exception):
+            candidates.append(str(Path.home()))
+        env_home = os.environ.get("HOME")
+        if env_home:
+            candidates.append(env_home)
+        userprofile = os.environ.get("USERPROFILE")
+        if userprofile:
+            candidates.append(userprofile)
+        home_drive = os.environ.get("HOMEDRIVE")
+        home_path = os.environ.get("HOMEPATH")
+        if home_drive and home_path:
+            candidates.append(home_drive + home_path)
+        for home in dict.fromkeys(candidates):
+            display = ProgressRenderer._relative_to_home(raw, home)
+            if display:
+                return display
+        return ""
+
+    @staticmethod
+    def _relative_to_home(raw: str, home: str) -> str:
+        home = str(home or "").strip()
+        if not home:
+            return ""
+        raw_norm = raw.replace("\\", "/").rstrip("/")
+        home_norm = home.replace("\\", "/").rstrip("/")
+        if not raw_norm or not home_norm:
+            return ""
+        if raw_norm == home_norm:
+            return "~"
+        if raw_norm.startswith(home_norm + "/"):
+            rel = raw_norm[len(home_norm) + 1 :].strip("/")
+            rel = re.sub(r"/+", "/", rel)
+            return "~/" + rel if rel else "~"
+        try:
+            raw_win = PureWindowsPath(raw)
+            home_win = PureWindowsPath(home)
+            rel = raw_win.relative_to(home_win)
+            return "~/" + rel.as_posix()
+        except Exception:
+            return ""
 
     def _format_delegate_completion_line(self, event: DelegateEvent) -> str:
         summary = self._brief_completion_summary(event.summary)
@@ -367,11 +495,16 @@ class ProgressRenderer:
 
     @staticmethod
     def _brief_completion_summary(text: str) -> str:
-        value = re.sub(r"\s+", " ", str(text or "")).strip()
-        if not value:
+        raw = str(text or "").strip()
+        if not raw:
             return ""
-        if value.startswith("{") or value.startswith("["):
-            return value
+        if raw.startswith("{") or raw.startswith("["):
+            return re.sub(r"\s+", " ", raw)
+        lines = [line.strip(" -•\t") for line in raw.splitlines() if line.strip()]
+        if len(lines) >= 2 and lines[0].endswith(":"):
+            value = f"{lines[0]} {lines[1]}"
+        else:
+            value = re.sub(r"\s+", " ", raw).strip()
         parts = re.split(r"(?:\s+-\s+|[.!?]\s+)", value, maxsplit=1)
         brief = parts[0].strip(" -•\t")
         return brief or value
@@ -394,7 +527,9 @@ class ProgressRenderer:
             title = self._delegate_title(branch)
             if self.settings.renderer.density == "compact":
                 current = branch.completion_line or (
-                    branch.lines[-1] if branch.lines else branch.status or "running"
+                    self._delegate_compact_line(branch.lines[-1])
+                    if branch.lines
+                    else branch.status or "running"
                 )
                 lines.append(f"{title}: {current}")
                 continue
@@ -405,6 +540,9 @@ class ProgressRenderer:
             for index, item in enumerate(delegate_lines):
                 connector = self._delegate_connector(index, total)
                 lines.append(f"{connector} {self._delegate_event_label(item)}")
+                detail_connector = "   " if connector == "└" else "│  "
+                for detail in item.details:
+                    lines.append(f"{detail_connector}{detail}")
             if branch.completion_line:
                 connector = self._delegate_connector(len(delegate_lines), total)
                 lines.append(f"{connector} result: {branch.completion_line}")
@@ -437,15 +575,17 @@ class ProgressRenderer:
             return "└"
         return "└" if index == total - 1 else "├"
 
-    def _delegate_event_label(self, item: str) -> str:
-        plain = self._strip_tool_emoji(item)
-        tool_names = sorted(EMOJI, key=len, reverse=True)
-        for tool_name in tool_names:
-            if plain == tool_name:
-                return f"tool: {item}"
-            if plain.startswith(f"{tool_name}:") and not self._looks_like_progress_output(plain):
-                return f"tool: {item}"
-        return f"update: {item}"
+    def _delegate_compact_line(self, item: DelegateLine) -> str:
+        if item.kind == "debug":
+            return item.text
+        return item.text
+
+    def _delegate_event_label(self, item: DelegateLine) -> str:
+        if item.kind == "tool":
+            return f"tool: {item.text}"
+        if item.kind == "debug":
+            return f"debug: {item.text}"
+        return f"update: {item.text}"
 
     @staticmethod
     def _looks_like_progress_output(text: str) -> bool:

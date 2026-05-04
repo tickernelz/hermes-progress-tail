@@ -1029,6 +1029,362 @@ def test_delegate_grouped_rendering_labels_events_without_fake_tool_children():
     asyncio.run(run())
 
 
+def test_delegate_unknown_tool_details_are_suppressed_in_normal_density():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-unknown",
+                goal="unknown delegate",
+                event_type="subagent.tool",
+                tool_name="read_file",
+                tool_count=1,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-unknown",
+                goal="unknown delegate",
+                event_type="subagent.complete",
+                status="completed",
+                summary="PASS",
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "<unknown>" not in content
+        assert "read_file" not in content
+        assert "└ result: ✅ done: PASS" in content
+
+    asyncio.run(run())
+
+
+def test_delegate_suppressed_unknown_tool_still_marks_branch_running():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-unknown-running",
+                goal="unknown running delegate",
+                event_type="subagent.tool",
+                tool_name="read_file",
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "🔄 running" in content
+        assert "pending" not in content
+        assert "<unknown>" not in content
+
+    asyncio.run(run())
+
+
+def test_delegate_write_file_file_path_is_not_suppressed():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-write-file-path",
+                goal="write delegate",
+                event_type="subagent.tool",
+                tool_name="write_file",
+                args={"file_path": "/Users/alice/project/out.txt"},
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "write_file:" in content
+        assert "out.txt" in content
+        assert "<unknown>" not in content
+
+    asyncio.run(run())
+
+
+def test_delegate_partial_args_use_preview_for_missing_formatter_detail():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-partial-read",
+                goal="partial read delegate",
+                event_type="subagent.tool",
+                tool_name="read_file",
+                args={"limit": 20},
+                preview="plugin.yaml",
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "read_file: plugin.yaml" in content
+        assert "<unknown>" not in content
+
+    asyncio.run(run())
+
+
+def test_delegate_normal_density_terminal_renders_safe_multiline_details():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"density": "normal"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        command = "python - <<'PY'\nprint('safe first')\nprint('safe second')\nPY"
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-terminal-detail",
+                goal="terminal detail delegate",
+                event_type="subagent.tool",
+                tool_name="terminal",
+                args={"command": command, "workdir": "/home/zhafron/Projects/hermes-progress-tail"},
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "└ tool: 💻 terminal: python inline script · 4 lines" in content
+        assert "   cwd: ." in content
+        assert "   first: python - <<'PY'" in content
+        assert "safe first" not in content
+        assert "safe second" not in content
+
+    asyncio.run(run())
+
+
+def test_delegate_cwd_home_relative_paths_are_cross_platform(monkeypatch):
+    monkeypatch.setenv("HOME", "/Users/alice")
+    monkeypatch.setenv("USERPROFILE", r"C:\\Users\\Alice")
+
+    assert ProgressRenderer._delegate_cwd("/Users/alice/projects/app") == "~/projects/app"
+    assert ProgressRenderer._delegate_cwd(r"C:\\Users\\Alice\\projects\\app") == "~/projects/app"
+    assert ProgressRenderer._delegate_cwd("/opt/app") == "/opt/app"
+
+
+def test_delegate_compact_density_active_tool_renders_text_not_internal_repr():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"density": "compact"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-compact-active",
+                goal="compact active delegate",
+                event_type="subagent.tool",
+                tool_name="terminal",
+                preview="pytest tests/test_renderer.py",
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "terminal: pytest tests/test_renderer.py" in content
+        assert "DelegateLine(" not in content
+        assert "details=" not in content
+        assert "tool_name=" not in content
+        assert "├" not in content
+        assert "└" not in content
+
+    asyncio.run(run())
+
+
+def test_delegate_thinking_summary_uses_structured_line():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "delegates": {"thinking": "summary"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-thinking",
+                goal="thinking delegate",
+                event_type="subagent.thinking",
+                preview="checking files",
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "update: thinking: checking files" in content
+        assert "DelegateLine(" not in content
+
+    asyncio.run(run())
+
+
+def test_delegate_compact_density_omits_timeline_details():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"density": "compact"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-compact-shape",
+                goal="compact shape delegate",
+                event_type="subagent.tool",
+                tool_name="terminal",
+                args={"command": "python - <<'PY'\nprint('x')\nPY", "workdir": "/tmp"},
+                tool_count=1,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-compact-shape",
+                goal="compact shape delegate",
+                event_type="subagent.complete",
+                status="completed",
+                summary="PASS",
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "compact shape delegate" in content
+        assert "✅ done: PASS" in content
+        assert "├" not in content
+        assert "└" not in content
+        assert "│  cwd:" not in content
+        assert "first:" not in content
+
+    asyncio.run(run())
+
+
+def test_delegate_completion_summary_skips_empty_heading_to_next_line():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-summary",
+                goal="summary delegate",
+                event_type="subagent.complete",
+                status="completed",
+                summary="Ringkasan singkat:\n- Versi hermes-progress-tail: 0.1.7\n- Tidak ada file dimodifikasi.",
+                tool_count=1,
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "Ringkasan singkat: Versi hermes-progress-tail: 0.1.7" in content
+        assert "Ringkasan singkat:\n" not in content
+
+    asyncio.run(run())
+
+
 def test_delegate_progress_can_be_disabled_per_platform():
     async def run():
         adapter = EditableAdapter()
