@@ -219,7 +219,7 @@ def test_delegate_monkeypatch_preserves_original_callback_and_flush(monkeypatch)
         assert calls[0][0] == "subagent.start"
         assert flushes == ["flushed"]
         assert adapter.sent
-        assert "[2/2] running · implement delegate UI" in adapter.sent[0][1]
+        assert "[2/2] 🔄 running · implement delegate UI" in adapter.sent[0][1]
         uninstall_delegate_monkeypatches(delegate_module)
 
     asyncio.run(run())

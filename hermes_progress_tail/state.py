@@ -30,6 +30,7 @@ class DelegateBranch:
     duration_seconds: float = 0.0
     lines: deque[str] = field(default_factory=lambda: deque(maxlen=2))
     completion_line: str = ""
+    lifecycle_started: bool = False
 
     def resize(self, lines_per_delegate: int) -> None:
         if self.lines.maxlen == lines_per_delegate:

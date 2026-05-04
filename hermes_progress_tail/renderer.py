@@ -7,7 +7,7 @@ from typing import Any
 
 from .compat import adapter_supports_edit
 from .config import Settings
-from .formatter import format_tool_line
+from .formatter import EMOJI, format_tool_line
 from .redaction import redact_text
 from .state import (
     DelegateBranch,
@@ -275,8 +275,13 @@ class ProgressRenderer:
             ctx.delegate_branches[key] = branch
             ctx.delegate_order.append(key)
         else:
-            if event_type in {"subagent.spawn_requested", "subagent.start"}:
+            if event_type in {"subagent.spawn_requested", "subagent.start"} and branch.completed_at:
                 branch.completion_line = ""
+                branch.lines.clear()
+                branch.completed_at = 0.0
+                branch.duration_seconds = 0.0
+                branch.tool_count = 0
+                branch.lifecycle_started = False
             branch.task_index = event.task_index
             branch.task_count = event.task_count or branch.task_count
             branch.goal = event.goal or branch.goal
@@ -287,8 +292,9 @@ class ProgressRenderer:
             branch.tool_count = event.tool_count
         if event_type in {"subagent.spawn_requested", "subagent.start"}:
             branch.status = "running" if event_type == "subagent.start" else "queued"
-            if not branch.started_at:
+            if not branch.lifecycle_started:
                 branch.started_at = event.created_at
+                branch.lifecycle_started = True
             return
         if event_type in {"subagent.complete", "subagent.failed"}:
             branch.status = event.status or (
@@ -334,7 +340,8 @@ class ProgressRenderer:
                 patch_preview_chars=self.settings.patch.preview_chars,
                 patch_max_files=self.settings.patch.max_files,
             )
-            text = self._strip_tool_emoji(text)
+            if self.settings.renderer.style != "emoji":
+                text = self._strip_tool_emoji(text)
         else:
             text = event.preview or event.summary or ""
         if not text:
@@ -350,6 +357,8 @@ class ProgressRenderer:
             if event.event_type == "subagent.failed" or event.status == "failed"
             else "done"
         )
+        if self.settings.renderer.style == "emoji":
+            label = f"{self._status_emoji(label)} {label}"
         return self._delegate_line(f"{label}: {summary}", self.settings.delegates.max_line_chars)
 
     @staticmethod
@@ -390,10 +399,15 @@ class ProgressRenderer:
                 lines.append(f"{title}: {current}")
                 continue
             lines.append(title)
-            for item in branch.lines:
-                lines.append(f"  - {item}")
+            delegate_lines = list(branch.lines)
+            has_result = bool(branch.completion_line)
+            total = len(delegate_lines) + (1 if has_result else 0)
+            for index, item in enumerate(delegate_lines):
+                connector = self._delegate_connector(index, total)
+                lines.append(f"{connector} {self._delegate_event_label(item)}")
             if branch.completion_line:
-                lines.append(f"  - {branch.completion_line}")
+                connector = self._delegate_connector(len(delegate_lines), total)
+                lines.append(f"{connector} result: {branch.completion_line}")
         hidden = len(ctx.delegate_order) - len(visible_keys)
         if hidden > 0:
             lines.append(f"+{hidden} older delegate{'s' if hidden != 1 else ''}")
@@ -404,7 +418,10 @@ class ProgressRenderer:
         label = _truncate_local(
             branch.goal or f"task {branch.task_index + 1}", settings.max_goal_chars
         )
-        parts = [f"[{branch.task_index + 1}/{branch.task_count}] {branch.status or 'running'}"]
+        status = branch.status or "running"
+        if self.settings.renderer.style == "emoji":
+            status = f"{self._status_emoji(status)} {status}"
+        parts = [f"[{branch.task_index + 1}/{branch.task_count}] {status}"]
         if label:
             parts.append(label)
         if settings.show_tool_count and branch.tool_count:
@@ -414,6 +431,37 @@ class ProgressRenderer:
         if settings.show_completion and branch.duration_seconds:
             parts.append(self._duration(branch.duration_seconds))
         return " · ".join(parts)
+
+    def _delegate_connector(self, index: int, total: int) -> str:
+        if total <= 1:
+            return "└"
+        return "└" if index == total - 1 else "├"
+
+    def _delegate_event_label(self, item: str) -> str:
+        plain = self._strip_tool_emoji(item)
+        tool_names = sorted(EMOJI, key=len, reverse=True)
+        for tool_name in tool_names:
+            if plain == tool_name:
+                return f"tool: {item}"
+            if plain.startswith(f"{tool_name}:") and not self._looks_like_progress_output(plain):
+                return f"tool: {item}"
+        return f"update: {item}"
+
+    @staticmethod
+    def _looks_like_progress_output(text: str) -> bool:
+        lowered = str(text or "").lower()
+        return any(token in lowered for token in ("<empty>", "stdout", "stderr", "exit_code"))
+
+    @staticmethod
+    def _status_emoji(status: str) -> str:
+        normalized = str(status or "").strip().lower()
+        if normalized in {"completed", "done"}:
+            return "✅"
+        if normalized in {"failed", "cancelled"}:
+            return "❌"
+        if normalized in {"queued", "pending"}:
+            return "⏳"
+        return "🔄"
 
     @staticmethod
     def _duration(seconds: float) -> str:
