@@ -65,12 +65,16 @@ class SessionContext:
     disabled: bool = False
     tool_lines: deque[str] = field(default_factory=lambda: deque(maxlen=3))
     active_tool_lines: dict[str, str] = field(default_factory=dict)
+    active_tool_fingerprints: dict[str, str] = field(default_factory=dict)
     delegate_branches: dict[str, DelegateBranch] = field(default_factory=dict)
     delegate_order: deque[str] = field(default_factory=deque)
     todo_items: tuple[TodoItem, ...] = ()
     todo_updated_at: float = 0.0
     reasoning_text: str = ""
     reasoning_pending_chars: int = 0
+    last_reasoning_source: str = ""
+    last_reasoning_chars: int = 0
+    last_reasoning_at: float = 0.0
     last_render_at: float = 0.0
     last_event_at: float = field(default_factory=time.monotonic)
     new_events_since_snapshot: int = 0
@@ -147,6 +151,7 @@ class ReasoningEvent:
     session_key: str
     platform: str
     text: str
+    source: str = "structured_reasoning"
     created_at: float = field(default_factory=time.time)
     kind: Literal["reasoning"] = "reasoning"
 

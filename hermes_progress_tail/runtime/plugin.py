@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.9"
+VERSION = "0.1.10"
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -278,13 +279,15 @@ def _on_post_tool_call(
             line,
             tool_call_id=tool_call_id or "",
             tool_name=tool_name,
-            replace_existing=bool(tool_call_id),
+            replace_existing=True,
         ),
     )
     return None
 
 
-def on_reasoning_delta_from_agent(agent: Any, text: str) -> None:
+def on_reasoning_delta_from_agent(
+    agent: Any, text: str, *, source: str = "structured_reasoning"
+) -> None:
     if not text:
         return
     renderer = _get_renderer()
@@ -293,7 +296,9 @@ def on_reasoning_delta_from_agent(agent: Any, text: str) -> None:
     ctx = renderer.find_context(session_id, session_key)
     if ctx is None or not ctx.reasoning_enabled:
         return
-    _schedule_render(ctx, ReasoningEvent(ctx.session_id, ctx.session_key, ctx.platform, text))
+    _schedule_render(
+        ctx, ReasoningEvent(ctx.session_id, ctx.session_key, ctx.platform, text, source=source)
+    )
 
 
 def on_delegate_progress_from_agent(
@@ -370,17 +375,38 @@ def _schedule_finalize(session_id: str = "", platform: str = "", *, purge: bool 
         logger.debug("hermes-progress-tail finalize schedule failed: %s", exc)
 
 
-def _on_post_llm_call(session_id: str = "", **_: Any):
+def _on_post_llm_call(session_id: str = "", agent: Any = None, **_: Any):
+    if agent is not None:
+        try:
+            from ..hooks.monkeypatches import _reset_inline_reasoning_state
+
+            _reset_inline_reasoning_state(agent)
+        except Exception:
+            logger.debug("hermes-progress-tail inline think reset failed", exc_info=True)
     _schedule_finalize(session_id=session_id)
     return None
 
 
-def _on_session_reset(session_id: str = "", platform: str = "", **_: Any):
+def _on_session_reset(session_id: str = "", platform: str = "", agent: Any = None, **_: Any):
+    if agent is not None:
+        try:
+            from ..hooks.monkeypatches import _reset_inline_reasoning_state
+
+            _reset_inline_reasoning_state(agent)
+        except Exception:
+            logger.debug("hermes-progress-tail inline think reset failed", exc_info=True)
     _get_renderer().purge(session_id=session_id, platform=platform)
     return None
 
 
-def _on_session_finalize(session_id: str = "", platform: str = "", **_: Any):
+def _on_session_finalize(session_id: str = "", platform: str = "", agent: Any = None, **_: Any):
+    if agent is not None:
+        try:
+            from ..hooks.monkeypatches import _reset_inline_reasoning_state
+
+            _reset_inline_reasoning_state(agent)
+        except Exception:
+            logger.debug("hermes-progress-tail inline think reset failed", exc_info=True)
     _schedule_finalize(session_id=session_id, platform=platform, purge=True)
     return None
 
@@ -423,6 +449,7 @@ def _command(raw_args: str = "") -> str:
             f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
             f"patch=detail:{settings.patch.detail} preview_chars:{settings.patch.preview_chars} max_files:{settings.patch.max_files}",
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
+            "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
             f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} thinking={settings.delegates.thinking}",
             f"renderer=strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval}",
             f"display.tool_progress={display.get('tool_progress', '<unset>')}",
@@ -444,6 +471,11 @@ def _command(raw_args: str = "") -> str:
                     lines.append(f"session {label}: downgraded={redact_text(ctx.downgrade_reason)}")
                 if ctx.last_error:
                     lines.append(f"session {label}: last_error={redact_text(ctx.last_error)}")
+                if ctx.last_reasoning_source:
+                    when = time.strftime("%H:%M:%S", time.localtime(ctx.last_reasoning_at))
+                    lines.append(
+                        f"session {label}: last_reasoning source={ctx.last_reasoning_source} chars={ctx.last_reasoning_chars} at={when}"
+                    )
         elif _builtin_reasoning_conflict(runtime_config):
             lines.append(_reasoning_conflict_warning())
         return "\n".join(lines)

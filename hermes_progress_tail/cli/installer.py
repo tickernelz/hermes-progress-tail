@@ -55,7 +55,6 @@ DEFAULT_CONFIG = {
         "max_chars": 600,
         "min_update_chars": 80,
         "no_edit_strategy": "off",
-        "capture_inline_think_tags": False,
     },
     "renderer": {
         "strategy": "auto",

@@ -382,6 +382,74 @@ def test_tool_completion_updates_existing_line_when_tool_call_id_matches():
     asyncio.run(run())
 
 
+def test_tool_completion_replaces_running_line_by_fingerprint_without_tool_call_id():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {"progress_tail": {"tools": {"timestamp": False, "show_completed": True}}}
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "discord", "patch: installer.py replace x → y · running"),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "discord",
+                "✅ patch: installer.py replace x → y · done · 1.3s",
+                replace_existing=True,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "patch: installer.py replace x → y · running" not in content
+        assert "✅ patch: installer.py replace x → y · done · 1.3s" in content
+        assert len(ctx.tool_lines) == 1
+
+    asyncio.run(run())
+
+
+def test_tool_completion_replaces_emoji_running_line_by_fingerprint_without_tool_call_id():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {"progress_tail": {"tools": {"timestamp": False, "show_completed": True}}}
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "discord", "💻 terminal: pytest tests/a.py · running"),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "discord",
+                "✅ 💻 terminal: pytest tests/a.py · done · 1.3s",
+                replace_existing=True,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "💻 terminal: pytest tests/a.py · running" not in content
+        assert "✅ 💻 terminal: pytest tests/a.py · done · 1.3s" in content
+        assert len(ctx.tool_lines) == 1
+
+    asyncio.run(run())
+
+
 def test_renderer_compact_density_and_debug_downgrade_visibility():
     async def run():
         adapter = FailingEditAdapter()

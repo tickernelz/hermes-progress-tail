@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from functools import wraps
 from typing import Any
 
@@ -51,6 +52,12 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
                 logger.debug(
                     "hermes-progress-tail could not set noop reasoning callback", exc_info=True
                 )
+        try:
+            self.stream_delta_callback = _wrap_stream_delta_callback(
+                self, getattr(self, "stream_delta_callback", None)
+            )
+        except Exception:
+            logger.debug("hermes-progress-tail could not wrap stream delta callback", exc_info=True)
 
     @wraps(fire_reasoning)
     def patched_fire_reasoning_delta(self, *args, **kwargs):
@@ -73,6 +80,124 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
     agent_cls._fire_reasoning_delta = patched_fire_reasoning_delta
     setattr(agent_cls, _PATCH_MARKER, True)
     return True
+
+
+def _wrap_stream_delta_callback(agent: Any, callback: Any) -> Any:
+    if callback is None or getattr(callback, "_hermes_progress_tail_inline_think_wrapped", False):
+        return callback
+
+    @wraps(callback)
+    def wrapped_stream_delta(text, *args, **kwargs):
+        raw_text = str(text or "")
+        fail_open_text = _inline_reasoning_pending(agent) + raw_text
+        if not _agent_reasoning_enabled(agent):
+            _reset_inline_reasoning_state(agent)
+            return callback(fail_open_text, *args, **kwargs)
+        captured, visible = _capture_inline_reasoning(agent, raw_text)
+        if captured:
+            try:
+                from ..runtime.plugin import on_reasoning_delta_from_agent
+
+                on_reasoning_delta_from_agent(agent, captured, source="inline_think")
+            except Exception:
+                logger.debug("hermes-progress-tail inline think capture failed", exc_info=True)
+                _reset_inline_reasoning_state(agent)
+                visible = fail_open_text
+        return callback(visible, *args, **kwargs)
+
+    wrapped_stream_delta._hermes_progress_tail_inline_think_wrapped = True
+    return wrapped_stream_delta
+
+
+def _agent_reasoning_enabled(agent: Any) -> bool:
+    try:
+        from ..runtime.plugin import _get_renderer
+
+        renderer = _get_renderer()
+        session_id = str(getattr(agent, "session_id", "") or "")
+        session_key = str(getattr(agent, "gateway_session_key", "") or "")
+        ctx = renderer.find_context(session_id, session_key)
+        return bool(
+            ctx is not None and ctx.reasoning_enabled and renderer.settings.reasoning.enabled
+        )
+    except Exception:
+        logger.debug("hermes-progress-tail reasoning availability check failed", exc_info=True)
+        return False
+
+
+def _inline_reasoning_pending(agent: Any) -> str:
+    state = getattr(agent, "_hermes_progress_tail_inline_think_state", None)
+    if not isinstance(state, dict):
+        return ""
+    return str(state.get("pending") or "")
+
+
+def _reset_inline_reasoning_state(agent: Any) -> None:
+    with suppress(Exception):
+        agent._hermes_progress_tail_inline_think_state = {
+            "inside": False,
+            "pending": "",
+            "captured_chars": 0,
+        }
+
+
+def _capture_inline_reasoning(agent: Any, text: str) -> tuple[str, str]:
+    if not text:
+        return "", ""
+    state = getattr(agent, "_hermes_progress_tail_inline_think_state", None)
+    if not isinstance(state, dict):
+        state = {"inside": False, "pending": "", "captured_chars": 0}
+        agent._hermes_progress_tail_inline_think_state = state
+    combined = str(state.get("pending") or "") + text
+    captured, visible, inside, pending = _split_inline_reasoning(
+        combined, bool(state.get("inside"))
+    )
+    captured_chars = int(state.get("captured_chars") or 0) + len(captured)
+    if inside and captured_chars > 8000:
+        _reset_inline_reasoning_state(agent)
+        return "", text
+    state["inside"] = inside
+    state["pending"] = pending
+    state["captured_chars"] = captured_chars if inside else 0
+    return captured, visible
+
+
+def _split_inline_reasoning(text: str, inside: bool = False) -> tuple[str, str, bool, str]:
+    import re
+
+    tag_names = "thinking|reasoning|thought|analysis|REASONING_SCRATCHPAD|think"
+    tag_re = re.compile(rf"</?(?:{tag_names})\b[^>]*>", re.IGNORECASE)
+    captured: list[str] = []
+    visible: list[str] = []
+    pos = 0
+    for match in tag_re.finditer(text):
+        segment = text[pos : match.start()]
+        if inside:
+            captured.append(segment)
+        else:
+            visible.append(segment)
+        tag = match.group(0)
+        inside = not tag.startswith("</")
+        pos = match.end()
+    tail = text[pos:]
+    incomplete = ""
+    last_lt = tail.rfind("<")
+    if last_lt != -1 and _looks_like_partial_reasoning_tag(tail[last_lt:]):
+        incomplete = tail[last_lt:]
+        tail = tail[:last_lt]
+    if inside:
+        captured.append(tail)
+    else:
+        visible.append(tail)
+    return "".join(captured), "".join(visible), inside, incomplete
+
+
+def _looks_like_partial_reasoning_tag(value: str) -> bool:
+    lowered = value.lower().lstrip("<").lstrip("/")
+    return any(
+        tag.startswith(lowered)
+        for tag in ("think", "thinking", "reasoning", "thought", "analysis", "reasoning_scratchpad")
+    )
 
 
 def install_delegate_monkeypatches(delegate_module: Any | None = None) -> bool:

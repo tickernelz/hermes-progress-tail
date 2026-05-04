@@ -20,6 +20,7 @@ def test_load_settings_defaults():
     assert settings.delegates.max_delegates == 4
     assert settings.delegates.lines_per_delegate == 2
     assert settings.delegates.thinking == "off"
+    assert not hasattr(settings.reasoning, "capture_inline_think_tags")
     assert settings.renderer.style == "emoji"
     assert settings.renderer.density == "normal"
 

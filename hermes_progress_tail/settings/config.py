@@ -65,7 +65,6 @@ class ReasoningSettings:
     max_chars: int = 600
     min_update_chars: int = 80
     no_edit_strategy: str = "off"
-    capture_inline_think_tags: bool = False
 
 
 @dataclass(frozen=True)
@@ -278,7 +277,6 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         max_chars=_int(reasoning_raw.get("max_chars"), 600),
         min_update_chars=_int(reasoning_raw.get("min_update_chars"), 80),
         no_edit_strategy=_strategy(reasoning_raw.get("no_edit_strategy"), "off"),
-        capture_inline_think_tags=_bool(reasoning_raw.get("capture_inline_think_tags"), False),
     )
     renderer = RendererSettings(
         strategy=_strategy(renderer_raw.get("strategy"), "auto"),

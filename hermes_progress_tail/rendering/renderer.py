@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 from typing import Any
 
@@ -19,6 +18,7 @@ from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
 from .delegate import DelegateProgressRenderer
 from .delegate import event_preview_args as event_preview_args
+from .reasoning import normalize_reasoning_text, render_reasoning_tail
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +36,16 @@ class ProgressRenderer:
             ctx.message_id = existing.message_id
             ctx.tool_lines = existing.tool_lines
             ctx.active_tool_lines = existing.active_tool_lines
+            ctx.active_tool_fingerprints = existing.active_tool_fingerprints
             ctx.delegate_branches = existing.delegate_branches
             ctx.delegate_order = existing.delegate_order
             ctx.todo_items = existing.todo_items
             ctx.todo_updated_at = existing.todo_updated_at
             ctx.reasoning_text = existing.reasoning_text
             ctx.reasoning_pending_chars = existing.reasoning_pending_chars
+            ctx.last_reasoning_source = existing.last_reasoning_source
+            ctx.last_reasoning_chars = existing.last_reasoning_chars
+            ctx.last_reasoning_at = existing.last_reasoning_at
             ctx.total_events = existing.total_events
             ctx.snapshots_sent = existing.snapshots_sent
             ctx.last_error = existing.last_error
@@ -110,8 +114,8 @@ class ProgressRenderer:
                         await self._render_for_strategy(ctx, event, force=force)
                         return
                 line = self._format_tool_line(ctx, event)
-                if event.replace_existing and event.tool_call_id:
-                    previous = ctx.active_tool_lines.get(event.tool_call_id)
+                if event.replace_existing:
+                    previous = self._find_previous_tool_line(ctx, event, line)
                     if previous in ctx.tool_lines:
                         items = list(ctx.tool_lines)
                         items[items.index(previous)] = line
@@ -119,16 +123,23 @@ class ProgressRenderer:
                         ctx.tool_lines.extend(items)
                     else:
                         ctx.tool_lines.append(line)
-                    ctx.active_tool_lines[event.tool_call_id] = line
+                    if event.tool_call_id:
+                        ctx.active_tool_lines[event.tool_call_id] = line
+                    fingerprint = self._tool_line_fingerprint(line)
+                    if fingerprint:
+                        ctx.active_tool_fingerprints[fingerprint] = line
                     force = True
                 else:
                     ctx.tool_lines.append(line)
                     if event.tool_call_id:
                         ctx.active_tool_lines[event.tool_call_id] = line
+                    fingerprint = self._tool_line_fingerprint(line)
+                    if fingerprint:
+                        ctx.active_tool_fingerprints[fingerprint] = line
             elif isinstance(event, DelegateEvent):
                 self.delegate_renderer.apply_event(ctx, event)
             else:
-                pending = self._append_reasoning(ctx, event.text)
+                pending = self._append_reasoning(ctx, event)
                 if (
                     not force
                     and ctx.message_id
@@ -176,17 +187,57 @@ class ProgressRenderer:
         if purge:
             self.purge(session_id=ctx.session_id)
 
-    def _append_reasoning(self, ctx: SessionContext, text: str) -> int:
-        if not text:
+    def _append_reasoning(self, ctx: SessionContext, event: ReasoningEvent) -> int:
+        if not event.text:
             return 0
-        merged = ctx.reasoning_text + str(text)
+        merged = ctx.reasoning_text + str(event.text)
         merged = self._normalize_reasoning(merged)
         max_chars = self.settings.reasoning.max_chars
         if len(merged) > max_chars:
             merged = merged[-max_chars:].lstrip()
         ctx.reasoning_text = merged
-        ctx.reasoning_pending_chars += len(str(text))
+        ctx.reasoning_pending_chars += len(str(event.text))
+        ctx.last_reasoning_source = event.source or "structured_reasoning"
+        ctx.last_reasoning_chars = len(str(event.text))
+        ctx.last_reasoning_at = event.created_at
         return ctx.reasoning_pending_chars
+
+    def _find_previous_tool_line(self, ctx: SessionContext, event: ToolEvent, line: str) -> str:
+        if event.tool_call_id:
+            previous = ctx.active_tool_lines.get(event.tool_call_id, "")
+            if previous:
+                return previous
+        fingerprint = self._tool_line_fingerprint(line)
+        if fingerprint:
+            previous = ctx.active_tool_fingerprints.get(fingerprint, "")
+            if previous:
+                return previous
+        return ""
+
+    @staticmethod
+    def _tool_line_fingerprint(line: str) -> str:
+        text = line.strip()
+        if "] " in text and text.startswith("["):
+            text = text.split("] ", 1)[1]
+        for prefix in (
+            "✅ ",
+            "❌ ",
+            "🔎 ",
+            "📖 ",
+            "✍️ ",
+            "🔧 ",
+            "💻 ",
+            "📋 ",
+            "🧑‍💻 ",
+            "🧰 ",
+        ):
+            if text.startswith(prefix):
+                text = text[len(prefix) :]
+        for suffix in (" · running", " · done", " · failed"):
+            if suffix in text:
+                text = text.split(suffix, 1)[0]
+                break
+        return text.strip()
 
     def _content(self, ctx: SessionContext) -> str:
         parts = []
@@ -309,35 +360,31 @@ class ProgressRenderer:
         ctx.message_id = None
         ctx.tool_lines.clear()
         ctx.active_tool_lines.clear()
+        ctx.active_tool_fingerprints.clear()
         ctx.delegate_branches.clear()
         ctx.delegate_order.clear()
         ctx.todo_items = ()
         ctx.todo_updated_at = 0.0
         ctx.reasoning_text = ""
         ctx.reasoning_pending_chars = 0
+        ctx.last_reasoning_source = ""
+        ctx.last_reasoning_chars = 0
+        ctx.last_reasoning_at = 0.0
         ctx.new_events_since_snapshot = 0
         ctx.snapshots_sent = 0
         ctx.total_events = 0
 
     def _reasoning_tail(self, ctx: SessionContext) -> str:
-        text = ctx.reasoning_text.strip()
-        if not text:
-            return ""
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        max_lines = self.settings.reasoning.max_lines
-        if lines:
-            text = "\n".join(lines[-max_lines:])
-        max_chars = self.settings.reasoning.max_chars
-        if len(text) > max_chars:
-            text = text[-max_chars:].lstrip()
-        return redact_text(text)
+        return render_reasoning_tail(
+            ctx.reasoning_text,
+            max_lines=self.settings.reasoning.max_lines,
+            max_chars=self.settings.reasoning.max_chars,
+            redact=self.settings.renderer.redact_secrets,
+        )
 
     @staticmethod
     def _normalize_reasoning(text: str) -> str:
-        text = text.replace("\r\n", "\n").replace("\r", "\n")
-        text = re.sub(r"[ \t]+", " ", text)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text
+        return normalize_reasoning_text(text)
 
     async def _render_live(self, ctx: SessionContext, force: bool = False) -> None:
         now = time.monotonic()
