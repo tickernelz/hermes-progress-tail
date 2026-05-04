@@ -23,37 +23,37 @@ Compact Hermes gateway plugin for live progress tails.
 Interactive by default:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.9/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.11/install.sh | bash
 ```
 
 Non-interactive default-profile install/update:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.9/install.sh | env HPT_INTERACTIVE=0 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.11/install.sh | env HPT_INTERACTIVE=0 bash
 ```
 
 Dry-run is non-interactive by default:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.9/install.sh | env HPT_DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.11/install.sh | env HPT_DRY_RUN=1 bash
 ```
 
 Install/update selected profiles:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.9/install.sh | env HPT_PROFILES=work,personal bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.11/install.sh | env HPT_PROFILES=work,personal bash
 ```
 
 Install/update all profiles including default:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.9/install.sh | env HPT_ALL_PROFILES=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.11/install.sh | env HPT_ALL_PROFILES=1 bash
 ```
 
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.9/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.11/uninstall.sh | bash
 ```
 
 Local install:
@@ -81,32 +81,61 @@ display:
 
 progress_tail:
   enabled: true
+
   tools:
     enabled: true
     lines: 3
-    show_completed: false
+    preview_length: 120
+    show_completed: true   # replace running lines with done/failed status
     show_duration: true
     timestamp: true
     timestamp_format: "%H:%M"
+
   delegates:
     enabled: true
     max_delegates: 4
     lines_per_delegate: 2
+    max_goal_chars: 48
+    max_line_chars: 120
+    show_model: false
+    show_tool_count: true
+    show_completion: true
     thinking: off # off|summary
+
   todo:
     sticky: true
     hide_tool_line: true
+    max_pending: 3
+    max_completed: 3
+    max_cancelled: 2
+    max_item_chars: 40
+
   patch:
     detail: smart # off|path|smart|stats
     preview_chars: 48
     max_files: 3
-  renderer:
-    style: emoji # emoji|plain
-    density: normal # compact|normal|debug
+
   reasoning:
     enabled: true
     max_lines: 3
     max_chars: 600
+    min_update_chars: 80
+    no_edit_strategy: off
+
+  renderer:
+    strategy: auto
+    edit_interval: 1.5
+    stale_ttl_seconds: 900
+    redact_secrets: true
+    mode: sectioned
+    style: emoji # emoji|plain
+    density: normal # compact|normal|debug
+
+  no_edit:
+    interval_seconds: 30
+    min_new_events: 3
+    final_summary: true
+    max_snapshots_per_turn: 5
 ```
 
 ## Commands

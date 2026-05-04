@@ -91,6 +91,6 @@ def test_pre_tool_call_formats_and_renders(monkeypatch):
         await asyncio.sleep(0.05)
 
         assert adapter.sent
-        assert adapter.sent[0][1] == "🧰 Tools\n💻 terminal: npm test"
+        assert adapter.sent[0][1] == "🧰 Tools\n💻 terminal: npm test · running"
 
     asyncio.run(run())

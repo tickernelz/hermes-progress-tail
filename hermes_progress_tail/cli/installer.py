@@ -20,7 +20,7 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "lines": 3,
         "preview_length": 120,
-        "show_completed": False,
+        "show_completed": True,
         "show_duration": True,
         "timestamp": True,
         "timestamp_format": "%H:%M",
@@ -217,7 +217,7 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
                 "enabled": True,
                 "lines": defaults.get("lines", 3),
                 "preview_length": defaults.get("preview_length", 120),
-                "show_completed": defaults.get("show_completed", False),
+                "show_completed": defaults.get("show_completed", True),
                 "show_duration": defaults.get("show_duration", True),
                 "timestamp": defaults.get("timestamp", True),
                 "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
@@ -498,6 +498,49 @@ def _confirm(prompt: str, default: bool = True, input_stream: Any = sys.stdin) -
     return answer in {"y", "yes", "1", "true", "on"}
 
 
+def _prompt_int(
+    prompt: str, default: int, input_stream: Any = sys.stdin, *, min_value: int = 1
+) -> int:
+    answer = _prompt(input_stream, f"{prompt} [{default}]: ")
+    if not answer:
+        return default
+    try:
+        value = int(answer)
+    except ValueError as exc:
+        raise ValueError(f"invalid integer for {prompt!r}: {answer}") from exc
+    if value < min_value:
+        raise ValueError(f"{prompt!r} must be >= {min_value}")
+    return value
+
+
+def _prompt_float(
+    prompt: str, default: float, input_stream: Any = sys.stdin, *, min_value: float = 0.0
+) -> float:
+    answer = _prompt(input_stream, f"{prompt} [{default:g}]: ")
+    if not answer:
+        return default
+    try:
+        value = float(answer)
+    except ValueError as exc:
+        raise ValueError(f"invalid number for {prompt!r}: {answer}") from exc
+    if value <= min_value:
+        raise ValueError(f"{prompt!r} must be > {min_value:g}")
+    return value
+
+
+def _prompt_choice(
+    prompt: str, choices: tuple[str, ...], default: str, input_stream: Any = sys.stdin
+) -> str:
+    answer = _prompt(input_stream, f"{prompt} ({'|'.join(choices)}) [{default}]: ").strip().lower()
+    if not answer:
+        return default
+    if answer not in choices:
+        raise ValueError(
+            f"invalid choice for {prompt!r}: {answer}. Expected one of: {', '.join(choices)}"
+        )
+    return answer
+
+
 def _select_profiles_interactive(
     hermes_home: Path, input_stream: Any = sys.stdin, *, action: str = "install"
 ) -> tuple[list[str] | None, bool]:
@@ -538,27 +581,123 @@ def _interactive_install_options(
     hermes_home: Path, input_stream: Any = sys.stdin
 ) -> tuple[list[str] | None, bool, bool, dict[str, Any]]:
     print("hermes-progress-tail interactive installer")
+    print("Press Enter to accept the recommended default shown in brackets.")
     profiles, all_profiles = _select_profiles_interactive(hermes_home, input_stream)
-    tools = _confirm("Enable tool progress tail?", True, input_stream)
-    delegates = _confirm("Enable delegate_task/subagent progress?", True, input_stream)
-    todo = _confirm("Enable sticky todo section?", True, input_stream)
-    reasoning = _confirm("Enable reasoning/thinking tail?", True, input_stream)
-    plain = _confirm("Use plain renderer style instead of emoji?", False, input_stream)
-    compact = _confirm("Use compact renderer density?", False, input_stream)
+
+    print("\nTool progress")
+    tools = {
+        "enabled": _confirm("Enable tool progress tail", True, input_stream),
+        "lines": _prompt_int("Latest tool lines to keep", 3, input_stream),
+        "preview_length": _prompt_int(
+            "Tool preview max characters", 120, input_stream, min_value=24
+        ),
+        "show_completed": _confirm(
+            "Show completion status by replacing running tool lines", True, input_stream
+        ),
+        "show_duration": _confirm(
+            "Show tool duration on completed/failed lines", True, input_stream
+        ),
+        "timestamp": _confirm("Show compact timestamps on tool lines", True, input_stream),
+        "timestamp_format": "%H:%M",
+    }
+
+    print("\nDelegate/subagent progress")
+    delegates = {
+        "enabled": _confirm("Enable delegate_task/subagent progress", True, input_stream),
+        "max_delegates": _prompt_int("Maximum visible delegates", 4, input_stream),
+        "lines_per_delegate": _prompt_int("Timeline lines per delegate", 2, input_stream),
+        "max_goal_chars": _prompt_int(
+            "Delegate title max characters", 48, input_stream, min_value=12
+        ),
+        "max_line_chars": _prompt_int(
+            "Delegate line max characters", 120, input_stream, min_value=24
+        ),
+        "show_model": _confirm("Show delegate model names", False, input_stream),
+        "show_tool_count": _confirm("Show delegate tool count", True, input_stream),
+        "show_completion": _confirm("Show delegate completion summary", True, input_stream),
+        "thinking": _prompt_choice(
+            "Delegate thinking display", ("off", "summary"), "off", input_stream
+        ),
+    }
+
+    print("\nSticky Todo section")
+    todo = {
+        "sticky": _confirm("Enable sticky todo section", True, input_stream),
+        "hide_tool_line": _confirm("Hide duplicate todo tool line", True, input_stream),
+        "max_pending": _prompt_int("Maximum pending todo items shown", 3, input_stream),
+        "max_completed": _prompt_int("Maximum completed todo items shown", 3, input_stream),
+        "max_cancelled": _prompt_int("Maximum cancelled todo items shown", 2, input_stream),
+        "max_item_chars": _prompt_int("Todo item max characters", 40, input_stream, min_value=10),
+    }
+
+    print("\nReasoning/thinking tail")
+    reasoning = {
+        "enabled": _confirm("Enable reasoning/thinking tail", True, input_stream),
+        "max_lines": _prompt_int("Reasoning max lines", 3, input_stream),
+        "max_chars": _prompt_int("Reasoning max characters", 600, input_stream, min_value=80),
+        "min_update_chars": _prompt_int(
+            "Reasoning minimum new characters before edit", 80, input_stream
+        ),
+        "no_edit_strategy": _prompt_choice(
+            "Reasoning behavior on no-edit platforms",
+            ("auto", "live_tail", "snapshot", "summary_only", "off"),
+            "off",
+            input_stream,
+        ),
+    }
+
+    print("\nPatch formatter")
+    patch = {
+        "detail": _prompt_choice(
+            "Patch detail mode", ("off", "path", "smart", "stats"), "smart", input_stream
+        ),
+        "preview_chars": _prompt_int(
+            "Patch preview max characters", 48, input_stream, min_value=10
+        ),
+        "max_files": _prompt_int("Maximum patch files in summary", 3, input_stream),
+    }
+
+    print("\nRenderer")
+    renderer = {
+        "strategy": _prompt_choice(
+            "Renderer update strategy",
+            ("auto", "live_tail", "snapshot", "summary_only", "off"),
+            "auto",
+            input_stream,
+        ),
+        "mode": _prompt_choice(
+            "Renderer layout mode", ("sectioned", "compact"), "sectioned", input_stream
+        ),
+        "style": _prompt_choice("Renderer style", ("emoji", "plain"), "emoji", input_stream),
+        "density": _prompt_choice(
+            "Renderer density", ("compact", "normal", "debug"), "normal", input_stream
+        ),
+        "edit_interval": _prompt_float("Minimum seconds between live edits", 1.5, input_stream),
+        "stale_ttl_seconds": _prompt_int("Stale session TTL seconds", 900, input_stream),
+        "redact_secrets": _confirm("Redact common secrets before rendering", True, input_stream),
+    }
+
+    print("\nNo-edit platform snapshots")
+    no_edit = {
+        "interval_seconds": _prompt_int("Snapshot interval seconds", 30, input_stream),
+        "min_new_events": _prompt_int("Minimum new events before snapshot", 3, input_stream),
+        "final_summary": _confirm("Send final snapshot summary", True, input_stream),
+        "max_snapshots_per_turn": _prompt_int("Maximum snapshots per turn", 5, input_stream),
+    }
+
     set_display_off = _confirm(
-        "Disable Hermes built-in progress/reasoning display to avoid duplicates?",
+        "Disable Hermes built-in progress/reasoning display to avoid duplicates",
         True,
         input_stream,
     )
     overrides = {
-        "tools": {"enabled": tools},
-        "delegates": {"enabled": delegates},
-        "todo": {"sticky": todo},
-        "reasoning": {"enabled": reasoning},
-        "renderer": {
-            "style": "plain" if plain else "emoji",
-            "density": "compact" if compact else "normal",
-        },
+        "tools": tools,
+        "delegates": delegates,
+        "todo": todo,
+        "reasoning": reasoning,
+        "patch": patch,
+        "renderer": renderer,
+        "no_edit": no_edit,
     }
     return profiles, all_profiles, set_display_off, overrides
 

@@ -22,7 +22,7 @@ class ToolSettings:
     enabled: bool = True
     lines: int = 3
     preview_length: int = 120
-    show_completed: bool = False
+    show_completed: bool = True
     show_duration: bool = True
     timestamp: bool = True
     timestamp_format: str = "%H:%M"
@@ -157,7 +157,7 @@ def _legacy_to_progress_tail(section: dict[str, Any]) -> dict[str, Any]:
             "enabled": True,
             "lines": defaults.get("lines", 3),
             "preview_length": defaults.get("preview_length", 120),
-            "show_completed": defaults.get("show_completed", False),
+            "show_completed": defaults.get("show_completed", True),
             "show_duration": defaults.get("show_duration", True),
             "timestamp": defaults.get("timestamp", True),
             "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
@@ -242,7 +242,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         enabled=_bool(tools_raw.get("enabled"), True),
         lines=_int(tools_raw.get("lines"), 3),
         preview_length=_int(tools_raw.get("preview_length"), 120),
-        show_completed=_bool(tools_raw.get("show_completed"), False),
+        show_completed=_bool(tools_raw.get("show_completed"), True),
         show_duration=_bool(tools_raw.get("show_duration"), True),
         timestamp=_bool(tools_raw.get("timestamp"), True),
         timestamp_format=str(tools_raw.get("timestamp_format") or "%H:%M"),
