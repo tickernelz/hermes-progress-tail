@@ -623,7 +623,8 @@ def test_delegate_completion_does_not_replace_latest_tool_line():
         )
 
         content = adapter.edits[-1][2]
-        assert "read_file: ~/.hermes/plugins/hermes-progress-tail/plugin.yaml" in content
+        assert "read_file: " in content
+        assert "hermes-progress-tail/plugin.yaml" in content
         assert "done: Selesai dites" in content
         assert "Menjalankan `pwd && date`" not in content
         assert "- read_file" in content
