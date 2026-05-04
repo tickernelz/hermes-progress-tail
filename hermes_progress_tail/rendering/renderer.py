@@ -18,7 +18,7 @@ from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
 from .delegate import DelegateProgressRenderer
 from .delegate import event_preview_args as event_preview_args
-from .reasoning import normalize_reasoning_text, render_reasoning_tail
+from .reasoning import normalize_reasoning_text, render_reasoning_tail, split_reasoning_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -193,8 +193,8 @@ class ProgressRenderer:
         merged = ctx.reasoning_text + str(event.text)
         merged = self._normalize_reasoning(merged)
         max_chars = self.settings.reasoning.max_chars
-        if len(merged) > max_chars:
-            merged = merged[-max_chars:].lstrip()
+        if len(merged) > max_chars * 4:
+            merged = self._trim_reasoning_buffer(merged, max_chars * 4)
         ctx.reasoning_text = merged
         ctx.reasoning_pending_chars += len(str(event.text))
         ctx.last_reasoning_source = event.source or "structured_reasoning"
@@ -354,6 +354,26 @@ class ProgressRenderer:
             suffix = f" +{hidden} more" if hidden > 0 else ""
             lines.append(f"{labels[status]} ({len(values)}): {visible}{suffix}")
         return lines or ["no tasks"]
+
+    @staticmethod
+    def _trim_reasoning_buffer(text: str, max_chars: int) -> str:
+        blocks = split_reasoning_blocks(text)
+        if blocks and blocks[-1].heading:
+            latest = blocks[-1]
+            heading = latest.heading
+            if latest.heading_style == "bold":
+                heading = f"**{heading}**"
+            elif latest.heading_style == "colon":
+                heading = f"{heading}:"
+            elif latest.heading_style == "markdown":
+                heading = f"## {heading}"
+            latest_block = (heading + "\n" + latest.body).strip()
+            if len(latest_block) <= max_chars:
+                return latest_block
+            body_budget = max_chars - len(heading) - 1
+            if body_budget > 0:
+                return heading + "\n" + latest.body[-body_budget:].lstrip()
+        return text[-max_chars:].lstrip()
 
     @staticmethod
     def _reset_turn(ctx: SessionContext) -> None:

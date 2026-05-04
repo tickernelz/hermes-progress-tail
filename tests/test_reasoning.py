@@ -239,10 +239,129 @@ I need to avoid weird command typos, so using larger text and fewer repetitions 
     rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
 
     assert rendered == (
-        "Refining command clarity\n"
+        "**Refining command clarity**\n"
         "I need to avoid weird command typos, so using larger text and fewer repetitions might help. I'll write a new prompt ensuring no misspellings or the word terminal is used."
     )
     assert "simpler approach" not in rendered
+
+
+def test_gpt55_markdown_reasoning_tail_preserves_bold_heading_marker():
+    text = """
+**Planning cancellation metadata**
+
+I'm considering the model-level fields for cancellation requests, such as cancellation reason, who requested it, and when. The engine might store these requests, but the business record could need to keep reasons persistently.
+"""
+
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
+
+    assert rendered.startswith("**Planning cancellation metadata**\n")
+    assert "I'm considering the model-level fields" in rendered
+
+
+def test_gpt55_long_body_reasoning_tail_keeps_heading_and_sentence_boundary():
+    text = """
+**Planning cancellation metadata**
+
+I'm considering the model-level fields for cancellation requests, such as cancellation reason, who requested it, and when. The engine might store these requests, but the business record could need to keep reasons persistently. I think approvals should log comments only for rejections, while cancellations should definitely include reasons submitted by users. Maybe I'll plan to add a metadata field for the request, like request_reason or request_payload in JSON. Though, I should keep the schema minimal and not overfit the first workflow.
+"""
+
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=260, redact=False)
+
+    assert rendered.startswith("**Planning cancellation metadata**\n")
+    assert rendered.endswith("...")
+    assert not rendered.endswith("I ")
+    assert "The engine might store" not in rendered or not rendered.endswith("I ")
+
+
+def test_gpt55_live_reasoning_buffer_preserves_heading_when_max_chars_truncates():
+    text = """
+**Planning cancellation metadata**
+
+I'm considering the model-level fields for cancellation requests, such as cancellation reason, who requested it, and when. The engine might store these requests, but the business record could need to keep reasons persistently. I think approvals should log comments only for rejections, while cancellations should definitely include reasons submitted by users. Maybe I'll plan to add a metadata field for the request, like request_reason or request_payload in JSON. Though, I should keep the schema minimal and not overfit the first workflow.
+"""
+    event = ReasoningEvent("s1", "k1", "discord", text)
+    renderer = ProgressRenderer(
+        load_settings({"progress_tail": {"reasoning": {"max_chars": 260, "min_update_chars": 1}}})
+    )
+    ctx = SessionContext("s1", "k1", "discord", "chat", None, EditableAdapter(), None, "live_tail")
+
+    renderer._append_reasoning(ctx, event)
+
+    rendered = render_reasoning_tail(ctx.reasoning_text, max_lines=3, max_chars=260, redact=False)
+    assert rendered.startswith("**Planning cancellation metadata**\n")
+    assert not rendered.endswith("I ")
+
+
+def test_capped_markdown_heading_reasoning_preserves_heading():
+    text = """
+## Planning cancellation metadata
+
+The first sentence is intentionally long enough that it needs capping but the markdown heading must remain visible. The second sentence should not cause the renderer to fall back into raw tail mode.
+"""
+
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=105, redact=False)
+
+    assert rendered.startswith("Planning cancellation metadata\n")
+    assert rendered.endswith("...")
+
+
+def test_capped_colon_heading_reasoning_preserves_heading():
+    text = """
+Planning cancellation metadata:
+
+The first sentence is intentionally long enough that it needs capping but the colon heading must remain visible. The second sentence should not cause the renderer to fall back into raw tail mode.
+"""
+
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=105, redact=False)
+
+    assert rendered.startswith("Planning cancellation metadata\n")
+    assert rendered.endswith("...")
+
+
+def test_plain_multiline_reasoning_keeps_raw_tail_when_capped():
+    text = """Need inspect hooks
+first chunk should be old
+second chunk should remain
+third chunk is newest"""
+
+    rendered = render_reasoning_tail(text, max_lines=4, max_chars=55, redact=False)
+
+    assert rendered == "be old\nsecond chunk should remain\nthird chunk is newest"
+    assert "Need inspect hooks" not in rendered
+
+
+def test_very_long_gpt55_live_reasoning_buffer_preserves_latest_heading():
+    heading = "**Planning cancellation metadata**"
+    long_body = " ".join(f"body{i}" for i in range(180))
+    renderer = ProgressRenderer(
+        load_settings({"progress_tail": {"reasoning": {"max_chars": 80, "min_update_chars": 1}}})
+    )
+    ctx = SessionContext("s1", "k1", "discord", "chat", None, EditableAdapter(), None, "live_tail")
+
+    renderer._append_reasoning(
+        ctx, ReasoningEvent("s1", "k1", "discord", f"{heading}\n\n{long_body}")
+    )
+
+    assert ctx.reasoning_text.startswith(heading)
+    rendered = render_reasoning_tail(ctx.reasoning_text, max_lines=3, max_chars=80, redact=False)
+    assert rendered.startswith(f"{heading}\n")
+
+
+def test_very_long_colon_heading_live_reasoning_buffer_preserves_latest_heading():
+    heading = "Planning cancellation metadata:"
+    long_body = " ".join(f"body{i}" for i in range(180))
+    renderer = ProgressRenderer(
+        load_settings({"progress_tail": {"reasoning": {"max_chars": 80, "min_update_chars": 1}}})
+    )
+    ctx = SessionContext("s1", "k1", "discord", "chat", None, EditableAdapter(), None, "live_tail")
+
+    renderer._append_reasoning(
+        ctx, ReasoningEvent("s1", "k1", "discord", f"{heading}\n\n{long_body}")
+    )
+
+    assert ctx.reasoning_text.startswith("Planning cancellation metadata:\n")
+    rendered = render_reasoning_tail(ctx.reasoning_text, max_lines=3, max_chars=80, redact=False)
+    assert rendered.startswith("Planning cancellation metadata\n")
 
 
 def test_reasoning_tail_extracts_inline_think_tags_automatically():
@@ -275,7 +394,7 @@ Need continue carefully.
 
     rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
 
-    assert rendered == "Checking result\nNeed continue carefully."
+    assert rendered == "**Checking result**\nNeed continue carefully."
     assert "signature" not in rendered.lower()
     assert "encrypted" not in rendered.lower()
 
