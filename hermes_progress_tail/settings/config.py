@@ -4,7 +4,9 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 VALID_STRATEGIES = {"auto", "live_tail", "snapshot", "summary_only", "off"}
+VALID_CODE_FENCE = {"auto", "on", "off"}
 BATCH_DEFAULT_OFF = {"email", "sms", "webhook", "homeassistant"}
+CODE_FENCE_DEFAULTS = {"discord", "telegram", "slack", "mattermost"}
 SNAPSHOT_DEFAULTS = {
     "slack",
     "signal",
@@ -68,6 +70,22 @@ class ReasoningSettings:
 
 
 @dataclass(frozen=True)
+class BackgroundJobSettings:
+    enabled: bool = True
+    list_running: bool = True
+    show_completed: bool = True
+    completed_ttl_seconds: int = 180
+    max_jobs: int = 4
+    head_lines: int = 2
+    tail_lines: int = 3
+    max_line_chars: int = 120
+    update_interval_seconds: int = 3
+    suppress_native_notify: bool = True
+    suppress_watch_notifications: bool = True
+    default_notify_on_complete: bool = False
+
+
+@dataclass(frozen=True)
 class LegacyDefaultSettings:
     lines: int = 3
     preview_length: int = 120
@@ -86,6 +104,8 @@ class RendererSettings:
     mode: str = "sectioned"
     style: Literal["emoji", "plain"] = "emoji"
     density: Literal["compact", "normal", "debug"] = "normal"
+    code_fence: Literal["auto", "on", "off"] = "auto"
+    code_fence_language: str = ""
 
 
 @dataclass(frozen=True)
@@ -109,8 +129,10 @@ class PlatformSettings:
     tools_enabled: bool = True
     reasoning_enabled: bool = True
     delegates_enabled: bool = True
+    background_jobs_enabled: bool = True
     timestamp: bool = True
     timestamp_format: str = "%H:%M"
+    code_fence: Literal["auto", "on", "off"] = "auto"
 
 
 @dataclass(frozen=True)
@@ -121,6 +143,7 @@ class Settings:
     todo: TodoSettings = TodoSettings()
     patch: PatchSettings = PatchSettings()
     reasoning: ReasoningSettings = ReasoningSettings()
+    background_jobs: BackgroundJobSettings = BackgroundJobSettings()
     renderer: RendererSettings = RendererSettings()
     no_edit: NoEditSettings = NoEditSettings()
     platforms: dict[str, dict[str, Any]] | None = None
@@ -226,6 +249,11 @@ def _delegate_thinking(value: Any, default: str = "off") -> Literal["off", "summ
     return "summary" if val == "summary" else "off"
 
 
+def _code_fence(value: Any, default: str = "auto") -> Literal["auto", "on", "off"]:
+    val = str(value or default).strip().lower()
+    return val if val in VALID_CODE_FENCE else "auto"
+
+
 def load_settings(config: dict[str, Any] | None) -> Settings:
     section = _as_dict(config)
     legacy_defaults = section.get("defaults") if isinstance(section.get("defaults"), dict) else {}
@@ -238,6 +266,9 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     no_edit_raw = section.get("no_edit") if isinstance(section.get("no_edit"), dict) else {}
     todo_raw = section.get("todo") if isinstance(section.get("todo"), dict) else {}
     patch_raw = section.get("patch") if isinstance(section.get("patch"), dict) else {}
+    background_raw = (
+        section.get("background_jobs") if isinstance(section.get("background_jobs"), dict) else {}
+    )
     tools = ToolSettings(
         enabled=_bool(tools_raw.get("enabled"), True),
         lines=_int(tools_raw.get("lines"), 3),
@@ -278,6 +309,22 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         min_update_chars=_int(reasoning_raw.get("min_update_chars"), 80),
         no_edit_strategy=_strategy(reasoning_raw.get("no_edit_strategy"), "off"),
     )
+    background_jobs = BackgroundJobSettings(
+        enabled=_bool(background_raw.get("enabled"), True),
+        list_running=_bool(background_raw.get("list_running"), True),
+        show_completed=_bool(background_raw.get("show_completed"), True),
+        completed_ttl_seconds=_int(background_raw.get("completed_ttl_seconds"), 180),
+        max_jobs=_int(background_raw.get("max_jobs"), 4),
+        head_lines=_int(background_raw.get("head_lines"), 2),
+        tail_lines=_int(background_raw.get("tail_lines"), 3),
+        max_line_chars=_int(background_raw.get("max_line_chars"), 120, min_value=24),
+        update_interval_seconds=_int(background_raw.get("update_interval_seconds"), 3),
+        suppress_native_notify=_bool(background_raw.get("suppress_native_notify"), True),
+        suppress_watch_notifications=_bool(
+            background_raw.get("suppress_watch_notifications"), True
+        ),
+        default_notify_on_complete=_bool(background_raw.get("default_notify_on_complete"), False),
+    )
     renderer = RendererSettings(
         strategy=_strategy(renderer_raw.get("strategy"), "auto"),
         edit_interval=_float(renderer_raw.get("edit_interval"), 1.5),
@@ -286,6 +333,8 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         mode=str(renderer_raw.get("mode") or "sectioned").strip().lower() or "sectioned",
         style=_style(renderer_raw.get("style"), "emoji"),
         density=_density(renderer_raw.get("density"), "normal"),
+        code_fence=_code_fence(renderer_raw.get("code_fence"), "auto"),
+        code_fence_language=str(renderer_raw.get("code_fence_language") or ""),
     )
     no_edit = NoEditSettings(
         interval_seconds=_int(no_edit_raw.get("interval_seconds"), 30),
@@ -301,6 +350,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         todo=todo,
         patch=patch,
         reasoning=reasoning,
+        background_jobs=background_jobs,
         renderer=renderer,
         no_edit=no_edit,
         platforms=platforms,
@@ -325,8 +375,10 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         tools_enabled=settings.tools.enabled,
         reasoning_enabled=settings.reasoning.enabled,
         delegates_enabled=settings.delegates.enabled,
+        background_jobs_enabled=settings.background_jobs.enabled,
         timestamp=settings.tools.timestamp,
         timestamp_format=settings.tools.timestamp_format,
+        code_fence=settings.renderer.code_fence,
     )
     raw = (settings.platforms or {}).get(platform, {})
     if not isinstance(raw, dict):
@@ -348,6 +400,11 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         delegates_enabled=_bool(
             raw.get("delegates", raw.get("delegates_enabled")), base.delegates_enabled
         ),
+        background_jobs_enabled=_bool(
+            raw.get("background_jobs", raw.get("background_jobs_enabled")),
+            base.background_jobs_enabled,
+        ),
         timestamp=_bool(raw.get("timestamp"), base.timestamp),
         timestamp_format=str(raw.get("timestamp_format") or base.timestamp_format),
+        code_fence=_code_fence(raw.get("code_fence"), base.code_fence),
     )

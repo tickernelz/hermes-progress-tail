@@ -10,7 +10,13 @@ import yaml
 
 from ..gateway.compat import platform_name, source_chat_id, source_thread_id
 from ..hooks.monkeypatches import install_monkeypatches
-from ..models.state import DelegateEvent, ReasoningEvent, SessionContext, ToolEvent
+from ..models.state import (
+    BackgroundJobEvent,
+    DelegateEvent,
+    ReasoningEvent,
+    SessionContext,
+    ToolEvent,
+)
 from ..rendering.formatter import extract_todo_items, format_tool_line
 from ..rendering.renderer import ProgressRenderer
 from ..settings.config import load_settings, resolve_platform_settings
@@ -18,7 +24,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.16"
+VERSION = "0.1.17"
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -166,15 +172,17 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
         tools_enabled=settings.tools_enabled,
         reasoning_enabled=settings.reasoning_enabled,
         delegates_enabled=settings.delegates_enabled,
+        background_jobs_enabled=settings.background_jobs_enabled,
         timestamp=settings.timestamp,
         timestamp_format=settings.timestamp_format,
+        code_fence=settings.code_fence,
     )
     renderer.register_context(ctx)
     return None
 
 
 def _schedule_render(
-    ctx: SessionContext, event: ToolEvent | ReasoningEvent | DelegateEvent
+    ctx: SessionContext, event: ToolEvent | ReasoningEvent | DelegateEvent | BackgroundJobEvent
 ) -> None:
     renderer = _get_renderer()
     if ctx.loop is None:
@@ -230,6 +238,114 @@ def _duration_text(duration_ms: int | float | None) -> str:
     return f"{seconds:.0f}s"
 
 
+def _json_obj(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return {}
+    try:
+        import json
+
+        parsed = json.loads(value)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _terminal_background_requested(args: dict | None) -> bool:
+    return isinstance(args, dict) and bool(args.get("background"))
+
+
+def _suppress_native_background_notify(process_id: str) -> None:
+    if not process_id:
+        return
+    try:
+        from tools.process_registry import process_registry
+
+        session = process_registry.get(process_id)
+        if session is not None:
+            if _get_renderer().settings.background_jobs.suppress_native_notify:
+                session.notify_on_complete = False
+                session.watcher_interval = 0
+            if _get_renderer().settings.background_jobs.suppress_watch_notifications:
+                session.watch_patterns = []
+        process_registry.pending_watchers[:] = [
+            watcher
+            for watcher in process_registry.pending_watchers
+            if watcher.get("session_id") != process_id
+        ]
+    except Exception:
+        logger.debug(
+            "hermes-progress-tail failed to suppress native background notify", exc_info=True
+        )
+
+
+def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
+    if not process_id or ctx.loop is None or not _get_renderer().settings.background_jobs.enabled:
+        return
+    job = ctx.background_jobs.get(process_id)
+    if job is not None and job.poll_task is not None and not job.poll_task.done():
+        return
+
+    async def _poll() -> None:
+        try:
+            while True:
+                await asyncio.sleep(
+                    _get_renderer().settings.background_jobs.update_interval_seconds
+                )
+                try:
+                    from tools.process_registry import process_registry
+
+                    session = process_registry.get(process_id)
+                except Exception:
+                    session = None
+                if session is None:
+                    _schedule_render(
+                        ctx,
+                        BackgroundJobEvent(
+                            ctx.session_id,
+                            ctx.session_key,
+                            ctx.platform,
+                            process_id,
+                            event_type="lost",
+                            exited=True,
+                        ),
+                    )
+                    return
+                output = str(getattr(session, "output_buffer", "") or "")
+                exited = bool(getattr(session, "exited", False))
+                existing = ctx.background_jobs.get(process_id)
+                if existing is not None and not exited and output == existing.last_output:
+                    continue
+                _schedule_render(
+                    ctx,
+                    BackgroundJobEvent(
+                        ctx.session_id,
+                        ctx.session_key,
+                        ctx.platform,
+                        process_id,
+                        event_type="completed" if exited else "output",
+                        command=str(getattr(session, "command", "") or ""),
+                        cwd=str(getattr(session, "cwd", "") or ""),
+                        pid=getattr(session, "pid", None),
+                        output=output,
+                        exited=exited,
+                        exit_code=getattr(session, "exit_code", None),
+                    ),
+                )
+                if exited:
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("hermes-progress-tail background job poll failed", exc_info=True)
+
+    task = ctx.loop.create_task(_poll())
+    job = ctx.background_jobs.get(process_id)
+    if job is not None:
+        job.poll_task = task
+
+
 def _on_pre_tool_call(
     tool_name: str,
     args: dict | None = None,
@@ -253,7 +369,7 @@ def _on_pre_tool_call(
         patch_max_files=renderer.settings.patch.max_files,
     )
     if renderer.settings.tools.show_completed:
-        line = f"{line} · running"
+        line = f"{line} · {'background' if _terminal_background_requested(args) else 'running'}"
     event = ToolEvent(
         session_id=ctx.session_id,
         session_key=ctx.session_key,
@@ -279,7 +395,28 @@ def _on_post_tool_call(
 ):
     renderer = _get_renderer()
     ctx = renderer.find_context(session_id or task_id, task_id)
-    if ctx is None or not ctx.tools_enabled or not renderer.settings.tools.show_completed:
+    if ctx is None or not ctx.tools_enabled:
+        return None
+    result_obj = _json_obj(result)
+    if tool_name == "terminal" and _terminal_background_requested(args):
+        process_id = str(result_obj.get("session_id") or "")
+        if process_id and renderer.settings.background_jobs.enabled and ctx.background_jobs_enabled:
+            _suppress_native_background_notify(process_id)
+            _schedule_render(
+                ctx,
+                BackgroundJobEvent(
+                    ctx.session_id,
+                    ctx.session_key,
+                    ctx.platform,
+                    process_id,
+                    event_type="started",
+                    command=str((args or {}).get("command") or ""),
+                    cwd=str((args or {}).get("workdir") or ""),
+                    pid=result_obj.get("pid"),
+                ),
+            )
+            _schedule_background_job_poll(ctx, process_id)
+    if not renderer.settings.tools.show_completed:
         return None
     base = format_tool_line(
         tool_name,
@@ -440,6 +577,23 @@ def _on_session_finalize(session_id: str = "", platform: str = "", agent: Any = 
 def _command(raw_args: str = "") -> str:
     args = (raw_args or "").strip().lower()
     renderer = _get_renderer()
+    if args in {"jobs", "jobs all"}:
+        include_all = args == "jobs all"
+        lines = [
+            f"background_jobs={'enabled' if renderer.settings.background_jobs.enabled else 'disabled'}"
+        ]
+        for sid, ctx in renderer.sessions.items():
+            for process_id in ctx.background_order:
+                job = ctx.background_jobs.get(process_id)
+                if job is None:
+                    continue
+                if not include_all and job.status != "running":
+                    continue
+                command = redact_text(job.command or process_id)
+                lines.append(
+                    f"{process_id} {job.status} exit={job.exit_code} session={ctx.session_key or sid} {command}"
+                )
+        return "\n".join(lines)
     if args in {"", "status", "doctor"}:
         active = len(renderer.sessions)
         monkeypatch_active = False
@@ -481,7 +635,8 @@ def _command(raw_args: str = "") -> str:
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
             f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} thinking={settings.delegates.thinking}",
-            f"renderer=strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval}",
+            f"background_jobs={'enabled' if settings.background_jobs.enabled else 'disabled'} max={settings.background_jobs.max_jobs} suppress_native_notify={settings.background_jobs.suppress_native_notify} suppress_watch={settings.background_jobs.suppress_watch_notifications}",
+            f"renderer=strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval} code_fence:{settings.renderer.code_fence}",
             f"display.tool_progress={display.get('tool_progress', '<unset>')}",
             f"display.show_reasoning={display.get('show_reasoning', '<unset>')}",
             f"monkeypatch={monkeypatch_active}",
@@ -535,7 +690,7 @@ def _command(raw_args: str = "") -> str:
                 "[22:43] terminal: git diff --check",
             ]
         )
-    return "Usage: /progresstail status | doctor | demo [plain|failed]"
+    return "Usage: /progresstail status | doctor | jobs [all] | demo [plain|failed]"
 
 
 def register(ctx):
@@ -555,5 +710,5 @@ def register(ctx):
         "progresstail",
         _command,
         description="Show hermes-progress-tail plugin status",
-        args_hint="status|doctor|demo",
+        args_hint="status|doctor|jobs|demo",
     )

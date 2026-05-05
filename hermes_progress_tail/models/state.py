@@ -24,6 +24,24 @@ class DelegateLine:
 
 
 @dataclass
+class BackgroundJob:
+    process_id: str
+    command: str = ""
+    cwd: str = ""
+    pid: int | None = None
+    status: str = "running"
+    started_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+    completed_at: float = 0.0
+    exit_code: int | None = None
+    output_head: tuple[str, ...] = ()
+    output_tail: tuple[str, ...] = ()
+    output_chars: int = 0
+    last_output: str = ""
+    poll_task: Any = None
+
+
+@dataclass
 class DelegateBranch:
     subagent_id: str
     task_index: int = 0
@@ -68,6 +86,8 @@ class SessionContext:
     active_tool_fingerprints: dict[str, str] = field(default_factory=dict)
     delegate_branches: dict[str, DelegateBranch] = field(default_factory=dict)
     delegate_order: deque[str] = field(default_factory=deque)
+    background_jobs: dict[str, BackgroundJob] = field(default_factory=dict)
+    background_order: deque[str] = field(default_factory=deque)
     todo_items: tuple[TodoItem, ...] = ()
     todo_updated_at: float = 0.0
     reasoning_text: str = ""
@@ -92,8 +112,10 @@ class SessionContext:
     tools_enabled: bool = True
     reasoning_enabled: bool = True
     delegates_enabled: bool = True
+    background_jobs_enabled: bool = True
     timestamp: bool | None = None
     timestamp_format: str = ""
+    code_fence: str = "off"
     lock: Any = field(default_factory=asyncio.Lock)
 
     @property
@@ -162,4 +184,21 @@ class ReasoningEvent:
     kind: Literal["reasoning"] = "reasoning"
 
 
-ProgressEvent = ToolEvent | DelegateEvent | ReasoningEvent
+@dataclass(frozen=True)
+class BackgroundJobEvent:
+    session_id: str
+    session_key: str
+    platform: str
+    process_id: str
+    event_type: str = "started"
+    command: str = ""
+    cwd: str = ""
+    pid: int | None = None
+    output: str = ""
+    exited: bool = False
+    exit_code: int | None = None
+    created_at: float = field(default_factory=time.time)
+    kind: Literal["background_job"] = "background_job"
+
+
+ProgressEvent = ToolEvent | DelegateEvent | ReasoningEvent | BackgroundJobEvent

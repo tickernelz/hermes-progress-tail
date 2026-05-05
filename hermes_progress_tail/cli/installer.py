@@ -56,6 +56,20 @@ DEFAULT_CONFIG = {
         "min_update_chars": 80,
         "no_edit_strategy": "off",
     },
+    "background_jobs": {
+        "enabled": True,
+        "list_running": True,
+        "show_completed": True,
+        "completed_ttl_seconds": 180,
+        "max_jobs": 4,
+        "head_lines": 2,
+        "tail_lines": 3,
+        "max_line_chars": 120,
+        "update_interval_seconds": 3,
+        "suppress_native_notify": True,
+        "suppress_watch_notifications": True,
+        "default_notify_on_complete": False,
+    },
     "renderer": {
         "strategy": "auto",
         "edit_interval": 1.5,
@@ -64,6 +78,8 @@ DEFAULT_CONFIG = {
         "mode": "sectioned",
         "style": "emoji",
         "density": "normal",
+        "code_fence": "auto",
+        "code_fence_language": "",
     },
     "no_edit": {
         "interval_seconds": 30,
@@ -222,14 +238,19 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
                 "timestamp": defaults.get("timestamp", True),
                 "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
             },
-            "delegates": DEFAULT_CONFIG["delegates"].copy(),
-            "reasoning": DEFAULT_CONFIG["reasoning"].copy(),
+            "delegates": copy.deepcopy(DEFAULT_CONFIG["delegates"]),
+            "reasoning": copy.deepcopy(DEFAULT_CONFIG["reasoning"]),
+            "background_jobs": copy.deepcopy(DEFAULT_CONFIG["background_jobs"]),
             "renderer": {
                 "strategy": "auto",
                 "edit_interval": defaults.get("edit_interval", 1.5),
                 "stale_ttl_seconds": defaults.get("stale_ttl_seconds", 900),
                 "redact_secrets": defaults.get("redact_secrets", True),
                 "mode": "sectioned",
+                "style": "emoji",
+                "density": "normal",
+                "code_fence": "auto",
+                "code_fence_language": "",
             },
             "no_edit": legacy.get("no_edit", DEFAULT_CONFIG["no_edit"]).copy()
             if isinstance(legacy.get("no_edit"), dict)
@@ -761,6 +782,8 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
         "edit_interval": _prompt_float("Minimum seconds between live edits", 1.5, input_stream),
         "stale_ttl_seconds": _prompt_int("Stale session TTL seconds", 900, input_stream),
         "redact_secrets": _confirm("Redact common secrets before rendering", True, input_stream),
+        "code_fence": "auto",
+        "code_fence_language": "",
     }
 
     print("\nNo-edit platform snapshots")

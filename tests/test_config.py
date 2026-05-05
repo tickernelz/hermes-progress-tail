@@ -24,6 +24,10 @@ def test_load_settings_defaults():
     assert not hasattr(settings.reasoning, "capture_inline_think_tags")
     assert settings.renderer.style == "emoji"
     assert settings.renderer.density == "normal"
+    assert settings.renderer.code_fence == "auto"
+    assert settings.background_jobs.enabled is True
+    assert settings.background_jobs.suppress_native_notify is True
+    assert settings.background_jobs.max_jobs == 4
 
 
 def test_resolve_platform_override():
@@ -38,6 +42,8 @@ def test_resolve_platform_override():
                         "strategy": "live_tail",
                         "lines": 2,
                         "delegates": False,
+                        "background_jobs": False,
+                        "code_fence": "off",
                     }
                 },
             }
@@ -52,6 +58,8 @@ def test_resolve_platform_override():
     assert platform.preview_length == 90
     assert platform.timestamp is False
     assert platform.delegates_enabled is False
+    assert platform.background_jobs_enabled is False
+    assert platform.code_fence == "off"
     assert settings.delegates.max_delegates == 2
     assert settings.delegates.lines_per_delegate == 1
 

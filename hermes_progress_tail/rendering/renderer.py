@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import time
@@ -8,6 +9,8 @@ from typing import Any
 
 from ..gateway.compat import adapter_supports_edit
 from ..models.state import (
+    BackgroundJob,
+    BackgroundJobEvent,
     DelegateEvent,
     ProgressEvent,
     ReasoningEvent,
@@ -15,7 +18,7 @@ from ..models.state import (
     TodoItem,
     ToolEvent,
 )
-from ..settings.config import Settings
+from ..settings.config import CODE_FENCE_DEFAULTS, Settings
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
 from .delegate import DelegateProgressRenderer
@@ -41,6 +44,8 @@ class ProgressRenderer:
             ctx.active_tool_fingerprints = existing.active_tool_fingerprints
             ctx.delegate_branches = existing.delegate_branches
             ctx.delegate_order = existing.delegate_order
+            ctx.background_jobs = existing.background_jobs
+            ctx.background_order = existing.background_order
             ctx.todo_items = existing.todo_items
             ctx.todo_updated_at = existing.todo_updated_at
             ctx.reasoning_text = existing.reasoning_text
@@ -112,6 +117,8 @@ class ProgressRenderer:
                 return
             if isinstance(event, DelegateEvent) and not ctx.delegates_enabled:
                 return
+            if isinstance(event, BackgroundJobEvent) and not self._background_jobs_enabled(ctx):
+                return
             if isinstance(event, ReasoningEvent) and not ctx.reasoning_enabled:
                 return
             ctx.last_event_at = time.monotonic()
@@ -150,6 +157,9 @@ class ProgressRenderer:
                         ctx.active_tool_fingerprints[fingerprint] = line
             elif isinstance(event, DelegateEvent):
                 self.delegate_renderer.apply_event(ctx, event)
+            elif isinstance(event, BackgroundJobEvent):
+                self._apply_background_job_event(ctx, event)
+                force = True
             else:
                 pending = self._append_reasoning(ctx, event)
                 if (
@@ -197,6 +207,14 @@ class ProgressRenderer:
             ):
                 await self._render_snapshot(ctx, force=True, final=True)
             self._reset_turn(ctx)
+            if ctx.strategy == "live_tail" and self._content(ctx):
+                await self._render_live(ctx, force=True, ignore_backoff=True)
+            elif (
+                ctx.strategy == "snapshot"
+                and self.settings.no_edit.final_summary
+                and self._content(ctx)
+            ):
+                await self._render_snapshot(ctx, force=True, final=True)
         if purge:
             self.purge(session_id=ctx.session_id)
 
@@ -263,6 +281,9 @@ class ProgressRenderer:
         delegates = self.delegate_renderer.section(ctx)
         if delegates:
             parts.append(delegates)
+        background = self._background_jobs_section(ctx)
+        if background:
+            parts.append(background)
         if ctx.tool_lines:
             parts.append(self._section("Tools", "🧰", "\n".join(ctx.tool_lines)))
         if self.settings.renderer.density == "debug":
@@ -370,6 +391,180 @@ class ProgressRenderer:
             lines.append(f"{labels[status]} ({len(values)}): {visible}{suffix}")
         return lines or ["no tasks"]
 
+    def _apply_background_job_event(self, ctx: SessionContext, event: BackgroundJobEvent) -> None:
+        job = ctx.background_jobs.get(event.process_id)
+        if job is None:
+            job = BackgroundJob(
+                process_id=event.process_id,
+                command=event.command,
+                cwd=event.cwd,
+                pid=event.pid,
+                started_at=event.created_at,
+                updated_at=event.created_at,
+            )
+            ctx.background_jobs[event.process_id] = job
+            ctx.background_order.append(event.process_id)
+        if event.command:
+            job.command = event.command
+        if event.cwd:
+            job.cwd = event.cwd
+        if event.pid is not None:
+            job.pid = event.pid
+        if event.output or event.event_type in {"output", "completed", "killed", "lost"}:
+            self._update_background_output(job, event.output)
+        if event.exited or event.event_type in {"completed", "killed", "lost"}:
+            job.status = "completed" if event.exit_code in {0, None} else "failed"
+            if event.event_type == "killed":
+                job.status = "killed"
+            elif event.event_type == "lost":
+                job.status = "lost"
+            job.exit_code = event.exit_code
+            job.completed_at = event.created_at
+            self._cancel_background_poll(job)
+        elif event.event_type == "started":
+            job.status = "running"
+        job.updated_at = event.created_at
+        self._prune_background_jobs(ctx)
+
+    def _update_background_output(self, job: BackgroundJob, output: str) -> None:
+        clean = self._normalize_background_output(output)
+        if clean == job.last_output:
+            return
+        job.last_output = clean
+        job.output_chars = len(clean)
+        lines = self._useful_output_lines(clean)
+        cfg = self.settings.background_jobs
+        job.output_head = tuple(lines[: cfg.head_lines])
+        job.output_tail = tuple(lines[-cfg.tail_lines :])
+
+    def _background_jobs_section(self, ctx: SessionContext) -> str:
+        if not self._background_jobs_enabled(ctx):
+            return ""
+        self._prune_background_jobs(ctx)
+        jobs = [
+            ctx.background_jobs[jid] for jid in ctx.background_order if jid in ctx.background_jobs
+        ]
+        visible = []
+        for job in jobs:
+            if job.status == "running" and not self.settings.background_jobs.list_running:
+                continue
+            if job.status != "running" and not self.settings.background_jobs.show_completed:
+                continue
+            visible.append(job)
+        if not visible:
+            return ""
+        visible = visible[-self.settings.background_jobs.max_jobs :]
+        lines: list[str] = []
+        for idx, job in enumerate(visible, 1):
+            lines.extend(self._background_job_lines(job, idx))
+        return self._section("Background Jobs", "🖥", "\n".join(lines))
+
+    def _background_job_lines(self, job: BackgroundJob, idx: int) -> list[str]:
+        emoji = self.settings.renderer.style == "emoji"
+        marker = self._background_marker(job.status, emoji)
+        command = truncate_text(redact_text(job.command or job.process_id), 72)
+        elapsed = self._duration_short((job.completed_at or time.time()) - job.started_at)
+        title = f"[{idx}] {marker} {job.process_id} · {command} · {elapsed}"
+        if job.status != "running" and job.exit_code is not None:
+            title += f" · exit {job.exit_code}"
+        lines = [title]
+        rendered_head = [self._cap_bg_line(line) for line in job.output_head]
+        rendered_tail = [self._cap_bg_line(line) for line in job.output_tail]
+        if rendered_head:
+            lines.append("    start: " + rendered_head[0])
+            for line in rendered_head[1:]:
+                lines.append("           " + line)
+        tail_label = "end" if job.status != "running" else "tail"
+        tail_lines = [line for line in rendered_tail if line not in rendered_head]
+        if tail_lines:
+            lines.append(f"    {tail_label}: " + tail_lines[0])
+            for line in tail_lines[1:]:
+                lines.append("         " + line)
+        return lines
+
+    @staticmethod
+    def _background_marker(status: str, emoji: bool) -> str:
+        if not emoji:
+            return status
+        return {
+            "running": "🔄",
+            "completed": "✅",
+            "failed": "❌",
+            "killed": "🛑",
+            "lost": "⚠️",
+        }.get(status, "•")
+
+    def _cap_bg_line(self, line: str) -> str:
+        return truncate_text(redact_text(line), self.settings.background_jobs.max_line_chars)
+
+    @staticmethod
+    def _duration_short(seconds: float) -> str:
+        seconds = max(0, int(seconds))
+        if seconds < 60:
+            return f"{seconds}s"
+        minutes, secs = divmod(seconds, 60)
+        if minutes < 60:
+            return f"{minutes}m {secs}s"
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours}h {minutes}m"
+
+    @staticmethod
+    def _normalize_background_output(output: str) -> str:
+        text = str(output or "").replace("\r", "\n")
+        text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", text)
+        return text
+
+    @staticmethod
+    def _useful_output_lines(output: str) -> list[str]:
+        lines = []
+        for raw in output.splitlines():
+            line = " ".join(raw.strip().split())
+            if not line:
+                continue
+            if any(
+                noise in line
+                for noise in (
+                    "bash: cannot set terminal process group",
+                    "bash: no job control in this shell",
+                    "no job control in this shell",
+                )
+            ):
+                continue
+            lines.append(line)
+        return lines
+
+    def _prune_background_jobs(self, ctx: SessionContext) -> None:
+        ttl = self.settings.background_jobs.completed_ttl_seconds
+        now = time.time()
+        for process_id in list(ctx.background_order):
+            job = ctx.background_jobs.get(process_id)
+            if job is None:
+                with contextlib.suppress(ValueError):
+                    ctx.background_order.remove(process_id)
+                continue
+            if job.status != "running" and job.completed_at and now - job.completed_at > ttl:
+                self._cancel_background_poll(job)
+                ctx.background_jobs.pop(process_id, None)
+                with contextlib.suppress(ValueError):
+                    ctx.background_order.remove(process_id)
+        while len(ctx.background_order) > self.settings.background_jobs.max_jobs * 3:
+            process_id = ctx.background_order.popleft()
+            job = ctx.background_jobs.pop(process_id, None)
+            if job is not None:
+                self._cancel_background_poll(job)
+
+    @staticmethod
+    def _cancel_background_poll(job: BackgroundJob) -> None:
+        task = job.poll_task
+        if task is not None and not task.done():
+            task.cancel()
+        job.poll_task = None
+
+    def _background_jobs_enabled(self, ctx: SessionContext) -> bool:
+        return bool(
+            self.settings.background_jobs.enabled and getattr(ctx, "background_jobs_enabled", True)
+        )
+
     @staticmethod
     def _trim_reasoning_buffer(text: str, max_chars: int) -> str:
         blocks = split_reasoning_blocks(text)
@@ -392,7 +587,9 @@ class ProgressRenderer:
 
     @staticmethod
     def _reset_turn(ctx: SessionContext) -> None:
-        ctx.message_id = None
+        keep_progress_bubble = bool(ctx.background_jobs)
+        if not keep_progress_bubble:
+            ctx.message_id = None
         ctx.tool_lines.clear()
         ctx.active_tool_lines.clear()
         ctx.active_tool_fingerprints.clear()
@@ -441,7 +638,7 @@ class ProgressRenderer:
         content = self._content(ctx)
         if not content:
             return
-        content = self._fit_message(ctx, content)
+        content = self._prepare_message(ctx, content)
         if ctx.message_id and ctx.can_edit:
             try:
                 result = await ctx.adapter.edit_message(
@@ -585,7 +782,7 @@ class ProgressRenderer:
             title = "Progress tail — latest updates"
         if ctx.total_events:
             title += f" of {ctx.total_events} events"
-        content = self._fit_message(ctx, title + "\n" + content_body)
+        content = self._prepare_message(ctx, title + "\n" + content_body)
         try:
             result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
         except Exception as exc:
@@ -605,8 +802,18 @@ class ProgressRenderer:
             )
             ctx.disabled = True
 
-    def _fit_message(self, ctx: SessionContext, content: str) -> str:
+    def _prepare_message(self, ctx: SessionContext, content: str) -> str:
+        fence = self._should_code_fence(ctx)
         limit = self._message_limit(ctx)
+        overhead = self._code_fence_overhead() if fence else 0
+        body_limit = max(0, limit - overhead) if limit > 0 else 0
+        content = self._fit_message(content, body_limit)
+        if fence:
+            content = self._code_fence(content)
+        return self._fit_message(content, limit)
+
+    @staticmethod
+    def _fit_message(content: str, limit: int) -> str:
         if limit <= 0 or len(content) <= limit:
             return content
         marker = "\n…\n"
@@ -616,6 +823,23 @@ class ProgressRenderer:
         head_budget = min(180, max(0, budget // 4))
         tail_budget = max(0, budget - head_budget)
         return content[:head_budget].rstrip() + marker + content[-tail_budget:].lstrip()
+
+    def _should_code_fence(self, ctx: SessionContext) -> bool:
+        ctx_mode = str(getattr(ctx, "code_fence", "") or "").lower()
+        mode = ctx_mode or self.settings.renderer.code_fence
+        if mode == "off":
+            return False
+        if mode == "on":
+            return ctx.platform in CODE_FENCE_DEFAULTS
+        return ctx.platform in CODE_FENCE_DEFAULTS
+
+    def _code_fence(self, content: str) -> str:
+        lang = self.settings.renderer.code_fence_language.strip()
+        safe = content.replace("```", "`\u200b``")
+        return f"```{lang}\n{safe}\n```"
+
+    def _code_fence_overhead(self) -> int:
+        return len(f"```{self.settings.renderer.code_fence_language.strip()}\n\n```")
 
     @staticmethod
     def _message_limit(ctx: SessionContext) -> int:
