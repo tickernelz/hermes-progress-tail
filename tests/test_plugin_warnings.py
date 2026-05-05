@@ -27,7 +27,7 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
 
     status = plugin._command("status")
 
-    assert "hermes-progress-tail 0.1.15" in status
+    assert "hermes-progress-tail 0.1.16" in status
     assert "tools=enabled" in status
     assert "completed=True" in status
     assert "duration=True" in status
@@ -40,6 +40,7 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
 def test_register_logs_warning_once_for_reasoning_conflict(monkeypatch, caplog):
     plugin._renderer = None
     config = {
+        "agent": {"gateway_notify_interval": 0},
         "display": {"show_reasoning": True},
         "progress_tail": {"enabled": True, "reasoning": {"enabled": True}},
     }
@@ -55,10 +56,32 @@ def test_register_logs_warning_once_for_reasoning_conflict(monkeypatch, caplog):
     assert ctx.commands[0][0] == "progresstail"
 
 
+def test_register_logs_warning_for_core_notifier_conflict(monkeypatch, caplog):
+    plugin._renderer = None
+    config = {
+        "agent": {"gateway_notify_interval": 180},
+        "display": {"show_reasoning": False},
+        "progress_tail": {"enabled": True},
+    }
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
+    monkeypatch.setattr(plugin, "install_monkeypatches", lambda: None)
+    ctx = Ctx()
+
+    with caplog.at_level(logging.WARNING):
+        plugin.register(ctx)
+
+    assert any(
+        "agent.gateway_notify_interval is enabled" in record.message for record in caplog.records
+    )
+    assert len(ctx.hooks) == 6
+    assert ctx.commands[0][0] == "progresstail"
+
+
 def test_doctor_reports_display_warning_and_session_errors(monkeypatch):
     plugin._renderer = None
     config = {
         "plugins": {"enabled": ["hermes-progress-tail"]},
+        "agent": {"gateway_notify_interval": 180},
         "display": {"tool_progress": "all", "show_reasoning": False},
         "progress_tail": {"enabled": True},
     }
@@ -80,6 +103,8 @@ def test_doctor_reports_display_warning_and_session_errors(monkeypatch):
     doctor = plugin._command("doctor")
 
     assert "warning: display.tool_progress is not off" in doctor
+    assert "warning: agent.gateway_notify_interval is enabled" in doctor
+    assert "agent.gateway_notify_interval=180" in doctor
     assert "session key: strategy=snapshot" in doctor
     assert "downgraded=edit not supported" in doctor
 

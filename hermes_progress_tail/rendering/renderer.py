@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 import time
 from typing import Any
 
@@ -52,6 +54,14 @@ class ProgressRenderer:
             ctx.downgrade_reason = existing.downgrade_reason
             ctx.downgrade_at = existing.downgrade_at
             ctx.last_render_at = existing.last_render_at
+            ctx.edit_state = existing.edit_state
+            ctx.edit_backoff_until = existing.edit_backoff_until
+            ctx.edit_failure_count = existing.edit_failure_count
+            ctx.edit_recovery_sends = existing.edit_recovery_sends
+            if existing.delayed_flush_task is not None and not existing.delayed_flush_task.done():
+                self._cancel_delayed_flush(existing)
+                ctx.edit_backoff_until = 0.0
+            ctx.fallback_send_count = existing.fallback_send_count
             ctx.new_events_since_snapshot = existing.new_events_since_snapshot
             ctx.lock = existing.lock
         ctx.resize(ctx.lines)
@@ -73,6 +83,8 @@ class ProgressRenderer:
     def purge(self, session_id: str = "", platform: str = "") -> None:
         if session_id:
             ctx = self.sessions.pop(session_id, None)
+            if ctx:
+                self._cancel_delayed_flush(ctx)
             if ctx and ctx.session_key:
                 self.session_keys.pop(ctx.session_key, None)
             return
@@ -174,9 +186,10 @@ class ProgressRenderer:
             return
         async with ctx.lock:
             if ctx.disabled:
+                self._cancel_delayed_flush(ctx)
                 return
             if ctx.strategy == "live_tail" and self._content(ctx):
-                await self._render_live(ctx, force=True)
+                await self._render_live(ctx, force=True, ignore_backoff=True)
             elif (
                 ctx.strategy == "snapshot"
                 and self.settings.no_edit.final_summary
@@ -265,6 +278,8 @@ class ProgressRenderer:
 
     def _debug_section(self, ctx: SessionContext) -> str:
         lines = [f"strategy={ctx.strategy}", f"events={ctx.total_events}"]
+        if ctx.edit_state != "editable":
+            lines.append(f"edit_state={ctx.edit_state}")
         if ctx.downgrade_reason:
             lines.append(f"downgrade={ctx.downgrade_reason}")
         if ctx.last_error:
@@ -390,6 +405,14 @@ class ProgressRenderer:
         ctx.last_reasoning_source = ""
         ctx.last_reasoning_chars = 0
         ctx.last_reasoning_at = 0.0
+        ctx.generation += 1
+        ctx.can_edit = True
+        ctx.edit_state = "editable"
+        ctx.edit_backoff_until = 0.0
+        ctx.edit_failure_count = 0
+        ctx.edit_recovery_sends = 0
+        ProgressRenderer._cancel_delayed_flush(ctx)
+        ctx.fallback_send_count = 0
         ctx.new_events_since_snapshot = 0
         ctx.snapshots_sent = 0
         ctx.total_events = 0
@@ -406,13 +429,19 @@ class ProgressRenderer:
     def _normalize_reasoning(text: str) -> str:
         return normalize_reasoning_text(text)
 
-    async def _render_live(self, ctx: SessionContext, force: bool = False) -> None:
+    async def _render_live(
+        self, ctx: SessionContext, force: bool = False, *, ignore_backoff: bool = False
+    ) -> None:
         now = time.monotonic()
         if not force and ctx.message_id and now - ctx.last_render_at < ctx.edit_interval:
+            return
+        if ctx.message_id and now < ctx.edit_backoff_until and not ignore_backoff:
+            self._schedule_delayed_live_flush(ctx, ctx.edit_backoff_until - now)
             return
         content = self._content(ctx)
         if not content:
             return
+        content = self._fit_message(ctx, content)
         if ctx.message_id and ctx.can_edit:
             try:
                 result = await ctx.adapter.edit_message(
@@ -426,18 +455,50 @@ class ProgressRenderer:
                 result = _Result(False, ctx.message_id, str(exc))
             if getattr(result, "success", False):
                 ctx.reasoning_pending_chars = 0
+                ctx.edit_state = "editable"
+                ctx.edit_backoff_until = 0.0
+                ctx.edit_failure_count = 0
                 ctx.last_render_at = time.monotonic()
                 return
-            if self._is_unsupported_edit(getattr(result, "error", "")):
-                error = str(getattr(result, "error", "") or "edit failed")
-                ctx.strategy = "snapshot"
-                ctx.can_edit = False
-                ctx.downgrade_reason = error
-                ctx.downgrade_at = time.time()
-                ctx.last_error = error
-                await self._render_snapshot(ctx, force=True)
+            error = str(getattr(result, "error", "") or "edit failed")
+            kind = self._classify_edit_error(error)
+            if kind == "noop_success":
+                ctx.reasoning_pending_chars = 0
+                ctx.edit_state = "editable"
+                ctx.last_render_at = time.monotonic()
                 return
-            ctx.can_edit = False
+            ctx.last_error = error
+            if ctx.edit_state == kind and kind in {
+                "rate_limited",
+                "transient",
+                "unknown_transient",
+            }:
+                ctx.edit_failure_count += 1
+            else:
+                ctx.edit_failure_count = 1
+            if kind == "unsupported":
+                await self._downgrade_to_snapshot(ctx, error, "unsupported")
+                return
+            if kind == "message_lost":
+                if ctx.edit_recovery_sends == 0:
+                    ctx.edit_state = "recovering"
+                    await self._send_live_message(ctx, content, recovery=True)
+                    return
+                await self._downgrade_to_snapshot(ctx, error, "message_lost")
+                return
+            if kind == "too_long":
+                await self._downgrade_to_snapshot(ctx, error, "too_long")
+                return
+            delay = self._edit_backoff_seconds(error, kind, ctx.edit_failure_count)
+            ctx.edit_state = kind
+            ctx.edit_backoff_until = time.monotonic() + delay
+            self._schedule_delayed_live_flush(ctx, delay)
+            return
+        await self._send_live_message(ctx, content)
+
+    async def _send_live_message(
+        self, ctx: SessionContext, content: str, *, recovery: bool = False
+    ) -> None:
         try:
             result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
         except Exception as exc:
@@ -447,11 +508,60 @@ class ProgressRenderer:
             return
         if getattr(result, "success", False):
             ctx.message_id = getattr(result, "message_id", None) or ctx.message_id
+            ctx.can_edit = True
+            ctx.edit_state = "editable"
+            ctx.edit_backoff_until = 0.0
+            ctx.edit_failure_count = 0
+            if recovery:
+                ctx.edit_recovery_sends += 1
+                ctx.fallback_send_count += 1
             ctx.reasoning_pending_chars = 0
             ctx.last_render_at = time.monotonic()
         else:
             ctx.last_error = str(getattr(result, "error", "send failed") or "send failed")
             ctx.disabled = True
+
+    async def _downgrade_to_snapshot(self, ctx: SessionContext, error: str, state: str) -> None:
+        ctx.strategy = "snapshot"
+        ctx.can_edit = False
+        ctx.edit_state = state
+        ctx.downgrade_reason = error
+        ctx.downgrade_at = time.time()
+        if ctx.fallback_send_count == 0:
+            await self._render_snapshot(ctx, force=True)
+
+    def _schedule_delayed_live_flush(self, ctx: SessionContext, delay: float) -> None:
+        if ctx.loop is None:
+            return
+        current = ctx.delayed_flush_task
+        if current is not None and not current.done():
+            return
+        generation = ctx.generation
+
+        async def _flush_later() -> None:
+            try:
+                await asyncio.sleep(max(0.05, delay))
+                if ctx.generation != generation:
+                    return
+                async with ctx.lock:
+                    if ctx.disabled or ctx.strategy != "live_tail" or not self._content(ctx):
+                        return
+                    await self._render_live(ctx, force=True)
+            except asyncio.CancelledError:
+                raise
+            finally:
+                if ctx.delayed_flush_task is task:
+                    ctx.delayed_flush_task = None
+
+        task = ctx.loop.create_task(_flush_later())
+        ctx.delayed_flush_task = task
+
+    @staticmethod
+    def _cancel_delayed_flush(ctx: SessionContext) -> None:
+        task = ctx.delayed_flush_task
+        if task is not None and not task.done():
+            task.cancel()
+        ctx.delayed_flush_task = None
 
     async def _render_snapshot(
         self, ctx: SessionContext, force: bool = False, final: bool = False
@@ -475,7 +585,7 @@ class ProgressRenderer:
             title = "Progress tail — latest updates"
         if ctx.total_events:
             title += f" of {ctx.total_events} events"
-        content = title + "\n" + content_body
+        content = self._fit_message(ctx, title + "\n" + content_body)
         try:
             result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
         except Exception as exc:
@@ -485,6 +595,7 @@ class ProgressRenderer:
             return
         if getattr(result, "success", False):
             ctx.snapshots_sent += 1
+            ctx.fallback_send_count += 1
             ctx.new_events_since_snapshot = 0
             ctx.reasoning_pending_chars = 0
             ctx.last_render_at = time.monotonic()
@@ -494,13 +605,90 @@ class ProgressRenderer:
             )
             ctx.disabled = True
 
+    def _fit_message(self, ctx: SessionContext, content: str) -> str:
+        limit = self._message_limit(ctx)
+        if limit <= 0 or len(content) <= limit:
+            return content
+        marker = "\n…\n"
+        budget = max(0, limit - len(marker))
+        if budget <= 0:
+            return content[:limit]
+        head_budget = min(180, max(0, budget // 4))
+        tail_budget = max(0, budget - head_budget)
+        return content[:head_budget].rstrip() + marker + content[-tail_budget:].lstrip()
+
     @staticmethod
-    def _is_unsupported_edit(error: Any) -> bool:
+    def _message_limit(ctx: SessionContext) -> int:
+        if ctx.platform == "telegram":
+            return 4096
+        return 0
+
+    @staticmethod
+    def _classify_edit_error(error: Any) -> str:
         msg = str(error or "").lower()
-        return any(
+        if "not modified" in msg:
+            return "noop_success"
+        if "too long" in msg or "message_too_long" in msg:
+            return "too_long"
+        if any(
             part in msg
-            for part in ("unsupported", "not supported", "not found", "unknown message", "edit")
+            for part in (
+                "unsupported",
+                "not supported",
+                "not implemented",
+                "notimplementederror",
+                "edit not supported",
+                "cannot edit",
+                "can't edit",
+                "can't be edited",
+                "method not found",
+                "edit not available",
+            )
+        ):
+            return "unsupported"
+        if (
+            "message to edit not found" in msg
+            or "message_id_invalid" in msg
+            or "unknown message" in msg
+            or "message not found" in msg
+            or "message_id" in msg
+            and "not found" in msg
+        ):
+            return "message_lost"
+        if any(
+            part in msg
+            for part in ("flood", "retry after", "too many requests", "rate limit", "429")
+        ):
+            return "rate_limited"
+        if any(
+            part in msg
+            for part in (
+                "timeout",
+                "timed out",
+                "network",
+                "connection",
+                "temporarily",
+                "temporary",
+                "reset by peer",
+                "server disconnected",
+            )
+        ):
+            return "transient"
+        return "unknown_transient"
+
+    @staticmethod
+    def _edit_backoff_seconds(error: Any, kind: str, failure_count: int) -> float:
+        msg = str(error or "").lower()
+        match = re.search(
+            r"(?:retry after|flood_control:|retry_after=)\s*:?\s*(\d+(?:\.\d+)?)", msg
         )
+        if match:
+            return min(float(match.group(1)), 30.0)
+        if kind == "rate_limited":
+            return min(2.0 * max(1, failure_count), 30.0)
+        if kind == "too_long":
+            return 1.0
+        return min(1.0 * max(1, failure_count), 10.0)
 
 
 class _Result:

@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.delegate_renderer import DelegateProgressRenderer
@@ -50,11 +51,23 @@ class FailingEditAdapter(EditableAdapter):
         return Result(False, message_id, "edit not supported")
 
 
-def make_ctx(adapter, *, strategy="live_tail", timestamp=False):
+class SequenceEditAdapter(EditableAdapter):
+    def __init__(self, errors):
+        super().__init__()
+        self.errors = list(errors)
+
+    async def edit_message(self, chat_id, message_id, content):
+        self.edits.append((chat_id, message_id, content))
+        if self.errors:
+            return Result(False, message_id, self.errors.pop(0))
+        return Result(True, message_id)
+
+
+def make_ctx(adapter, *, strategy="live_tail", timestamp=False, platform="discord"):
     return SessionContext(
         "s1",
         "k1",
-        "discord",
+        platform,
         "chat",
         "thread",
         adapter,
@@ -285,7 +298,7 @@ def test_snapshot_strategy_does_not_spam_until_threshold():
     asyncio.run(run())
 
 
-def test_edit_failure_downgrades_to_snapshot():
+def test_edit_unsupported_failure_downgrades_to_snapshot():
     async def run():
         adapter = FailingEditAdapter()
         settings = load_settings(
@@ -301,6 +314,225 @@ def test_edit_failure_downgrades_to_snapshot():
         await renderer.handle_event(ToolEvent("s1", "k1", "discord", "two"), force=True)
 
         assert renderer.sessions["s1"].strategy == "snapshot"
+        assert len(adapter.sent) == 2
+
+    asyncio.run(run())
+
+
+def test_method_not_found_is_unsupported_not_message_lost_recovery():
+    async def run():
+        adapter = SequenceEditAdapter(["edit_message method not found"])
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "no_edit": {"min_new_events": 1},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "one"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "two"), force=True)
+
+        assert ctx.strategy == "snapshot"
+        assert ctx.edit_state == "unsupported"
+        assert ctx.edit_recovery_sends == 0
+        assert len(adapter.sent) == 2
+
+    asyncio.run(run())
+
+
+def test_edit_transient_failure_backs_off_without_sending_new_message():
+    async def run():
+        adapter = SequenceEditAdapter(["flood_control:5"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "one"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "two"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "three"), force=True)
+
+        assert len(adapter.sent) == 1
+        assert len(adapter.edits) == 1
+        assert ctx.strategy == "live_tail"
+        assert ctx.can_edit is True
+        assert ctx.edit_state == "rate_limited"
+        assert ctx.edit_backoff_until > 0
+
+        ctx.edit_backoff_until = 0
+        await renderer.finalize(session_id="s1")
+        assert len(adapter.sent) == 1
+        assert adapter.edits[-1][2] == "🧰 Tools\none\ntwo\nthree"
+
+    asyncio.run(run())
+
+
+def test_edit_timeout_failure_backs_off_without_sending_new_message():
+    async def run():
+        adapter = SequenceEditAdapter(["Timed out while editing message"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "one"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "two"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "three"), force=True)
+
+        assert len(adapter.sent) == 1
+        assert len(adapter.edits) == 1
+        assert ctx.edit_state == "transient"
+        assert ctx.edit_backoff_until > 0
+
+        ctx.edit_backoff_until = 0
+        await renderer.finalize(session_id="s1")
+        assert len(adapter.sent) == 1
+        assert adapter.edits[-1][2] == "🧰 Tools\none\ntwo\nthree"
+
+    asyncio.run(run())
+
+
+def test_edit_message_lost_recovers_with_exactly_one_new_progress_bubble():
+    async def run():
+        adapter = SequenceEditAdapter(["message to edit not found"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "one"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "two"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "three"), force=True)
+
+        assert len(adapter.sent) == 2
+        assert adapter.sent[-1][1] == "🧰 Tools\none\ntwo"
+        assert adapter.edits[-1][1] == "m2"
+        assert adapter.edits[-1][2] == "🧰 Tools\none\ntwo\nthree"
+        assert ctx.strategy == "live_tail"
+
+    asyncio.run(run())
+
+
+def test_repeated_message_lost_downgrades_to_throttled_snapshot():
+    async def run():
+        adapter = SequenceEditAdapter(
+            [
+                "message to edit not found",
+                "message to edit not found",
+            ]
+        )
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "no_edit": {"min_new_events": 1, "max_snapshots_per_turn": 2},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "one"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "two"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "three"), force=True)
+        assert ctx.strategy == "snapshot"
+        assert ctx.edit_state == "message_lost"
+        assert len(adapter.sent) == 2
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "four"))
+        assert len(adapter.sent) == 2
+
+    asyncio.run(run())
+
+
+def test_edit_too_long_downgrades_to_snapshot_instead_of_sending_live_spam():
+    async def run():
+        adapter = SequenceEditAdapter(["message is too long"])
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "no_edit": {"min_new_events": 1},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "one"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "two"), force=True)
+
+        assert ctx.strategy == "snapshot"
+        assert ctx.edit_state == "too_long"
+        assert len(adapter.sent) == 2
+        assert adapter.sent[-1][1].startswith("Progress tail — latest 2 tools")
+
+    asyncio.run(run())
+
+
+def test_telegram_live_and_snapshot_messages_are_capped():
+    async def run():
+        adapter = SequenceEditAdapter(["message is too long"])
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "reasoning": {"max_chars": 8000},
+                        "no_edit": {"min_new_events": 1},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+        huge = "x" * 5000
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", huge), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", huge), force=True)
+
+        assert len(adapter.sent[0][1]) <= 4096
+        assert len(adapter.sent[-1][1]) <= 4096
+
+    asyncio.run(run())
+
+
+def test_finalize_bypasses_backoff_and_cancels_delayed_flush_after_interrupt_like_reset():
+    async def run():
+        adapter = SequenceEditAdapter(["retry_after=5", "retry_after=5"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "one"), force=True)
+        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "two"), force=True)
+
+        first_task = ctx.delayed_flush_task
+        assert first_task is not None
+        assert not first_task.done()
+
+        ctx.edit_backoff_until = time.monotonic() + 5
+        await renderer.finalize(session_id="s1")
+        await asyncio.sleep(0)
+        assert ctx.delayed_flush_task is None
+        assert first_task.cancelled() or first_task.done()
+        assert len(adapter.sent) == 1
+        assert adapter.edits[-1][2] == "🧰 Tools\none\ntwo"
 
     asyncio.run(run())
 

@@ -18,7 +18,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.15"
+VERSION = "0.1.16"
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -43,21 +43,47 @@ def _load_runtime_settings():
     return load_settings(_load_runtime_config())
 
 
+def _progress_tail_enabled(config: dict[str, Any]) -> bool:
+    progress_tail = config.get("progress_tail")
+    return not (isinstance(progress_tail, dict) and progress_tail.get("enabled") is False)
+
+
 def _builtin_reasoning_conflict(config: dict[str, Any]) -> bool:
     display = config.get("display")
     if not isinstance(display, dict) or display.get("show_reasoning") is not True:
         return False
-    progress_tail = config.get("progress_tail")
-    if isinstance(progress_tail, dict) and progress_tail.get("enabled") is False:
+    if not _progress_tail_enabled(config):
         return False
+    progress_tail = config.get("progress_tail")
     reasoning = progress_tail.get("reasoning") if isinstance(progress_tail, dict) else None
     return not (isinstance(reasoning, dict) and reasoning.get("enabled") is False)
+
+
+def _core_notifier_conflict(config: dict[str, Any]) -> bool:
+    if not _progress_tail_enabled(config):
+        return False
+    agent = config.get("agent")
+    if not isinstance(agent, dict):
+        return True
+    value = agent.get("gateway_notify_interval", 180)
+    try:
+        return float(value) > 0
+    except (TypeError, ValueError):
+        return True
 
 
 def _reasoning_conflict_warning() -> str:
     return (
         "warning: display.show_reasoning=true while progress_tail.reasoning.enabled=true; "
         "duplicate reasoning/final output may occur. Set display.show_reasoning=false."
+    )
+
+
+def _core_notifier_conflict_warning() -> str:
+    return (
+        "warning: agent.gateway_notify_interval is enabled while progress_tail.enabled=true; "
+        "Hermes core Still working notifications use send() and can duplicate progress. "
+        "Set agent.gateway_notify_interval=0."
     )
 
 
@@ -441,10 +467,14 @@ def _command(raw_args: str = "") -> str:
             runtime_config.get("plugins") if isinstance(runtime_config.get("plugins"), dict) else {}
         )
         enabled_plugins = plugins.get("enabled") if isinstance(plugins.get("enabled"), list) else []
+        agent_config = (
+            runtime_config.get("agent") if isinstance(runtime_config.get("agent"), dict) else {}
+        )
         lines = [
             f"hermes-progress-tail {VERSION}",
             f"plugin={'enabled' if 'hermes-progress-tail' in enabled_plugins else 'not listed'}",
             f"sessions={active}",
+            f"agent.gateway_notify_interval={agent_config.get('gateway_notify_interval', '<default:180>')}",
             f"tools={'enabled' if settings.tools.enabled else 'disabled'} lines={settings.tools.lines} completed={settings.tools.show_completed} duration={settings.tools.show_duration} timestamp={settings.tools.timestamp_format if settings.tools.timestamp else 'off'}",
             f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
             f"patch=detail:{settings.patch.detail} preview_chars:{settings.patch.preview_chars} max_files:{settings.patch.max_files}",
@@ -462,6 +492,8 @@ def _command(raw_args: str = "") -> str:
                 lines.append("warning: display.tool_progress is not off; progress may duplicate")
             if _builtin_reasoning_conflict(runtime_config):
                 lines.append(_reasoning_conflict_warning())
+            if _core_notifier_conflict(runtime_config):
+                lines.append(_core_notifier_conflict_warning())
             for sid, ctx in renderer.sessions.items():
                 label = ctx.session_key or sid
                 lines.append(
@@ -476,8 +508,11 @@ def _command(raw_args: str = "") -> str:
                     lines.append(
                         f"session {label}: last_reasoning source={ctx.last_reasoning_source} chars={ctx.last_reasoning_chars} at={when}"
                     )
-        elif _builtin_reasoning_conflict(runtime_config):
-            lines.append(_reasoning_conflict_warning())
+        else:
+            if _builtin_reasoning_conflict(runtime_config):
+                lines.append(_reasoning_conflict_warning())
+            if _core_notifier_conflict(runtime_config):
+                lines.append(_core_notifier_conflict_warning())
         return "\n".join(lines)
     if args in {"test", "demo", "demo plain", "demo failed"}:
         plain = args == "demo plain"
@@ -504,8 +539,11 @@ def _command(raw_args: str = "") -> str:
 
 
 def register(ctx):
-    if _builtin_reasoning_conflict(_load_runtime_config()):
+    runtime_config = _load_runtime_config()
+    if _builtin_reasoning_conflict(runtime_config):
         logger.warning(_reasoning_conflict_warning())
+    if _core_notifier_conflict(runtime_config):
+        logger.warning(_core_notifier_conflict_warning())
     install_monkeypatches()
     ctx.register_hook("pre_gateway_dispatch", _on_pre_gateway_dispatch)
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)

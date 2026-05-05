@@ -6,6 +6,7 @@ import yaml
 from hermes_progress_tail.installer import (
     DEFAULT_CONFIG,
     _builtin_reasoning_conflict,
+    _core_notifier_conflict,
     _default_source_dir,
     _generated_plugin_yaml,
     install,
@@ -34,6 +35,7 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert "hermes-progress-tail" in config["plugins"]["enabled"]
     assert config["display"]["tool_progress"] == "off"
     assert config["display"]["show_reasoning"] is False
+    assert config["agent"]["gateway_notify_interval"] == 0
     assert config["progress_tail"]["tools"]["show_completed"] is True
     assert config["progress_tail"]["tools"]["show_duration"] is True
     assert config["progress_tail"]["tools"]["timestamp"] is True
@@ -123,6 +125,47 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     assert config["progress_tail"]["renderer"]["strategy"] == "live_tail"
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
     assert any("progress_tail.todo" in message for message in result.messages)
+
+
+def test_install_disables_core_notifier_with_recommended_display_defaults(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    (source / "__init__.py").write_text("def register(ctx): pass\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text(
+        yaml.safe_dump({"agent": {"gateway_notify_interval": 180}}),
+        encoding="utf-8",
+    )
+
+    result = install(hermes_home, source, set_display_off=True, dry_run=False)
+
+    config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
+    assert config["agent"]["gateway_notify_interval"] == 0
+    assert any("gateway_notify_interval" in message for message in result.messages)
+
+
+def test_install_warns_when_core_notifier_conflicts_without_recommended_defaults(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    (source / "__init__.py").write_text("def register(ctx): pass\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text(
+        yaml.safe_dump(
+            {"agent": {"gateway_notify_interval": 180}, "progress_tail": {"enabled": True}}
+        ),
+        encoding="utf-8",
+    )
+
+    result = install(hermes_home, source, dry_run=True)
+
+    assert _core_notifier_conflict(
+        yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
+    )
+    assert any("gateway_notify_interval" in message for message in result.messages)
 
 
 def test_install_warns_when_builtin_reasoning_conflicts(tmp_path):
@@ -309,6 +352,7 @@ def test_interactive_cli_default_mode_applies_recommended_defaults_after_profile
     assert config["progress_tail"] == DEFAULT_CONFIG
     assert config["display"]["tool_progress"] == "off"
     assert config["display"]["show_reasoning"] is False
+    assert config["agent"]["gateway_notify_interval"] == 0
 
 
 def test_interactive_cli_simple_mode_asks_core_questions_only(tmp_path):

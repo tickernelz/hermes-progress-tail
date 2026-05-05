@@ -256,11 +256,29 @@ def _reasoning_tail_enabled(config: dict[str, Any]) -> bool:
     return reasoning.get("enabled") is not False
 
 
+def _progress_tail_enabled(config: dict[str, Any]) -> bool:
+    section = config.get("progress_tail")
+    return not (isinstance(section, dict) and section.get("enabled") is False)
+
+
 def _builtin_reasoning_conflict(config: dict[str, Any]) -> bool:
     display = config.get("display")
     if not isinstance(display, dict):
         return False
     return _reasoning_tail_enabled(config) and display.get("show_reasoning") is True
+
+
+def _core_notifier_conflict(config: dict[str, Any]) -> bool:
+    if not _progress_tail_enabled(config):
+        return False
+    agent = config.get("agent")
+    if not isinstance(agent, dict):
+        return True
+    value = agent.get("gateway_notify_interval", 180)
+    try:
+        return float(value) > 0
+    except (TypeError, ValueError):
+        return True
 
 
 def _merge_missing_defaults(
@@ -352,6 +370,13 @@ def _update_config(
         if _reasoning_tail_enabled(config) and display.get("show_reasoning") is not False:
             display["show_reasoning"] = False
             changed = True
+        agent = config.setdefault("agent", {})
+        if not isinstance(agent, dict):
+            config["agent"] = agent = {}
+            changed = True
+        if agent.get("gateway_notify_interval") != 0:
+            agent["gateway_notify_interval"] = 0
+            changed = True
     return config, changed, added_defaults
 
 
@@ -371,6 +396,7 @@ def install(
     config_path = hermes_home / "config.yaml"
     config = _read_yaml(config_path)
     had_builtin_reasoning_conflict = _builtin_reasoning_conflict(config)
+    had_core_notifier_conflict = _core_notifier_conflict(config)
     updated, _config_changed, added_defaults = _update_config(
         config,
         set_display_off=set_display_off,
@@ -378,11 +404,17 @@ def install(
         force_default_config=force_default_config,
     )
     has_builtin_reasoning_conflict = _builtin_reasoning_conflict(updated)
+    has_core_notifier_conflict = _core_notifier_conflict(updated)
     result = InstallResult(changed=True)
     if had_builtin_reasoning_conflict or has_builtin_reasoning_conflict:
         result.messages.append(
             "warning: display.show_reasoning=true while progress_tail.reasoning.enabled=true; "
             "duplicate reasoning/final output may occur"
+        )
+    if had_core_notifier_conflict or has_core_notifier_conflict:
+        result.messages.append(
+            "warning: agent.gateway_notify_interval is enabled while progress_tail.enabled=true; "
+            "core Still working notifications use send() and can duplicate progress"
         )
     if added_defaults:
         result.messages.append("Added missing default config keys: " + ", ".join(added_defaults))

@@ -77,6 +77,12 @@ class SessionContext:
     last_reasoning_at: float = 0.0
     last_render_at: float = 0.0
     last_event_at: float = field(default_factory=time.monotonic)
+    edit_state: str = "editable"
+    edit_backoff_until: float = 0.0
+    edit_failure_count: int = 0
+    edit_recovery_sends: int = 0
+    delayed_flush_task: Any = None
+    fallback_send_count: int = 0
     new_events_since_snapshot: int = 0
     snapshots_sent: int = 0
     total_events: int = 0
