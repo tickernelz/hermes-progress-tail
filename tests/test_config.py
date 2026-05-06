@@ -28,11 +28,7 @@ def test_load_settings_defaults():
     assert settings.background_jobs.enabled is True
     assert settings.background_jobs.suppress_native_notify is True
     assert settings.background_jobs.max_jobs == 4
-    assert settings.finalization.policy == "auto"
-    assert settings.finalization.delay_seconds == 0.8
-    assert settings.finalization.delete_on_success is True
-    assert settings.finalization.delete_on_failure is False
-    assert settings.finalization.preserve_background_jobs is True
+    assert not hasattr(settings, "finalization")
 
 
 def test_resolve_platform_override():

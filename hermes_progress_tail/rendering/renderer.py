@@ -25,12 +25,9 @@ from .background_jobs import (
 from .delegate import DelegateProgressRenderer
 from .delegate import event_preview_args as event_preview_args
 from .finalization import (
-    collapse_progress_message,
-    delete_progress_message,
     finalize_progress_message,
-    has_preserved_background_jobs,
+    has_background_jobs,
     reset_turn,
-    resolve_finalization_policy,
     should_flush_before_reset,
 )
 from .reasoning import normalize_reasoning_text, render_reasoning_tail, split_reasoning_blocks
@@ -56,10 +53,7 @@ class ProgressRenderer:
     def register_context(self, ctx: SessionContext) -> None:
         existing = self.sessions.get(ctx.session_id)
         if existing is not None:
-            self._cleanup_stale_progress_on_next_turn(existing)
-            reuse_progress = existing.progress_state == "active" or self._has_background_jobs(
-                existing
-            )
+            reuse_progress = existing.progress_state == "active"
             if reuse_progress:
                 ctx.message_id = existing.message_id
                 ctx.tool_lines = existing.tool_lines
@@ -78,11 +72,6 @@ class ProgressRenderer:
             ctx.background_order = existing.background_order
             ctx.progress_state = "active"
             ctx.finalized_at = 0.0
-            ctx.delete_failed_reason = ""
-            ctx.cleanup_attempts = existing.cleanup_attempts
-            ctx.stale_message_id = existing.stale_message_id
-            if existing.stale_message_id:
-                ctx.progress_state = "active"
             ctx.total_events = existing.total_events if reuse_progress else 0
             ctx.snapshots_sent = existing.snapshots_sent if reuse_progress else 0
             ctx.last_error = existing.last_error
@@ -117,23 +106,6 @@ class ProgressRenderer:
             return self.sessions.get(self.session_keys[session_key])
         return None
 
-    def _cleanup_stale_progress_on_next_turn(self, ctx: SessionContext) -> None:
-        if not self.settings.finalization.cleanup_stale_on_next_turn or not ctx.stale_message_id:
-            return
-        if ctx.loop is None:
-            return
-        message_id = ctx.stale_message_id
-
-        async def _cleanup() -> None:
-            if ctx.stale_message_id != message_id:
-                return
-            await self._delete_progress_message(ctx, message_id)
-
-        try:
-            ctx.loop.create_task(_cleanup())
-        except Exception as exc:
-            logger.debug("hermes-progress-tail stale cleanup schedule failed: %s", exc)
-
     def purge(self, session_id: str = "", platform: str = "") -> None:
         if session_id:
             ctx = self.sessions.pop(session_id, None)
@@ -160,8 +132,16 @@ class ProgressRenderer:
         if ctx is None:
             return
         async with ctx.lock:
-            if ctx.disabled or ctx.strategy == "off" or ctx.progress_state != "active":
+            if ctx.disabled or ctx.strategy == "off":
                 return
+            if ctx.progress_state != "active":
+                if (
+                    isinstance(event, BackgroundJobEvent)
+                    and ctx.progress_state == "background_active"
+                ):
+                    pass
+                else:
+                    return
             if isinstance(event, ToolEvent) and not ctx.tools_enabled:
                 return
             if isinstance(event, DelegateEvent) and not ctx.delegates_enabled:
@@ -254,7 +234,7 @@ class ProgressRenderer:
                 return
             self._cancel_delayed_flush(ctx)
             progress_message_id = ctx.message_id
-            if self._should_flush_before_reset(ctx, success=success):
+            if self._should_flush_before_reset(ctx):
                 if ctx.strategy == "live_tail" and self._content(ctx):
                     await self._render_live(ctx, force=True, ignore_backoff=True)
                     progress_message_id = ctx.message_id or progress_message_id
@@ -265,20 +245,13 @@ class ProgressRenderer:
                 ):
                     await self._render_snapshot(ctx, force=True, final=True)
             self._reset_turn(ctx)
-            if self._has_background_jobs(ctx):
-                ctx.message_id = progress_message_id
-                ctx.progress_state = "active"
-                if ctx.strategy == "live_tail" and self._content(ctx):
+            ctx.message_id = progress_message_id
+            await self._finalize_progress_message(ctx)
+            if ctx.progress_state == "background_active" and self._content(ctx):
+                if ctx.strategy == "live_tail":
                     await self._render_live(ctx, force=True, ignore_backoff=True)
-                elif (
-                    ctx.strategy == "snapshot"
-                    and self.settings.no_edit.final_summary
-                    and self._content(ctx)
-                ):
+                elif ctx.strategy == "snapshot" and self.settings.no_edit.final_summary:
                     await self._render_snapshot(ctx, force=True, final=True)
-            else:
-                ctx.message_id = progress_message_id
-                await self._finalize_progress_message(ctx, success=success)
         if purge:
             self.purge(session_id=ctx.session_id)
 
@@ -408,10 +381,9 @@ class ProgressRenderer:
     def _reset_turn(ctx: SessionContext) -> None:
         reset_turn(ctx)
 
-    def _has_background_jobs(self, ctx: SessionContext) -> bool:
-        return has_preserved_background_jobs(
-            ctx, self.settings.finalization.preserve_background_jobs
-        )
+    @staticmethod
+    def _has_background_jobs(ctx: SessionContext) -> bool:
+        return has_background_jobs(ctx)
 
     def _reasoning_tail(self, ctx: SessionContext) -> str:
         return render_reasoning_tail(
@@ -425,31 +397,12 @@ class ProgressRenderer:
     def _normalize_reasoning(text: str) -> str:
         return normalize_reasoning_text(text)
 
-    async def _finalize_progress_message(self, ctx: SessionContext, *, success: bool) -> None:
-        await finalize_progress_message(self, ctx, success=success)
+    async def _finalize_progress_message(self, ctx: SessionContext) -> None:
+        finalize_progress_message(ctx)
 
-    def _resolve_finalization_policy(self, ctx: SessionContext) -> str:
-        return resolve_finalization_policy(self.settings.finalization.policy, ctx.platform)
-
-    def _should_flush_before_reset(self, ctx: SessionContext, *, success: bool) -> bool:
-        return should_flush_before_reset(
-            ctx,
-            policy=self._resolve_finalization_policy(ctx),
-            delete_on_success=self.settings.finalization.delete_on_success,
-            delete_on_failure=self.settings.finalization.delete_on_failure,
-            preserve_background_jobs=self.settings.finalization.preserve_background_jobs,
-            success=success,
-        )
-
-    async def _collapse_progress_message(self, ctx: SessionContext, message_id: str) -> None:
-        await collapse_progress_message(self, ctx, message_id)
-
-    async def _delete_progress_message(self, ctx: SessionContext, message_id: str) -> None:
-        await delete_progress_message(
-            ctx,
-            message_id,
-            current_context=lambda: self.find_context(ctx.session_id, ctx.session_key),
-        )
+    @staticmethod
+    def _should_flush_before_reset(ctx: SessionContext) -> bool:
+        return should_flush_before_reset(ctx)
 
     async def _render_live(
         self, ctx: SessionContext, force: bool = False, *, ignore_backoff: bool = False

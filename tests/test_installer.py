@@ -50,9 +50,7 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert config["progress_tail"]["patch"]["preview_chars"] == 48
     assert config["progress_tail"]["patch"]["max_files"] == 3
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
-    assert config["progress_tail"]["finalization"]["policy"] == "auto"
-    assert config["progress_tail"]["finalization"]["delete_on_success"] is True
-    assert config["progress_tail"]["finalization"]["preserve_background_jobs"] is True
+    assert "finalization" not in config["progress_tail"]
     assert "progress_tail" in config
     assert (hermes_home / "hermes-progress-tail" / "backups").exists()
 
@@ -108,6 +106,7 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
                 "progress_tail": {
                     "enabled": True,
                     "tools": {"lines": 5, "timestamp": False},
+                    "finalization": {"policy": "delete"},
                     "renderer": {"strategy": "live_tail"},
                 }
             }
@@ -125,10 +124,14 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     assert config["progress_tail"]["delegates"]["max_delegates"] == 4
     assert config["progress_tail"]["todo"]["hide_tool_line"] is True
     assert config["progress_tail"]["patch"]["detail"] == "smart"
-    assert config["progress_tail"]["finalization"]["policy"] == "auto"
+    assert "finalization" not in config["progress_tail"]
     assert config["progress_tail"]["renderer"]["strategy"] == "live_tail"
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
     assert any("progress_tail.todo" in message for message in result.messages)
+    assert any(
+        "Removed retired config keys: progress_tail.finalization" in message
+        for message in result.messages
+    )
 
 
 def test_install_disables_core_notifier_with_recommended_display_defaults(tmp_path):

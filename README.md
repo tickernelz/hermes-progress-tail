@@ -8,7 +8,8 @@ Compact Hermes gateway plugin for live progress tails.
 
 - Shows latest tool calls, sticky todo state, delegated subagent progress, reasoning/thinking, and background jobs in compact progress bubbles.
 - Updates one editable progress message instead of spamming chat.
-- Finalizes each turn so stale Telegram progress bubbles are deleted by default after successful turns.
+- Keeps completed turn progress bubbles visible as history.
+- Starts a fresh progress bubble for a new user turn after the prior final answer, while true interrupts keep updating the active bubble.
 - Keeps running background jobs visible after the parent turn finishes.
 - Falls back conservatively on no-edit platforms.
 - Redacts common secrets before rendering progress.
@@ -21,7 +22,7 @@ Compact Hermes gateway plugin for live progress tails.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | bash
 ```
 
 Restart Hermes manually after install/update:
@@ -33,7 +34,7 @@ Restart Hermes manually after install/update:
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/uninstall.sh | bash
 ```
 
 By default, the installer is interactive and asks for target profile plus setup depth. It never restarts Hermes automatically.
@@ -48,16 +49,16 @@ Use environment variables for automation:
 - `HPT_ALL_PROFILES=1` — install/update default plus every discovered profile.
 - `HERMES_HOME=/path/to/.hermes` — target a custom Hermes home.
 - `HPT_REPO=owner/repo` — download from another GitHub repo.
-- `HPT_REF=v0.1.18` — download a specific tag/branch/ref.
+- `HPT_REF=v0.1.19` — download a specific tag/branch/ref.
 - `HPT_SOURCE_DIR=/path/to/repo` — install from a local checkout instead of downloading.
 
 Examples:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_INTERACTIVE=0 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_DRY_RUN=1 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_PROFILES=work,personal bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_ALL_PROFILES=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | env HPT_INTERACTIVE=0 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | env HPT_DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | env HPT_PROFILES=work,personal bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | env HPT_ALL_PROFILES=1 bash
 ```
 
 Local checkout install:
@@ -145,15 +146,6 @@ progress_tail:
     suppress_watch_notifications: true
     default_notify_on_complete: false
 
-  finalization:
-    policy: auto # keep|delete|collapse|auto
-    delay_seconds: 0.8
-    delete_on_success: true
-    delete_on_failure: false
-    collapse_text: Done
-    preserve_background_jobs: true
-    cleanup_stale_on_next_turn: true
-
   renderer:
     strategy: auto
     edit_interval: 1.5
@@ -172,7 +164,7 @@ progress_tail:
     max_snapshots_per_turn: 5
 ```
 
-`finalization.policy: auto` currently deletes successful Telegram progress bubbles and keeps other platforms conservative by default. If a background job is still visible, finalization keeps the progress bubble active so the job can continue updating.
+Turn lifecycle is internal: completed progress bubbles stay visible, but new user turns get new progress bubbles after the prior final answer. If a background job is still visible, its progress bubble can keep updating.
 
 ## Commands
 

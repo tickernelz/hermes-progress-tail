@@ -14,11 +14,11 @@ def test_curl_install_commands_are_documented():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     assert (
-        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | bash"
+        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | bash"
         in readme
     )
     assert (
-        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/uninstall.sh | bash"
+        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/uninstall.sh | bash"
         in readme
     )
 
@@ -44,13 +44,12 @@ def test_readme_keeps_install_section_simple_and_moves_env_options():
         assert name in options_section
 
 
-def test_readme_documents_finalization_and_background_job_defaults():
+def test_readme_documents_background_job_defaults_without_finalization_config():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     assert "background_jobs:" in readme
-    assert "finalization:" in readme
-    assert "policy: auto # keep|delete|collapse|auto" in readme
-    assert "cleanup_stale_on_next_turn: true" in readme
+    assert "finalization:" not in readme
+    assert "cleanup_stale_on_next_turn" not in readme
     assert "code_fence: auto # auto|on|off" in readme
 
 

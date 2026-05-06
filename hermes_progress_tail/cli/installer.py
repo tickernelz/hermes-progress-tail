@@ -70,15 +70,6 @@ DEFAULT_CONFIG = {
         "suppress_watch_notifications": True,
         "default_notify_on_complete": False,
     },
-    "finalization": {
-        "policy": "auto",
-        "delay_seconds": 0.8,
-        "delete_on_success": True,
-        "delete_on_failure": False,
-        "collapse_text": "Done",
-        "preserve_background_jobs": True,
-        "cleanup_stale_on_next_turn": True,
-    },
     "renderer": {
         "strategy": "auto",
         "edit_interval": 1.5,
@@ -311,6 +302,15 @@ def _core_notifier_conflict(config: dict[str, Any]) -> bool:
         return True
 
 
+def _prune_removed_defaults(target: dict[str, Any]) -> list[str]:
+    removed = []
+    finalization = target.get("finalization")
+    if isinstance(finalization, dict):
+        target.pop("finalization", None)
+        removed.append("progress_tail.finalization")
+    return removed
+
+
 def _merge_missing_defaults(
     target: dict[str, Any], defaults: dict[str, Any], prefix: str = ""
 ) -> list[str]:
@@ -357,6 +357,7 @@ def _update_config(
 ) -> tuple[dict[str, Any], bool, list[str]]:
     changed = _migrate_legacy_config(config)
     added_defaults: list[str] = []
+    removed_defaults: list[str] = []
     plugins = config.setdefault("plugins", {})
     if not isinstance(plugins, dict):
         config["plugins"] = plugins = {}
@@ -386,9 +387,12 @@ def _update_config(
             f"progress_tail.{path}"
             for path in _merge_missing_defaults(config["progress_tail"], DEFAULT_CONFIG)
         )
-        changed = changed or bool(added_defaults)
+        removed_defaults.extend(_prune_removed_defaults(config["progress_tail"]))
+        changed = changed or bool(added_defaults) or bool(removed_defaults)
     if feature_overrides:
         changed = _apply_config_overrides(config["progress_tail"], feature_overrides) or changed
+    if removed_defaults:
+        added_defaults.extend(f"removed:{path}" for path in removed_defaults)
     if set_display_off:
         display = config.setdefault("display", {})
         if not isinstance(display, dict):
@@ -447,7 +451,14 @@ def install(
             "core Still working notifications use send() and can duplicate progress"
         )
     if added_defaults:
-        result.messages.append("Added missing default config keys: " + ", ".join(added_defaults))
+        added = [item for item in added_defaults if not item.startswith("removed:")]
+        removed = [
+            item.removeprefix("removed:") for item in added_defaults if item.startswith("removed:")
+        ]
+        if added:
+            result.messages.append("Added missing default config keys: " + ", ".join(added))
+        if removed:
+            result.messages.append("Removed retired config keys: " + ", ".join(removed))
     action = "Updated" if target_dir.exists() else "Installed"
     if dry_run:
         result.messages.append(f"Would copy plugin to {target_dir}")

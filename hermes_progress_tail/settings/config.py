@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 VALID_STRATEGIES = {"auto", "live_tail", "snapshot", "summary_only", "off"}
 VALID_CODE_FENCE = {"auto", "on", "off"}
-VALID_FINALIZATION_POLICIES = {"keep", "delete", "collapse", "auto"}
 BATCH_DEFAULT_OFF = {"email", "sms", "webhook", "homeassistant"}
 CODE_FENCE_DEFAULTS = {"discord", "telegram", "slack", "mattermost"}
 SNAPSHOT_DEFAULTS = {
@@ -87,17 +86,6 @@ class BackgroundJobSettings:
 
 
 @dataclass(frozen=True)
-class FinalizationSettings:
-    policy: Literal["keep", "delete", "collapse", "auto"] = "auto"
-    delay_seconds: float = 0.8
-    delete_on_success: bool = True
-    delete_on_failure: bool = False
-    collapse_text: str = "Done"
-    preserve_background_jobs: bool = True
-    cleanup_stale_on_next_turn: bool = True
-
-
-@dataclass(frozen=True)
 class LegacyDefaultSettings:
     lines: int = 3
     preview_length: int = 120
@@ -156,7 +144,6 @@ class Settings:
     patch: PatchSettings = PatchSettings()
     reasoning: ReasoningSettings = ReasoningSettings()
     background_jobs: BackgroundJobSettings = BackgroundJobSettings()
-    finalization: FinalizationSettings = FinalizationSettings()
     renderer: RendererSettings = RendererSettings()
     no_edit: NoEditSettings = NoEditSettings()
     platforms: dict[str, dict[str, Any]] | None = None
@@ -237,14 +224,6 @@ def _float(value: Any, default: float, min_value: float = 0.0) -> float:
     return parsed if parsed > min_value else default
 
 
-def _non_negative_float(value: Any, default: float) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return default
-    return parsed if parsed >= 0 else default
-
-
 def _strategy(value: Any, default: str = "auto") -> str:
     val = str(value or default).strip().lower()
     return val if val in VALID_STRATEGIES else default
@@ -275,13 +254,6 @@ def _code_fence(value: Any, default: str = "auto") -> Literal["auto", "on", "off
     return val if val in VALID_CODE_FENCE else "auto"
 
 
-def _finalization_policy(
-    value: Any, default: str = "auto"
-) -> Literal["keep", "delete", "collapse", "auto"]:
-    val = str(value or default).strip().lower()
-    return val if val in VALID_FINALIZATION_POLICIES else "auto"
-
-
 def load_settings(config: dict[str, Any] | None) -> Settings:
     section = _as_dict(config)
     legacy_defaults = section.get("defaults") if isinstance(section.get("defaults"), dict) else {}
@@ -296,9 +268,6 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     patch_raw = section.get("patch") if isinstance(section.get("patch"), dict) else {}
     background_raw = (
         section.get("background_jobs") if isinstance(section.get("background_jobs"), dict) else {}
-    )
-    finalization_raw = (
-        section.get("finalization") if isinstance(section.get("finalization"), dict) else {}
     )
     tools = ToolSettings(
         enabled=_bool(tools_raw.get("enabled"), True),
@@ -356,15 +325,6 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         ),
         default_notify_on_complete=_bool(background_raw.get("default_notify_on_complete"), False),
     )
-    finalization = FinalizationSettings(
-        policy=_finalization_policy(finalization_raw.get("policy"), "auto"),
-        delay_seconds=_non_negative_float(finalization_raw.get("delay_seconds"), 0.8),
-        delete_on_success=_bool(finalization_raw.get("delete_on_success"), True),
-        delete_on_failure=_bool(finalization_raw.get("delete_on_failure"), False),
-        collapse_text=str(finalization_raw.get("collapse_text") or "Done"),
-        preserve_background_jobs=_bool(finalization_raw.get("preserve_background_jobs"), True),
-        cleanup_stale_on_next_turn=_bool(finalization_raw.get("cleanup_stale_on_next_turn"), True),
-    )
     renderer = RendererSettings(
         strategy=_strategy(renderer_raw.get("strategy"), "auto"),
         edit_interval=_float(renderer_raw.get("edit_interval"), 1.5),
@@ -391,7 +351,6 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         patch=patch,
         reasoning=reasoning,
         background_jobs=background_jobs,
-        finalization=finalization,
         renderer=renderer,
         no_edit=no_edit,
         platforms=platforms,
