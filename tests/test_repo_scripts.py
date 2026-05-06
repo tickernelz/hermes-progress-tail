@@ -23,6 +23,37 @@ def test_curl_install_commands_are_documented():
     )
 
 
+def test_readme_keeps_install_section_simple_and_moves_env_options():
+    readme = Path("README.md").read_text(encoding="utf-8")
+    install_section = readme.split("## Install", 1)[1].split("## Install options", 1)[0]
+    options_section = readme.split("## Install options", 1)[1].split("## Expected config", 1)[0]
+
+    assert install_section.count("curl -fsSL") == 2
+    assert "HPT_INTERACTIVE" not in install_section
+    assert "HPT_DRY_RUN" not in install_section
+    for name in (
+        "HPT_INTERACTIVE",
+        "HPT_DRY_RUN",
+        "HPT_PROFILES",
+        "HPT_ALL_PROFILES",
+        "HERMES_HOME",
+        "HPT_REPO",
+        "HPT_REF",
+        "HPT_SOURCE_DIR",
+    ):
+        assert name in options_section
+
+
+def test_readme_documents_finalization_and_background_job_defaults():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "background_jobs:" in readme
+    assert "finalization:" in readme
+    assert "policy: auto # keep|delete|collapse|auto" in readme
+    assert "cleanup_stale_on_next_turn: true" in readme
+    assert "code_fence: auto # auto|on|off" in readme
+
+
 def test_shell_scripts_exist_and_are_executable():
     assert Path("install.sh").exists()
     assert Path("uninstall.sh").exists()

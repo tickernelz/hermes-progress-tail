@@ -6,13 +6,13 @@ Compact Hermes gateway plugin for live progress tails.
 
 ## What it does
 
-- Shows the latest tool calls in one compact progress bubble.
-- Shows delegated subagent progress from `delegate_task` in a grouped `Delegates` section.
-- Shows live reasoning/thinking tail when Hermes exposes reasoning deltas.
-- Keeps editable platforms tidy by updating one message instead of spamming chat.
+- Shows latest tool calls, sticky todo state, delegated subagent progress, reasoning/thinking, and background jobs in compact progress bubbles.
+- Updates one editable progress message instead of spamming chat.
+- Finalizes each turn so stale Telegram progress bubbles are deleted by default after successful turns.
+- Keeps running background jobs visible after the parent turn finishes.
 - Falls back conservatively on no-edit platforms.
 - Redacts common secrets before rendering progress.
-- Disables Hermes built-in `display.show_reasoning` during install when plugin reasoning is enabled, to avoid duplicate final output.
+- Disables conflicting Hermes built-in progress/reasoning display during recommended install.
 
 ## Before / after
 
@@ -20,34 +20,14 @@ Compact Hermes gateway plugin for live progress tails.
 
 ## Install
 
-Interactive by default:
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | bash
 ```
 
-Non-interactive default-profile install/update:
+Restart Hermes manually after install/update:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_INTERACTIVE=0 bash
-```
-
-Dry-run is non-interactive by default:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_DRY_RUN=1 bash
-```
-
-Install/update selected profiles:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_PROFILES=work,personal bash
-```
-
-Install/update all profiles including default:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_ALL_PROFILES=1 bash
+```text
+/restart
 ```
 
 Uninstall:
@@ -56,19 +36,45 @@ Uninstall:
 curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/uninstall.sh | bash
 ```
 
-Local install:
+By default, the installer is interactive and asks for target profile plus setup depth. It never restarts Hermes automatically.
+
+## Install options
+
+Use environment variables for automation:
+
+- `HPT_INTERACTIVE=0` — non-interactive install/update.
+- `HPT_DRY_RUN=1` — show what would change without writing files; non-interactive by default.
+- `HPT_PROFILES=work,personal` — install/update selected profiles.
+- `HPT_ALL_PROFILES=1` — install/update default plus every discovered profile.
+- `HERMES_HOME=/path/to/.hermes` — target a custom Hermes home.
+- `HPT_REPO=owner/repo` — download from another GitHub repo.
+- `HPT_REF=v0.1.18` — download a specific tag/branch/ref.
+- `HPT_SOURCE_DIR=/path/to/repo` — install from a local checkout instead of downloading.
+
+Examples:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_INTERACTIVE=0 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_PROFILES=work,personal bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.18/install.sh | env HPT_ALL_PROFILES=1 bash
+```
+
+Local checkout install:
+
+```bash
+HPT_INTERACTIVE=0 HPT_SOURCE_DIR=/path/to/hermes-progress-tail bash install.sh
+```
+
+Python installer entrypoint:
 
 ```bash
 python -m hermes_progress_tail.installer install --hermes-home ~/.hermes --set-display-off
 ```
 
-Restart Hermes manually after install/uninstall:
-
-```text
-/restart
-```
-
 ## Expected config
+
+The installer merges missing defaults without overwriting existing user values.
 
 ```yaml
 plugins:
@@ -79,6 +85,9 @@ display:
   tool_progress: off
   show_reasoning: false
 
+agent:
+  gateway_notify_interval: 0
+
 progress_tail:
   enabled: true
 
@@ -86,7 +95,7 @@ progress_tail:
     enabled: true
     lines: 3
     preview_length: 120
-    show_completed: true   # replace running lines with done/failed status
+    show_completed: true
     show_duration: true
     timestamp: true
     timestamp_format: "%H:%M"
@@ -100,7 +109,7 @@ progress_tail:
     show_model: false
     show_tool_count: true
     show_completion: true
-    thinking: off # off|summary
+    thinking: off
 
   todo:
     sticky: true
@@ -111,7 +120,7 @@ progress_tail:
     max_item_chars: 40
 
   patch:
-    detail: smart # off|path|smart|stats
+    detail: smart
     preview_chars: 48
     max_files: 3
 
@@ -122,6 +131,29 @@ progress_tail:
     min_update_chars: 80
     no_edit_strategy: off
 
+  background_jobs:
+    enabled: true
+    list_running: true
+    show_completed: true
+    completed_ttl_seconds: 180
+    max_jobs: 4
+    head_lines: 2
+    tail_lines: 3
+    max_line_chars: 120
+    update_interval_seconds: 3
+    suppress_native_notify: true
+    suppress_watch_notifications: true
+    default_notify_on_complete: false
+
+  finalization:
+    policy: auto # keep|delete|collapse|auto
+    delay_seconds: 0.8
+    delete_on_success: true
+    delete_on_failure: false
+    collapse_text: Done
+    preserve_background_jobs: true
+    cleanup_stale_on_next_turn: true
+
   renderer:
     strategy: auto
     edit_interval: 1.5
@@ -130,6 +162,8 @@ progress_tail:
     mode: sectioned
     style: emoji # emoji|plain
     density: normal # compact|normal|debug
+    code_fence: auto # auto|on|off
+    code_fence_language: ""
 
   no_edit:
     interval_seconds: 30
@@ -137,6 +171,8 @@ progress_tail:
     final_summary: true
     max_snapshots_per_turn: 5
 ```
+
+`finalization.policy: auto` currently deletes successful Telegram progress bubbles and keeps other platforms conservative by default. If a background job is still visible, finalization keeps the progress bubble active so the job can continue updating.
 
 ## Commands
 
