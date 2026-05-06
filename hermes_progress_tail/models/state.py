@@ -81,6 +81,11 @@ class SessionContext:
     message_id: str | None = None
     can_edit: bool = True
     disabled: bool = False
+    progress_state: str = "active"
+    finalized_at: float = 0.0
+    delete_failed_reason: str = ""
+    cleanup_attempts: int = 0
+    stale_message_id: str = ""
     tool_lines: deque[str] = field(default_factory=lambda: deque(maxlen=3))
     active_tool_lines: dict[str, str] = field(default_factory=dict)
     active_tool_fingerprints: dict[str, str] = field(default_factory=dict)

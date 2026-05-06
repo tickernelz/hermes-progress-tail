@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import re
 import time
@@ -15,15 +14,34 @@ from ..models.state import (
     ProgressEvent,
     ReasoningEvent,
     SessionContext,
-    TodoItem,
     ToolEvent,
 )
 from ..settings.config import CODE_FENCE_DEFAULTS, Settings
-from ..utils.redaction import redact_text
-from ..utils.text import truncate_text
+from .background_jobs import (
+    apply_background_job_event,
+    background_jobs_section,
+    cancel_background_poll,
+)
 from .delegate import DelegateProgressRenderer
 from .delegate import event_preview_args as event_preview_args
+from .finalization import (
+    collapse_progress_message,
+    delete_progress_message,
+    finalize_progress_message,
+    has_preserved_background_jobs,
+    reset_turn,
+    resolve_finalization_policy,
+    should_flush_before_reset,
+)
 from .reasoning import normalize_reasoning_text, render_reasoning_tail, split_reasoning_blocks
+from .sections import (
+    compose_content,
+    debug_section,
+    format_tool_line_for_context,
+    section,
+    timestamp_text,
+    todo_section,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,36 +56,50 @@ class ProgressRenderer:
     def register_context(self, ctx: SessionContext) -> None:
         existing = self.sessions.get(ctx.session_id)
         if existing is not None:
-            ctx.message_id = existing.message_id
-            ctx.tool_lines = existing.tool_lines
-            ctx.active_tool_lines = existing.active_tool_lines
-            ctx.active_tool_fingerprints = existing.active_tool_fingerprints
-            ctx.delegate_branches = existing.delegate_branches
-            ctx.delegate_order = existing.delegate_order
+            self._cleanup_stale_progress_on_next_turn(existing)
+            reuse_progress = existing.progress_state == "active" or self._has_background_jobs(
+                existing
+            )
+            if reuse_progress:
+                ctx.message_id = existing.message_id
+                ctx.tool_lines = existing.tool_lines
+                ctx.active_tool_lines = existing.active_tool_lines
+                ctx.active_tool_fingerprints = existing.active_tool_fingerprints
+                ctx.delegate_branches = existing.delegate_branches
+                ctx.delegate_order = existing.delegate_order
+                ctx.todo_items = existing.todo_items
+                ctx.todo_updated_at = existing.todo_updated_at
+                ctx.reasoning_text = existing.reasoning_text
+                ctx.reasoning_pending_chars = existing.reasoning_pending_chars
+                ctx.last_reasoning_source = existing.last_reasoning_source
+                ctx.last_reasoning_chars = existing.last_reasoning_chars
+                ctx.last_reasoning_at = existing.last_reasoning_at
             ctx.background_jobs = existing.background_jobs
             ctx.background_order = existing.background_order
-            ctx.todo_items = existing.todo_items
-            ctx.todo_updated_at = existing.todo_updated_at
-            ctx.reasoning_text = existing.reasoning_text
-            ctx.reasoning_pending_chars = existing.reasoning_pending_chars
-            ctx.last_reasoning_source = existing.last_reasoning_source
-            ctx.last_reasoning_chars = existing.last_reasoning_chars
-            ctx.last_reasoning_at = existing.last_reasoning_at
-            ctx.total_events = existing.total_events
-            ctx.snapshots_sent = existing.snapshots_sent
+            ctx.progress_state = "active"
+            ctx.finalized_at = 0.0
+            ctx.delete_failed_reason = ""
+            ctx.cleanup_attempts = existing.cleanup_attempts
+            ctx.stale_message_id = existing.stale_message_id
+            if existing.stale_message_id:
+                ctx.progress_state = "active"
+            ctx.total_events = existing.total_events if reuse_progress else 0
+            ctx.snapshots_sent = existing.snapshots_sent if reuse_progress else 0
             ctx.last_error = existing.last_error
             ctx.downgrade_reason = existing.downgrade_reason
             ctx.downgrade_at = existing.downgrade_at
-            ctx.last_render_at = existing.last_render_at
-            ctx.edit_state = existing.edit_state
-            ctx.edit_backoff_until = existing.edit_backoff_until
-            ctx.edit_failure_count = existing.edit_failure_count
-            ctx.edit_recovery_sends = existing.edit_recovery_sends
+            ctx.last_render_at = existing.last_render_at if reuse_progress else 0.0
+            ctx.edit_state = existing.edit_state if reuse_progress else "editable"
+            ctx.edit_backoff_until = existing.edit_backoff_until if reuse_progress else 0.0
+            ctx.edit_failure_count = existing.edit_failure_count if reuse_progress else 0
+            ctx.edit_recovery_sends = existing.edit_recovery_sends if reuse_progress else 0
             if existing.delayed_flush_task is not None and not existing.delayed_flush_task.done():
                 self._cancel_delayed_flush(existing)
                 ctx.edit_backoff_until = 0.0
-            ctx.fallback_send_count = existing.fallback_send_count
-            ctx.new_events_since_snapshot = existing.new_events_since_snapshot
+            ctx.fallback_send_count = existing.fallback_send_count if reuse_progress else 0
+            ctx.new_events_since_snapshot = (
+                existing.new_events_since_snapshot if reuse_progress else 0
+            )
             ctx.lock = existing.lock
         ctx.resize(ctx.lines)
         if ctx.strategy == "auto":
@@ -84,6 +116,23 @@ class ProgressRenderer:
         if session_key and session_key in self.session_keys:
             return self.sessions.get(self.session_keys[session_key])
         return None
+
+    def _cleanup_stale_progress_on_next_turn(self, ctx: SessionContext) -> None:
+        if not self.settings.finalization.cleanup_stale_on_next_turn or not ctx.stale_message_id:
+            return
+        if ctx.loop is None:
+            return
+        message_id = ctx.stale_message_id
+
+        async def _cleanup() -> None:
+            if ctx.stale_message_id != message_id:
+                return
+            await self._delete_progress_message(ctx, message_id)
+
+        try:
+            ctx.loop.create_task(_cleanup())
+        except Exception as exc:
+            logger.debug("hermes-progress-tail stale cleanup schedule failed: %s", exc)
 
     def purge(self, session_id: str = "", platform: str = "") -> None:
         if session_id:
@@ -111,7 +160,7 @@ class ProgressRenderer:
         if ctx is None:
             return
         async with ctx.lock:
-            if ctx.disabled or ctx.strategy == "off":
+            if ctx.disabled or ctx.strategy == "off" or ctx.progress_state != "active":
                 return
             if isinstance(event, ToolEvent) and not ctx.tools_enabled:
                 return
@@ -189,7 +238,12 @@ class ProgressRenderer:
             await self._render_snapshot(ctx, force=force)
 
     async def finalize(
-        self, session_id: str = "", session_key: str = "", purge: bool = False
+        self,
+        session_id: str = "",
+        session_key: str = "",
+        purge: bool = False,
+        *,
+        success: bool = True,
     ) -> None:
         ctx = self.find_context(session_id, session_key)
         if ctx is None:
@@ -198,23 +252,33 @@ class ProgressRenderer:
             if ctx.disabled:
                 self._cancel_delayed_flush(ctx)
                 return
-            if ctx.strategy == "live_tail" and self._content(ctx):
-                await self._render_live(ctx, force=True, ignore_backoff=True)
-            elif (
-                ctx.strategy == "snapshot"
-                and self.settings.no_edit.final_summary
-                and self._content(ctx)
-            ):
-                await self._render_snapshot(ctx, force=True, final=True)
+            self._cancel_delayed_flush(ctx)
+            progress_message_id = ctx.message_id
+            if self._should_flush_before_reset(ctx, success=success):
+                if ctx.strategy == "live_tail" and self._content(ctx):
+                    await self._render_live(ctx, force=True, ignore_backoff=True)
+                    progress_message_id = ctx.message_id or progress_message_id
+                elif (
+                    ctx.strategy == "snapshot"
+                    and self.settings.no_edit.final_summary
+                    and self._content(ctx)
+                ):
+                    await self._render_snapshot(ctx, force=True, final=True)
             self._reset_turn(ctx)
-            if ctx.strategy == "live_tail" and self._content(ctx):
-                await self._render_live(ctx, force=True, ignore_backoff=True)
-            elif (
-                ctx.strategy == "snapshot"
-                and self.settings.no_edit.final_summary
-                and self._content(ctx)
-            ):
-                await self._render_snapshot(ctx, force=True, final=True)
+            if self._has_background_jobs(ctx):
+                ctx.message_id = progress_message_id
+                ctx.progress_state = "active"
+                if ctx.strategy == "live_tail" and self._content(ctx):
+                    await self._render_live(ctx, force=True, ignore_backoff=True)
+                elif (
+                    ctx.strategy == "snapshot"
+                    and self.settings.no_edit.final_summary
+                    and self._content(ctx)
+                ):
+                    await self._render_snapshot(ctx, force=True, final=True)
+            else:
+                ctx.message_id = progress_message_id
+                await self._finalize_progress_message(ctx, success=success)
         if purge:
             self.purge(session_id=ctx.session_id)
 
@@ -271,294 +335,49 @@ class ProgressRenderer:
         return text.strip()
 
     def _content(self, ctx: SessionContext) -> str:
-        parts = []
-        reasoning = self._reasoning_tail(ctx)
-        if reasoning:
-            parts.append(self._section("Reasoning", "💭", reasoning))
-        todo = self._todo_section(ctx)
-        if todo:
-            parts.append(todo)
-        delegates = self.delegate_renderer.section(ctx)
-        if delegates:
-            parts.append(delegates)
-        background = self._background_jobs_section(ctx)
-        if background:
-            parts.append(background)
-        if ctx.tool_lines:
-            parts.append(self._section("Tools", "🧰", "\n".join(ctx.tool_lines)))
-        if self.settings.renderer.density == "debug":
-            debug = self._debug_section(ctx)
-            if debug:
-                parts.append(debug)
-        content = "\n\n".join(parts)
-        return redact_text(content) if self.settings.renderer.redact_secrets else content
+        return compose_content(self, ctx)
 
     def _section(self, title: str, emoji: str, body: str) -> str:
-        header = f"{emoji} {title}" if self.settings.renderer.style == "emoji" else title
-        return header + "\n" + body
+        return section(title, emoji, body, style=self.settings.renderer.style)
 
     def _debug_section(self, ctx: SessionContext) -> str:
-        lines = [f"strategy={ctx.strategy}", f"events={ctx.total_events}"]
-        if ctx.edit_state != "editable":
-            lines.append(f"edit_state={ctx.edit_state}")
-        if ctx.downgrade_reason:
-            lines.append(f"downgrade={ctx.downgrade_reason}")
-        if ctx.last_error:
-            lines.append(f"last_error={ctx.last_error}")
-        return self._section("Debug", "🛠️", "\n".join(lines))
+        return debug_section(ctx, section=self._section)
 
     def _format_tool_line(self, ctx: SessionContext, event: ToolEvent) -> str:
-        timestamp_enabled = (
-            self.settings.tools.timestamp if ctx.timestamp is None else ctx.timestamp
+        return format_tool_line_for_context(
+            ctx,
+            event,
+            timestamp_enabled=self.settings.tools.timestamp,
+            timestamp_format=self.settings.tools.timestamp_format,
         )
-        if not timestamp_enabled:
-            return event.line
-        timestamp_format = ctx.timestamp_format or self.settings.tools.timestamp_format
-        timestamp = self._timestamp(event.created_at, timestamp_format)
-        return f"[{timestamp}] {event.line}"
 
     def _todo_section(self, ctx: SessionContext) -> str:
-        if not ctx.todo_items:
-            return ""
-        timestamp_enabled = (
-            self.settings.tools.timestamp if ctx.timestamp is None else ctx.timestamp
-        )
-        timestamp_format = ctx.timestamp_format or self.settings.tools.timestamp_format
-        timestamp = self._timestamp(ctx.todo_updated_at, timestamp_format)
-        title = f"Todo [{timestamp}]" if timestamp_enabled else "Todo"
-        if self.settings.renderer.density == "compact":
-            return self._todo_compact(ctx.todo_items, title)
-        header = f"📋 {title}" if self.settings.renderer.style == "emoji" else title
-        lines = self._todo_lines(ctx.todo_items)
-        return header + "\n" + "\n".join(lines)
-
-    def _todo_compact(self, items: tuple[TodoItem, ...], title: str) -> str:
-        counts = {"in_progress": 0, "pending": 0, "completed": 0, "cancelled": 0}
-        current = ""
-        for item in items:
-            if item.status in counts:
-                counts[item.status] += 1
-            if item.status == "in_progress" and not current:
-                current = item.content
-        parts = []
-        if current:
-            parts.append("active: " + truncate_text(current, self.settings.todo.max_item_chars))
-        for status, label in (
-            ("pending", "pending"),
-            ("completed", "done"),
-            ("cancelled", "cancelled"),
-        ):
-            if counts[status]:
-                parts.append(f"{counts[status]} {label}")
-        body = " · ".join(parts) or "no tasks"
-        prefix = "📋 " if self.settings.renderer.style == "emoji" else ""
-        return f"{prefix}{title}: {body}"
+        return todo_section(ctx, settings=self.settings)
 
     @staticmethod
     def _timestamp(value: float, fmt: str) -> str:
-        try:
-            return time.strftime(fmt, time.localtime(value))
-        except Exception:
-            return time.strftime("%H:%M", time.localtime(value))
-
-    def _todo_lines(self, items: tuple[TodoItem, ...]) -> list[str]:
-        by_status = {"in_progress": [], "pending": [], "completed": [], "cancelled": []}
-        for item in items:
-            by_status.setdefault(item.status, []).append(item.content)
-        emoji = self.settings.renderer.style == "emoji"
-        labels = {
-            "in_progress": "🔄 in progress" if emoji else "in progress",
-            "pending": "⏳ pending" if emoji else "pending",
-            "completed": "✅ done" if emoji else "done",
-            "cancelled": "❌ cancelled" if emoji else "cancelled",
-        }
-        lines = []
-        todo_settings = self.settings.todo
-        for status, limit in (
-            ("in_progress", 1),
-            ("pending", todo_settings.max_pending),
-            ("completed", todo_settings.max_completed),
-            ("cancelled", todo_settings.max_cancelled),
-        ):
-            values = by_status[status]
-            if not values:
-                continue
-            visible = ", ".join(
-                truncate_text(value, todo_settings.max_item_chars) for value in values[:limit]
-            )
-            hidden = len(values) - limit
-            suffix = f" +{hidden} more" if hidden > 0 else ""
-            lines.append(f"{labels[status]} ({len(values)}): {visible}{suffix}")
-        return lines or ["no tasks"]
+        return timestamp_text(value, fmt)
 
     def _apply_background_job_event(self, ctx: SessionContext, event: BackgroundJobEvent) -> None:
-        job = ctx.background_jobs.get(event.process_id)
-        if job is None:
-            job = BackgroundJob(
-                process_id=event.process_id,
-                command=event.command,
-                cwd=event.cwd,
-                pid=event.pid,
-                started_at=event.created_at,
-                updated_at=event.created_at,
-            )
-            ctx.background_jobs[event.process_id] = job
-            ctx.background_order.append(event.process_id)
-        if event.command:
-            job.command = event.command
-        if event.cwd:
-            job.cwd = event.cwd
-        if event.pid is not None:
-            job.pid = event.pid
-        if event.output or event.event_type in {"output", "completed", "killed", "lost"}:
-            self._update_background_output(job, event.output)
-        if event.exited or event.event_type in {"completed", "killed", "lost"}:
-            job.status = "completed" if event.exit_code in {0, None} else "failed"
-            if event.event_type == "killed":
-                job.status = "killed"
-            elif event.event_type == "lost":
-                job.status = "lost"
-            job.exit_code = event.exit_code
-            job.completed_at = event.created_at
-            self._cancel_background_poll(job)
-        elif event.event_type == "started":
-            job.status = "running"
-        job.updated_at = event.created_at
-        self._prune_background_jobs(ctx)
-
-    def _update_background_output(self, job: BackgroundJob, output: str) -> None:
-        clean = self._normalize_background_output(output)
-        if clean == job.last_output:
-            return
-        job.last_output = clean
-        job.output_chars = len(clean)
-        lines = self._useful_output_lines(clean)
-        cfg = self.settings.background_jobs
-        job.output_head = tuple(lines[: cfg.head_lines])
-        job.output_tail = tuple(lines[-cfg.tail_lines :])
+        apply_background_job_event(
+            ctx,
+            event,
+            settings=self.settings.background_jobs,
+            cancel_poll=self._cancel_background_poll,
+        )
 
     def _background_jobs_section(self, ctx: SessionContext) -> str:
-        if not self._background_jobs_enabled(ctx):
-            return ""
-        self._prune_background_jobs(ctx)
-        jobs = [
-            ctx.background_jobs[jid] for jid in ctx.background_order if jid in ctx.background_jobs
-        ]
-        visible = []
-        for job in jobs:
-            if job.status == "running" and not self.settings.background_jobs.list_running:
-                continue
-            if job.status != "running" and not self.settings.background_jobs.show_completed:
-                continue
-            visible.append(job)
-        if not visible:
-            return ""
-        visible = visible[-self.settings.background_jobs.max_jobs :]
-        lines: list[str] = []
-        for idx, job in enumerate(visible, 1):
-            lines.extend(self._background_job_lines(job, idx))
-        return self._section("Background Jobs", "🖥", "\n".join(lines))
-
-    def _background_job_lines(self, job: BackgroundJob, idx: int) -> list[str]:
-        emoji = self.settings.renderer.style == "emoji"
-        marker = self._background_marker(job.status, emoji)
-        command = truncate_text(redact_text(job.command or job.process_id), 72)
-        elapsed = self._duration_short((job.completed_at or time.time()) - job.started_at)
-        title = f"[{idx}] {marker} {job.process_id} · {command} · {elapsed}"
-        if job.status != "running" and job.exit_code is not None:
-            title += f" · exit {job.exit_code}"
-        lines = [title]
-        rendered_head = [self._cap_bg_line(line) for line in job.output_head]
-        rendered_tail = [self._cap_bg_line(line) for line in job.output_tail]
-        if rendered_head:
-            lines.append("    start: " + rendered_head[0])
-            for line in rendered_head[1:]:
-                lines.append("           " + line)
-        tail_label = "end" if job.status != "running" else "tail"
-        tail_lines = [line for line in rendered_tail if line not in rendered_head]
-        if tail_lines:
-            lines.append(f"    {tail_label}: " + tail_lines[0])
-            for line in tail_lines[1:]:
-                lines.append("         " + line)
-        return lines
-
-    @staticmethod
-    def _background_marker(status: str, emoji: bool) -> str:
-        if not emoji:
-            return status
-        return {
-            "running": "🔄",
-            "completed": "✅",
-            "failed": "❌",
-            "killed": "🛑",
-            "lost": "⚠️",
-        }.get(status, "•")
-
-    def _cap_bg_line(self, line: str) -> str:
-        return truncate_text(redact_text(line), self.settings.background_jobs.max_line_chars)
-
-    @staticmethod
-    def _duration_short(seconds: float) -> str:
-        seconds = max(0, int(seconds))
-        if seconds < 60:
-            return f"{seconds}s"
-        minutes, secs = divmod(seconds, 60)
-        if minutes < 60:
-            return f"{minutes}m {secs}s"
-        hours, minutes = divmod(minutes, 60)
-        return f"{hours}h {minutes}m"
-
-    @staticmethod
-    def _normalize_background_output(output: str) -> str:
-        text = str(output or "").replace("\r", "\n")
-        text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", text)
-        return text
-
-    @staticmethod
-    def _useful_output_lines(output: str) -> list[str]:
-        lines = []
-        for raw in output.splitlines():
-            line = " ".join(raw.strip().split())
-            if not line:
-                continue
-            if any(
-                noise in line
-                for noise in (
-                    "bash: cannot set terminal process group",
-                    "bash: no job control in this shell",
-                    "no job control in this shell",
-                )
-            ):
-                continue
-            lines.append(line)
-        return lines
-
-    def _prune_background_jobs(self, ctx: SessionContext) -> None:
-        ttl = self.settings.background_jobs.completed_ttl_seconds
-        now = time.time()
-        for process_id in list(ctx.background_order):
-            job = ctx.background_jobs.get(process_id)
-            if job is None:
-                with contextlib.suppress(ValueError):
-                    ctx.background_order.remove(process_id)
-                continue
-            if job.status != "running" and job.completed_at and now - job.completed_at > ttl:
-                self._cancel_background_poll(job)
-                ctx.background_jobs.pop(process_id, None)
-                with contextlib.suppress(ValueError):
-                    ctx.background_order.remove(process_id)
-        while len(ctx.background_order) > self.settings.background_jobs.max_jobs * 3:
-            process_id = ctx.background_order.popleft()
-            job = ctx.background_jobs.pop(process_id, None)
-            if job is not None:
-                self._cancel_background_poll(job)
+        return background_jobs_section(
+            ctx,
+            settings=self.settings,
+            section=self._section,
+            background_jobs_enabled=self._background_jobs_enabled,
+            cancel_poll=self._cancel_background_poll,
+        )
 
     @staticmethod
     def _cancel_background_poll(job: BackgroundJob) -> None:
-        task = job.poll_task
-        if task is not None and not task.done():
-            task.cancel()
-        job.poll_task = None
+        cancel_background_poll(job)
 
     def _background_jobs_enabled(self, ctx: SessionContext) -> bool:
         return bool(
@@ -587,32 +406,12 @@ class ProgressRenderer:
 
     @staticmethod
     def _reset_turn(ctx: SessionContext) -> None:
-        keep_progress_bubble = bool(ctx.background_jobs)
-        if not keep_progress_bubble:
-            ctx.message_id = None
-        ctx.tool_lines.clear()
-        ctx.active_tool_lines.clear()
-        ctx.active_tool_fingerprints.clear()
-        ctx.delegate_branches.clear()
-        ctx.delegate_order.clear()
-        ctx.todo_items = ()
-        ctx.todo_updated_at = 0.0
-        ctx.reasoning_text = ""
-        ctx.reasoning_pending_chars = 0
-        ctx.last_reasoning_source = ""
-        ctx.last_reasoning_chars = 0
-        ctx.last_reasoning_at = 0.0
-        ctx.generation += 1
-        ctx.can_edit = True
-        ctx.edit_state = "editable"
-        ctx.edit_backoff_until = 0.0
-        ctx.edit_failure_count = 0
-        ctx.edit_recovery_sends = 0
-        ProgressRenderer._cancel_delayed_flush(ctx)
-        ctx.fallback_send_count = 0
-        ctx.new_events_since_snapshot = 0
-        ctx.snapshots_sent = 0
-        ctx.total_events = 0
+        reset_turn(ctx)
+
+    def _has_background_jobs(self, ctx: SessionContext) -> bool:
+        return has_preserved_background_jobs(
+            ctx, self.settings.finalization.preserve_background_jobs
+        )
 
     def _reasoning_tail(self, ctx: SessionContext) -> str:
         return render_reasoning_tail(
@@ -625,6 +424,32 @@ class ProgressRenderer:
     @staticmethod
     def _normalize_reasoning(text: str) -> str:
         return normalize_reasoning_text(text)
+
+    async def _finalize_progress_message(self, ctx: SessionContext, *, success: bool) -> None:
+        await finalize_progress_message(self, ctx, success=success)
+
+    def _resolve_finalization_policy(self, ctx: SessionContext) -> str:
+        return resolve_finalization_policy(self.settings.finalization.policy, ctx.platform)
+
+    def _should_flush_before_reset(self, ctx: SessionContext, *, success: bool) -> bool:
+        return should_flush_before_reset(
+            ctx,
+            policy=self._resolve_finalization_policy(ctx),
+            delete_on_success=self.settings.finalization.delete_on_success,
+            delete_on_failure=self.settings.finalization.delete_on_failure,
+            preserve_background_jobs=self.settings.finalization.preserve_background_jobs,
+            success=success,
+        )
+
+    async def _collapse_progress_message(self, ctx: SessionContext, message_id: str) -> None:
+        await collapse_progress_message(self, ctx, message_id)
+
+    async def _delete_progress_message(self, ctx: SessionContext, message_id: str) -> None:
+        await delete_progress_message(
+            ctx,
+            message_id,
+            current_context=lambda: self.find_context(ctx.session_id, ctx.session_key),
+        )
 
     async def _render_live(
         self, ctx: SessionContext, force: bool = False, *, ignore_backoff: bool = False
@@ -688,6 +513,9 @@ class ProgressRenderer:
                 return
             delay = self._edit_backoff_seconds(error, kind, ctx.edit_failure_count)
             ctx.edit_state = kind
+            if ignore_backoff:
+                ctx.edit_backoff_until = 0.0
+                return
             ctx.edit_backoff_until = time.monotonic() + delay
             self._schedule_delayed_live_flush(ctx, delay)
             return

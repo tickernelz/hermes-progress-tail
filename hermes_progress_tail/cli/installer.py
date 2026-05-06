@@ -70,6 +70,15 @@ DEFAULT_CONFIG = {
         "suppress_watch_notifications": True,
         "default_notify_on_complete": False,
     },
+    "finalization": {
+        "policy": "auto",
+        "delay_seconds": 0.8,
+        "delete_on_success": True,
+        "delete_on_failure": False,
+        "collapse_text": "Done",
+        "preserve_background_jobs": True,
+        "cleanup_stale_on_next_turn": True,
+    },
     "renderer": {
         "strategy": "auto",
         "edit_interval": 1.5,

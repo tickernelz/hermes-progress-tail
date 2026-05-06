@@ -55,12 +55,17 @@ class SequenceEditAdapter(EditableAdapter):
     def __init__(self, errors):
         super().__init__()
         self.errors = list(errors)
+        self.deleted = []
 
     async def edit_message(self, chat_id, message_id, content):
         self.edits.append((chat_id, message_id, content))
         if self.errors:
             return Result(False, message_id, self.errors.pop(0))
         return Result(True, message_id)
+
+    async def delete_message(self, chat_id, message_id):
+        self.deleted.append((chat_id, message_id))
+        return True
 
 
 def make_ctx(adapter, *, strategy="live_tail", timestamp=False, platform="discord"):

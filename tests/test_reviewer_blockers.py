@@ -109,11 +109,17 @@ def test_finalize_resets_turn_state_before_next_turn():
         )
         await renderer.handle_event(ToolEvent("s1", "k1", "discord", "old tool"), force=True)
         await renderer.finalize(session_id="s1")
+        next_ctx = SessionContext(
+            "s1", "k1", "discord", "chat", None, adapter, asyncio.get_running_loop(), "live_tail"
+        )
+        renderer.register_context(next_ctx)
         await renderer.handle_event(ToolEvent("s1", "k1", "discord", "new tool"), force=True)
 
-        assert adapter.sent[-1][1] == "🧰 Tools\nnew tool"
-        assert "old thought" not in adapter.sent[-1][1]
-        assert "old tool" not in adapter.sent[-1][1]
+        assert len(adapter.sent) == 2
+        latest = adapter.sent[-1][1]
+        assert latest == "🧰 Tools\nnew tool"
+        assert "old thought" not in latest
+        assert "old tool" not in latest
 
     asyncio.run(run())
 
