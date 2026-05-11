@@ -111,7 +111,7 @@ class RendererSettings:
     redact_secrets: bool = True
     mode: str = "sectioned"
     style: Literal["emoji", "plain"] = "emoji"
-    density: Literal["compact", "normal", "debug"] = "normal"
+    density: Literal["compact", "normal", "verbose", "debug"] = "normal"
     code_fence: Literal["auto", "on", "off"] = "auto"
     code_fence_language: str = ""
 
@@ -245,9 +245,11 @@ def _style(value: Any, default: str = "emoji") -> Literal["emoji", "plain"]:
     return "plain" if val == "plain" else "emoji"
 
 
-def _density(value: Any, default: str = "normal") -> Literal["compact", "normal", "debug"]:
+def _density(
+    value: Any, default: str = "normal"
+) -> Literal["compact", "normal", "verbose", "debug"]:
     val = str(value or default).strip().lower()
-    return val if val in {"compact", "normal", "debug"} else "normal"
+    return val if val in {"compact", "normal", "verbose", "debug"} else "normal"
 
 
 def _patch_detail(value: Any, default: str = "smart") -> str:

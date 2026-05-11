@@ -24,6 +24,10 @@ def test_load_settings_defaults():
     assert not hasattr(settings.reasoning, "capture_inline_think_tags")
     assert settings.renderer.style == "emoji"
     assert settings.renderer.density == "normal"
+    assert (
+        load_settings({"progress_tail": {"renderer": {"density": "verbose"}}}).renderer.density
+        == "verbose"
+    )
     assert settings.renderer.code_fence == "auto"
     assert settings.background_jobs.enabled is True
     assert settings.background_jobs.suppress_native_notify is True

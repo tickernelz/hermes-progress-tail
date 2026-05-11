@@ -7,9 +7,12 @@ from ..models.state import AssistantLine, SessionContext, TodoItem, ToolEvent
 from ..settings.config import Settings
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
+from .focused import compose_focused_content
 
 
 def compose_content(renderer, ctx: SessionContext) -> str:
+    if renderer.settings.renderer.mode == "focused":
+        return compose_focused_content(renderer, ctx)
     parts = []
     assistant = renderer._assistant_tail(ctx)
     if assistant:

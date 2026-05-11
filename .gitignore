@@ -33,5 +33,6 @@ Thumbs.db
 
 # Hermes local artifacts
 .hermes/
+.superpowers/
 manual-backups/
 backups/

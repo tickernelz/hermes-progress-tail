@@ -5,7 +5,14 @@ from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.delegate_renderer import DelegateProgressRenderer
 from hermes_progress_tail.formatter import extract_todo_items, format_tool_line
 from hermes_progress_tail.renderer import ProgressRenderer
-from hermes_progress_tail.state import DelegateEvent, SessionContext, ToolEvent
+from hermes_progress_tail.state import (
+    AssistantEvent,
+    BackgroundJobEvent,
+    DelegateEvent,
+    ReasoningEvent,
+    SessionContext,
+    ToolEvent,
+)
 
 
 class Result:
@@ -80,6 +87,196 @@ def make_ctx(adapter, *, strategy="live_tail", timestamp=False, platform="discor
         strategy,
         timestamp=timestamp,
     )
+
+
+def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False, "lines": 4},
+                        "assistant": {"min_update_chars": 1, "max_lines": 2, "max_chars": 220},
+                        "reasoning": {"min_update_chars": 1, "max_lines": 2, "max_chars": 260},
+                        "renderer": {"mode": "focused", "density": "verbose", "style": "plain"},
+                        "delegates": {"lines_per_delegate": 1, "max_delegates": 2},
+                        "background_jobs": {"max_jobs": 2, "head_lines": 1, "tail_lines": 1},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            AssistantEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "Gue cek formatter path dulu, jangan sampai strip code/path.",
+                created_at=0,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            ReasoningEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "**Planning task execution**\nTelegram edits are plain text; sanitize markers instead of abusing finalize.",
+                created_at=1,
+            ),
+            force=True,
+        )
+        todo_args = {
+            "todos": [
+                {"content": "inspect adapter contract", "status": "completed"},
+                {"content": "inspect renderer assumptions", "status": "completed"},
+                {"content": "implement plain-live sanitizer", "status": "in_progress"},
+                {"content": "verify targeted tests", "status": "pending"},
+                {"content": "run full suite", "status": "pending"},
+            ]
+        }
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                format_tool_line("todo", todo_args),
+                tool_name="todo",
+                todo_items=extract_todo_items(todo_args),
+                created_at=2,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "reviewer-1",
+                task_index=0,
+                task_count=1,
+                goal="formatter edge cases",
+                event_type="subagent.start",
+                status="running",
+                created_at=3,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            BackgroundJobEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "pytest-full",
+                event_type="started",
+                command="python -m pytest -q",
+                created_at=4,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            BackgroundJobEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "pytest-full",
+                event_type="output",
+                output="126/214 tests\n",
+                created_at=5,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file · telegram.py:3108", created_at=6),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "search_files · edit_message", created_at=7),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "patch · rendering/formatter.py",
+                tool_name="patch",
+                created_at=8,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert content.startswith("Jono is working\n────────────────")
+        assert "Now     patch · rendering/formatter.py" in content
+        assert "Why     Gue cek formatter path dulu, jangan sampai strip code/path." in content
+        assert "State   3 tools done · 1 running · 2 queued" in content
+        assert "Progress\nGue cek formatter path dulu" in content
+        assert "Reasoning\nPlanning task execution" in content
+        assert "**Planning task execution**" not in content
+        assert "Plan\n✓ inspect adapter contract" in content
+        assert "→ implement plain-live sanitizer" in content
+        assert "… 2 queued" in content
+        assert "Delegates\n" in content
+        assert "Background\n" in content
+        assert "Tools\n✓ read_file · telegram.py:3108" in content
+        assert "→ patch · rendering/formatter.py" in content
+        assert "Changes\n~ rendering/formatter.py" in content
+
+    asyncio.run(run())
+
+
+def test_focused_telegram_plain_sanitizer_preserves_code_and_paths():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "assistant": {"min_update_chars": 1},
+                        "reasoning": {"min_update_chars": 1},
+                        "renderer": {"mode": "focused", "density": "verbose", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            AssistantEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "**Checking formatter**\nUse `path/to/file_name.py` and keep snake_case intact.",
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            ReasoningEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "## Inspecting Markdown\n__Do not__ break `/tmp/a_b/file.py` or `foo_bar`.",
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "Checking formatter" in content
+        assert "Inspecting Markdown" in content
+        assert "**Checking formatter**" not in content
+        assert "## Inspecting Markdown" not in content
+        assert "__Do not__" not in content
+        assert "`path/to/file_name.py`" in content
+        assert "`/tmp/a_b/file.py`" in content
+        assert "foo_bar" in content
+
+    asyncio.run(run())
 
 
 def test_live_tail_keeps_latest_three_and_edits_one_message():

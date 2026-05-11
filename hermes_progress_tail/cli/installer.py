@@ -81,9 +81,9 @@ DEFAULT_CONFIG = {
         "edit_interval": 1.5,
         "stale_ttl_seconds": 900,
         "redact_secrets": True,
-        "mode": "sectioned",
+        "mode": "focused",
         "style": "emoji",
-        "density": "normal",
+        "density": "verbose",
         "code_fence": "auto",
         "code_fence_language": "",
     },
@@ -253,9 +253,9 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
                 "edit_interval": defaults.get("edit_interval", 1.5),
                 "stale_ttl_seconds": defaults.get("stale_ttl_seconds", 900),
                 "redact_secrets": defaults.get("redact_secrets", True),
-                "mode": "sectioned",
+                "mode": "focused",
                 "style": "emoji",
-                "density": "normal",
+                "density": "verbose",
                 "code_fence": "auto",
                 "code_fence_language": "",
             },
@@ -725,7 +725,10 @@ def _simple_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]:
         "renderer": {
             "style": _prompt_choice("Renderer style", ("emoji", "plain"), "emoji", input_stream),
             "density": _prompt_choice(
-                "Renderer density", ("compact", "normal", "debug"), "normal", input_stream
+                "Renderer density",
+                ("compact", "normal", "verbose", "debug"),
+                "verbose",
+                input_stream,
             ),
         },
     }
@@ -814,11 +817,11 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
             input_stream,
         ),
         "mode": _prompt_choice(
-            "Renderer layout mode", ("sectioned", "compact"), "sectioned", input_stream
+            "Renderer layout mode", ("focused", "sectioned", "compact"), "focused", input_stream
         ),
         "style": _prompt_choice("Renderer style", ("emoji", "plain"), "emoji", input_stream),
         "density": _prompt_choice(
-            "Renderer density", ("compact", "normal", "debug"), "normal", input_stream
+            "Renderer density", ("compact", "normal", "verbose", "debug"), "verbose", input_stream
         ),
         "edit_interval": _prompt_float("Minimum seconds between live edits", 1.5, input_stream),
         "stale_ttl_seconds": _prompt_int("Stale session TTL seconds", 900, input_stream),
@@ -895,7 +898,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--enable-todo", choices=["on", "off"])
     parser.add_argument("--enable-reasoning", choices=["on", "off"])
     parser.add_argument("--renderer-style", choices=["emoji", "plain"])
-    parser.add_argument("--renderer-density", choices=["compact", "normal", "debug"])
+    parser.add_argument("--renderer-density", choices=["compact", "normal", "verbose", "debug"])
     args = parser.parse_args(argv)
     hermes_home = Path(args.hermes_home)
     profiles = _parse_profile_list(args.profile)

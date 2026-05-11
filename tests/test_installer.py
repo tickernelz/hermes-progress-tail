@@ -681,7 +681,9 @@ def test_feature_overrides_do_not_mutate_default_config(tmp_path):
     )
 
     assert DEFAULT_CONFIG["delegates"]["enabled"] is True
+    assert DEFAULT_CONFIG["renderer"]["mode"] == "focused"
     assert DEFAULT_CONFIG["renderer"]["style"] == "emoji"
+    assert DEFAULT_CONFIG["renderer"]["density"] == "verbose"
 
 
 def test_uninstall_many_targets_selected_profiles(tmp_path):
