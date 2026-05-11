@@ -8,6 +8,8 @@ from typing import Any
 
 from ..gateway.compat import adapter_supports_edit
 from ..models.state import (
+    AssistantEvent,
+    AssistantLine,
     BackgroundJob,
     BackgroundJobEvent,
     DelegateEvent,
@@ -32,6 +34,7 @@ from .finalization import (
 )
 from .reasoning import normalize_reasoning_text, render_reasoning_tail, split_reasoning_blocks
 from .sections import (
+    assistant_tail,
     compose_content,
     debug_section,
     format_tool_line_for_context,
@@ -63,6 +66,11 @@ class ProgressRenderer:
                 ctx.delegate_order = existing.delegate_order
                 ctx.todo_items = existing.todo_items
                 ctx.todo_updated_at = existing.todo_updated_at
+                ctx.assistant_lines = existing.assistant_lines
+                ctx.assistant_latest_text = existing.assistant_latest_text
+                ctx.assistant_pending_chars = existing.assistant_pending_chars
+                ctx.last_assistant_chars = existing.last_assistant_chars
+                ctx.last_assistant_at = existing.last_assistant_at
                 ctx.reasoning_text = existing.reasoning_text
                 ctx.reasoning_pending_chars = existing.reasoning_pending_chars
                 ctx.last_reasoning_source = existing.last_reasoning_source
@@ -144,6 +152,8 @@ class ProgressRenderer:
                     return
             if isinstance(event, ToolEvent) and not ctx.tools_enabled:
                 return
+            if isinstance(event, AssistantEvent) and not ctx.assistant_enabled:
+                return
             if isinstance(event, DelegateEvent) and not ctx.delegates_enabled:
                 return
             if isinstance(event, BackgroundJobEvent) and not self._background_jobs_enabled(ctx):
@@ -189,6 +199,16 @@ class ProgressRenderer:
             elif isinstance(event, BackgroundJobEvent):
                 self._apply_background_job_event(ctx, event)
                 force = True
+            elif isinstance(event, AssistantEvent):
+                pending = self._append_assistant(ctx, event)
+                if (
+                    not force
+                    and ctx.message_id
+                    and time.monotonic() - ctx.last_render_at < ctx.edit_interval
+                ):
+                    return
+                if not force and pending < self.settings.assistant.min_update_chars:
+                    return
             else:
                 pending = self._append_reasoning(ctx, event)
                 if (
@@ -254,6 +274,28 @@ class ProgressRenderer:
                     await self._render_snapshot(ctx, force=True, final=True)
         if purge:
             self.purge(session_id=ctx.session_id)
+
+    def _append_assistant(self, ctx: SessionContext, event: AssistantEvent) -> int:
+        text = str(event.text or "").strip()
+        if not text:
+            return 0
+        previous = ctx.assistant_latest_text
+        replace_latest = bool(previous and (text.startswith(previous) or previous.startswith(text)))
+        if replace_latest and ctx.assistant_lines:
+            ctx.assistant_lines[-1] = AssistantLine(text=text, created_at=event.created_at)
+        else:
+            ctx.assistant_lines.append(AssistantLine(text=text, created_at=event.created_at))
+        max_lines = max(1, self.settings.assistant.max_lines)
+        if ctx.assistant_lines.maxlen != max_lines:
+            ctx.assistant_lines = type(ctx.assistant_lines)(
+                list(ctx.assistant_lines)[-max_lines:], maxlen=max_lines
+            )
+        delta_chars = len(text) - len(previous) if replace_latest else len(text)
+        ctx.assistant_pending_chars += max(1, delta_chars)
+        ctx.assistant_latest_text = text
+        ctx.last_assistant_chars = len(text)
+        ctx.last_assistant_at = event.created_at
+        return ctx.assistant_pending_chars
 
     def _append_reasoning(self, ctx: SessionContext, event: ReasoningEvent) -> int:
         if not event.text:
@@ -385,6 +427,13 @@ class ProgressRenderer:
     def _has_background_jobs(ctx: SessionContext) -> bool:
         return has_background_jobs(ctx)
 
+    def _assistant_tail(self, ctx: SessionContext) -> str:
+        return assistant_tail(
+            tuple(ctx.assistant_lines),
+            max_lines=self.settings.assistant.max_lines,
+            max_chars=self.settings.assistant.max_chars,
+        )
+
     def _reasoning_tail(self, ctx: SessionContext) -> str:
         return render_reasoning_tail(
             ctx.reasoning_text,
@@ -429,6 +478,7 @@ class ProgressRenderer:
                 ctx.last_error = str(exc)
                 result = _Result(False, ctx.message_id, str(exc))
             if getattr(result, "success", False):
+                ctx.assistant_pending_chars = 0
                 ctx.reasoning_pending_chars = 0
                 ctx.edit_state = "editable"
                 ctx.edit_backoff_until = 0.0
@@ -438,6 +488,7 @@ class ProgressRenderer:
             error = str(getattr(result, "error", "") or "edit failed")
             kind = self._classify_edit_error(error)
             if kind == "noop_success":
+                ctx.assistant_pending_chars = 0
                 ctx.reasoning_pending_chars = 0
                 ctx.edit_state = "editable"
                 ctx.last_render_at = time.monotonic()
@@ -493,6 +544,7 @@ class ProgressRenderer:
             if recovery:
                 ctx.edit_recovery_sends += 1
                 ctx.fallback_send_count += 1
+            ctx.assistant_pending_chars = 0
             ctx.reasoning_pending_chars = 0
             ctx.last_render_at = time.monotonic()
         else:
@@ -575,6 +627,7 @@ class ProgressRenderer:
             ctx.snapshots_sent += 1
             ctx.fallback_send_count += 1
             ctx.new_events_since_snapshot = 0
+            ctx.assistant_pending_chars = 0
             ctx.reasoning_pending_chars = 0
             ctx.last_render_at = time.monotonic()
         else:

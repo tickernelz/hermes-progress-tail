@@ -81,7 +81,7 @@ def test_concurrent_events_do_not_send_duplicate_initial_messages():
         )
 
         assert len(adapter.sent) == 1
-        assert adapter.edits[-1][2] == "🧰 Tools\ntool 2\ntool 3\ntool 4"
+        assert adapter.edits[-1][2] == "▰ 🧰 Tools\ntool 2\ntool 3\ntool 4"
 
     asyncio.run(run())
 
@@ -117,7 +117,7 @@ def test_finalize_resets_turn_state_before_next_turn():
 
         assert len(adapter.sent) == 2
         latest = adapter.sent[-1][1]
-        assert latest == "🧰 Tools\nnew tool"
+        assert latest == "▰ 🧰 Tools\nnew tool"
         assert "old thought" not in latest
         assert "old tool" not in latest
 
@@ -145,6 +145,6 @@ def test_reasoning_updates_even_when_tail_is_at_max_chars():
         renderer.sessions["s1"].last_render_at -= 2
         await renderer.handle_event(ReasoningEvent("s1", "k1", "discord", "klm"))
 
-        assert adapter.edits[-1][2] == "💭 Reasoning\ndefghijklm"
+        assert adapter.edits[-1][2] == "▰ 💭 Reasoning\ndefghijklm"
 
     asyncio.run(run())

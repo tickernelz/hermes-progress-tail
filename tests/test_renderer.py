@@ -96,7 +96,7 @@ def test_live_tail_keeps_latest_three_and_edits_one_message():
 
         assert len(adapter.sent) == 1
         assert adapter.sent[0][2] == {"thread_id": "thread"}
-        assert adapter.edits[-1][2] == "🧰 Tools\ntool 2\ntool 3\ntool 4"
+        assert adapter.edits[-1][2] == "▰ 🧰 Tools\ntool 2\ntool 3\ntool 4"
 
     asyncio.run(run())
 
@@ -115,10 +115,10 @@ def test_live_tail_finalizes_latest_lines_after_throttled_events():
         for i in range(5):
             await renderer.handle_event(ToolEvent("s1", "k1", "discord", f"tool {i}"))
 
-        assert adapter.sent[0][1] == "🧰 Tools\ntool 0"
+        assert adapter.sent[0][1] == "▰ 🧰 Tools\ntool 0"
         assert adapter.edits == []
         await renderer.finalize(session_id="s1")
-        assert adapter.edits[-1][2] == "🧰 Tools\ntool 2\ntool 3\ntool 4"
+        assert adapter.edits[-1][2] == "▰ 🧰 Tools\ntool 2\ntool 3\ntool 4"
 
     asyncio.run(run())
 
@@ -146,7 +146,7 @@ def test_tool_tail_adds_compact_event_timestamp():
             force=True,
         )
 
-        assert adapter.sent[0][1] == "🧰 Tools\n[00:00] terminal: npm test"
+        assert adapter.sent[0][1] == "▰ 🧰 Tools\n[00:00] terminal: npm test"
 
     asyncio.run(run())
 
@@ -183,7 +183,7 @@ def test_sticky_todo_survives_latest_tool_tail_and_resets_on_finalize():
             await renderer.handle_event(ToolEvent("s1", "k1", "discord", f"tool {i}"), force=True)
 
         content = adapter.edits[-1][2]
-        assert "📋 Todo" in content
+        assert "▰ 📋 Todo" in content
         assert "🔄 in progress (1): implement sticky todo" in content
         assert "⏳ pending (2): write tests, push tag" in content
         assert "✅ done (1): inspect repo" in content
@@ -232,7 +232,7 @@ def test_plain_style_removes_section_emojis():
         assert "Todo" in content
         assert "Tools" in content
         assert "in progress (1): ship clean UX" in content
-        assert "📋 Todo" not in content
+        assert "▰ 📋 Todo" not in content
         assert "🔄" not in content
         assert "🧰 Tools" not in content
 
@@ -268,7 +268,7 @@ def test_todo_tool_line_can_be_kept_when_configured():
             force=True,
         )
 
-        assert "📋 Todo" in adapter.sent[0][1]
+        assert "▰ 📋 Todo" in adapter.sent[0][1]
         assert "📋 todo:" in adapter.sent[0][1]
 
     asyncio.run(run())
@@ -374,7 +374,7 @@ def test_edit_transient_failure_backs_off_without_sending_new_message():
         ctx.edit_backoff_until = 0
         await renderer.finalize(session_id="s1")
         assert len(adapter.sent) == 1
-        assert adapter.edits[-1][2] == "🧰 Tools\none\ntwo\nthree"
+        assert adapter.edits[-1][2] == "▰ 🧰 Tools\none\ntwo\nthree"
 
     asyncio.run(run())
 
@@ -400,7 +400,7 @@ def test_edit_timeout_failure_backs_off_without_sending_new_message():
         ctx.edit_backoff_until = 0
         await renderer.finalize(session_id="s1")
         assert len(adapter.sent) == 1
-        assert adapter.edits[-1][2] == "🧰 Tools\none\ntwo\nthree"
+        assert adapter.edits[-1][2] == "▰ 🧰 Tools\none\ntwo\nthree"
 
     asyncio.run(run())
 
@@ -419,9 +419,9 @@ def test_edit_message_lost_recovers_with_exactly_one_new_progress_bubble():
         await renderer.handle_event(ToolEvent("s1", "k1", "discord", "three"), force=True)
 
         assert len(adapter.sent) == 2
-        assert adapter.sent[-1][1] == "🧰 Tools\none\ntwo"
+        assert adapter.sent[-1][1] == "▰ 🧰 Tools\none\ntwo"
         assert adapter.edits[-1][1] == "m2"
-        assert adapter.edits[-1][2] == "🧰 Tools\none\ntwo\nthree"
+        assert adapter.edits[-1][2] == "▰ 🧰 Tools\none\ntwo\nthree"
         assert ctx.strategy == "live_tail"
 
     asyncio.run(run())
@@ -537,7 +537,7 @@ def test_finalize_bypasses_backoff_and_cancels_delayed_flush_after_interrupt_lik
         assert ctx.delayed_flush_task is None
         assert first_task.cancelled() or first_task.done()
         assert len(adapter.sent) == 1
-        assert adapter.edits[-1][2] == "🧰 Tools\none\ntwo"
+        assert adapter.edits[-1][2] == "▰ 🧰 Tools\none\ntwo"
 
     asyncio.run(run())
 
@@ -578,9 +578,9 @@ def test_parallel_sessions_do_not_cross_edit():
         await renderer.handle_event(ToolEvent("s2", "k2", "discord", "two"))
 
         assert adapter1.sent[0][0] == "chat1"
-        assert adapter1.sent[0][1] == "🧰 Tools\none"
+        assert adapter1.sent[0][1] == "▰ 🧰 Tools\none"
         assert adapter2.sent[0][0] == "chat2"
-        assert adapter2.sent[0][1] == "🧰 Tools\ntwo"
+        assert adapter2.sent[0][1] == "▰ 🧰 Tools\ntwo"
 
     asyncio.run(run())
 
@@ -748,7 +748,7 @@ def test_compact_density_renders_one_line_todo():
             force=True,
         )
 
-        assert adapter.sent[0][1] == "📋 Todo: active: polish doctor · 1 pending"
+        assert adapter.sent[0][1] == "▰ 📋 Todo: active: polish doctor · 1 pending"
 
     asyncio.run(run())
 
@@ -783,8 +783,8 @@ def test_completion_replacement_bypasses_live_tail_throttle():
             )
         )
 
-        assert adapter.sent[0][1] == "🧰 Tools\nterminal: pytest · running"
-        assert adapter.edits[-1][2] == "🧰 Tools\n✅ terminal: pytest · done · 2.1s"
+        assert adapter.sent[0][1] == "▰ 🧰 Tools\nterminal: pytest · running"
+        assert adapter.edits[-1][2] == "▰ 🧰 Tools\n✅ terminal: pytest · done · 2.1s"
 
     asyncio.run(run())
 

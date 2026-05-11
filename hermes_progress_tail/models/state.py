@@ -64,6 +64,12 @@ class DelegateBranch:
         self.lines = deque(list(self.lines)[-lines_per_delegate:], maxlen=lines_per_delegate)
 
 
+@dataclass(frozen=True)
+class AssistantLine:
+    text: str
+    created_at: float = field(default_factory=time.time)
+
+
 @dataclass
 class SessionContext:
     session_id: str
@@ -92,6 +98,11 @@ class SessionContext:
     background_order: deque[str] = field(default_factory=deque)
     todo_items: tuple[TodoItem, ...] = ()
     todo_updated_at: float = 0.0
+    assistant_lines: deque[AssistantLine] = field(default_factory=lambda: deque(maxlen=3))
+    assistant_latest_text: str = ""
+    assistant_pending_chars: int = 0
+    last_assistant_chars: int = 0
+    last_assistant_at: float = 0.0
     reasoning_text: str = ""
     reasoning_pending_chars: int = 0
     last_reasoning_source: str = ""
@@ -112,6 +123,7 @@ class SessionContext:
     downgrade_reason: str = ""
     downgrade_at: float = 0.0
     tools_enabled: bool = True
+    assistant_enabled: bool = True
     reasoning_enabled: bool = True
     delegates_enabled: bool = True
     background_jobs_enabled: bool = True
@@ -187,6 +199,17 @@ class ReasoningEvent:
 
 
 @dataclass(frozen=True)
+class AssistantEvent:
+    session_id: str
+    session_key: str
+    platform: str
+    text: str
+    already_streamed: bool = False
+    created_at: float = field(default_factory=time.time)
+    kind: Literal["assistant"] = "assistant"
+
+
+@dataclass(frozen=True)
 class BackgroundJobEvent:
     session_id: str
     session_key: str
@@ -203,4 +226,4 @@ class BackgroundJobEvent:
     kind: Literal["background_job"] = "background_job"
 
 
-ProgressEvent = ToolEvent | DelegateEvent | ReasoningEvent | BackgroundJobEvent
+ProgressEvent = ToolEvent | DelegateEvent | ReasoningEvent | AssistantEvent | BackgroundJobEvent

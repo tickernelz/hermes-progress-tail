@@ -75,7 +75,7 @@ def test_finalize_keeps_completed_progress_bubble_visible():
         await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "tool one"), force=True)
         await renderer.finalize(session_id="s1", success=True)
 
-        assert adapter.sent == [("chat", "🧰 Tools\ntool one", None)]
+        assert adapter.sent == [("chat", "▰ 🧰 Tools\ntool one", None)]
         assert adapter.deleted == []
         assert ctx.message_id == "m1"
         assert ctx.progress_state == "finalized"
@@ -99,9 +99,9 @@ def test_next_turn_after_final_answer_gets_new_progress_bubble():
         await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "second turn"), force=True)
 
         assert len(adapter.sent) == 2
-        assert adapter.sent[0][1] == "🧰 Tools\nfirst turn"
-        assert adapter.sent[1][1] == "🧰 Tools\nsecond turn"
-        assert adapter.edits == [("chat", "m1", "🧰 Tools\nfirst turn")]
+        assert adapter.sent[0][1] == "▰ 🧰 Tools\nfirst turn"
+        assert adapter.sent[1][1] == "▰ 🧰 Tools\nsecond turn"
+        assert adapter.edits == [("chat", "m1", "▰ 🧰 Tools\nfirst turn")]
         assert next_ctx.message_id == "m2"
 
     asyncio.run(run())
@@ -122,7 +122,7 @@ def test_active_turn_interrupt_reuses_existing_progress_bubble():
         )
 
         assert len(adapter.sent) == 1
-        assert adapter.edits[-1] == ("chat", "m1", "🧰 Tools\nfirst event\ninterrupt event")
+        assert adapter.edits[-1] == ("chat", "m1", "▰ 🧰 Tools\nfirst event\ninterrupt event")
         assert replacement_ctx.message_id == "m1"
 
     asyncio.run(run())
@@ -187,7 +187,7 @@ def test_finalize_keeps_background_job_bubble_active_but_new_turn_still_gets_new
         assert len(adapter.sent) == 2
         assert (
             adapter.sent[1][1]
-            == "🖥 Background Jobs\n[1] 🔄 proc_1 · pytest -q · 0s\n\n🧰 Tools\nnew turn"
+            == "▰ 🖥 Background Jobs\n[1] 🔄 proc_1 · pytest -q · 0s\n\n▰ 🧰 Tools\nnew turn"
         )
         assert next_ctx.message_id == "m2"
 
@@ -229,8 +229,8 @@ def test_reasoning_after_finalize_starts_fresh_bubble():
         )
 
         assert len(adapter.sent) == 2
-        assert adapter.sent[0][1] == "💭 Reasoning\nold thought"
-        assert adapter.sent[1][1] == "💭 Reasoning\nnew thought"
+        assert adapter.sent[0][1] == "▰ 💭 Reasoning\nold thought"
+        assert adapter.sent[1][1] == "▰ 💭 Reasoning\nnew thought"
         assert next_ctx.message_id == "m2"
 
     asyncio.run(run())

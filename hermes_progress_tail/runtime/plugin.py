@@ -11,6 +11,7 @@ import yaml
 from ..gateway.compat import platform_name, source_chat_id, source_thread_id
 from ..hooks.monkeypatches import install_monkeypatches
 from ..models.state import (
+    AssistantEvent,
     BackgroundJobEvent,
     DelegateEvent,
     ReasoningEvent,
@@ -24,7 +25,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.20"
+VERSION = "0.1.21"
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -54,15 +55,32 @@ def _progress_tail_enabled(config: dict[str, Any]) -> bool:
     return not (isinstance(progress_tail, dict) and progress_tail.get("enabled") is False)
 
 
+def _feature_enabled(config: dict[str, Any], name: str, default: bool = True) -> bool:
+    if not _progress_tail_enabled(config):
+        return False
+    progress_tail = config.get("progress_tail")
+    feature = progress_tail.get(name) if isinstance(progress_tail, dict) else None
+    if not isinstance(feature, dict):
+        return default
+    return feature.get("enabled") is not False
+
+
+def _assistant_tail_enabled(config: dict[str, Any]) -> bool:
+    return _feature_enabled(config, "assistant", True)
+
+
+def _builtin_interim_conflict(config: dict[str, Any]) -> bool:
+    display = config.get("display")
+    if not isinstance(display, dict) or display.get("interim_assistant_messages") is False:
+        return False
+    return _assistant_tail_enabled(config)
+
+
 def _builtin_reasoning_conflict(config: dict[str, Any]) -> bool:
     display = config.get("display")
     if not isinstance(display, dict) or display.get("show_reasoning") is not True:
         return False
-    if not _progress_tail_enabled(config):
-        return False
-    progress_tail = config.get("progress_tail")
-    reasoning = progress_tail.get("reasoning") if isinstance(progress_tail, dict) else None
-    return not (isinstance(reasoning, dict) and reasoning.get("enabled") is False)
+    return _feature_enabled(config, "reasoning", True)
 
 
 def _core_notifier_conflict(config: dict[str, Any]) -> bool:
@@ -76,6 +94,14 @@ def _core_notifier_conflict(config: dict[str, Any]) -> bool:
         return float(value) > 0
     except (TypeError, ValueError):
         return True
+
+
+def _interim_conflict_warning() -> str:
+    return (
+        "warning: display.interim_assistant_messages=true while "
+        "progress_tail.assistant.enabled=true; duplicate mid-turn assistant progress may occur. "
+        "Set display.interim_assistant_messages=false."
+    )
 
 
 def _reasoning_conflict_warning() -> str:
@@ -182,6 +208,7 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
         preview_length=settings.preview_length,
         edit_interval=settings.edit_interval,
         tools_enabled=settings.tools_enabled,
+        assistant_enabled=settings.assistant_enabled,
         reasoning_enabled=settings.reasoning_enabled,
         delegates_enabled=settings.delegates_enabled,
         background_jobs_enabled=settings.background_jobs_enabled,
@@ -194,11 +221,12 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
 
 
 def _schedule_render(
-    ctx: SessionContext, event: ToolEvent | ReasoningEvent | DelegateEvent | BackgroundJobEvent
-) -> None:
+    ctx: SessionContext,
+    event: ToolEvent | ReasoningEvent | AssistantEvent | DelegateEvent | BackgroundJobEvent,
+) -> bool:
     renderer = _get_renderer()
     if ctx.loop is None:
-        return
+        return False
     try:
         future = asyncio.run_coroutine_threadsafe(renderer.handle_event(event), ctx.loop)
 
@@ -209,8 +237,10 @@ def _schedule_render(
                 logger.debug("hermes-progress-tail render failed: %s", exc)
 
         future.add_done_callback(_consume_done)
+        return True
     except Exception as exc:
         logger.debug("hermes-progress-tail schedule failed: %s", exc)
+        return False
 
 
 def _compact_result_status(result: Any) -> str:
@@ -476,6 +506,29 @@ def on_reasoning_delta_from_agent(
     )
 
 
+def on_assistant_progress_from_agent(
+    agent: Any, text: str, *, already_streamed: bool = False
+) -> bool:
+    if already_streamed or not str(text or "").strip():
+        return False
+    renderer = _get_renderer()
+    session_id = str(getattr(agent, "session_id", "") or "")
+    session_key = str(getattr(agent, "gateway_session_key", "") or "")
+    ctx = renderer.find_context(session_id, session_key)
+    if ctx is None or not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
+        return False
+    return _schedule_render(
+        ctx,
+        AssistantEvent(
+            ctx.session_id,
+            ctx.session_key,
+            ctx.platform,
+            str(text),
+            already_streamed=already_streamed,
+        ),
+    )
+
+
 def on_delegate_progress_from_agent(
     parent_agent: Any,
     event_type: str,
@@ -644,6 +697,7 @@ def _command(raw_args: str = "") -> str:
             f"tools={'enabled' if settings.tools.enabled else 'disabled'} lines={settings.tools.lines} completed={settings.tools.show_completed} duration={settings.tools.show_duration} timestamp={settings.tools.timestamp_format if settings.tools.timestamp else 'off'}",
             f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
             f"patch=detail:{settings.patch.detail} preview_chars:{settings.patch.preview_chars} max_files:{settings.patch.max_files}",
+            f"assistant={'enabled' if settings.assistant.enabled else 'disabled'} max_lines={settings.assistant.max_lines} max_chars={settings.assistant.max_chars}",
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
             f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} thinking={settings.delegates.thinking}",
@@ -657,6 +711,8 @@ def _command(raw_args: str = "") -> str:
         if args == "doctor":
             if display.get("tool_progress") != "off":
                 lines.append("warning: display.tool_progress is not off; progress may duplicate")
+            if _builtin_interim_conflict(runtime_config):
+                lines.append(_interim_conflict_warning())
             if _builtin_reasoning_conflict(runtime_config):
                 lines.append(_reasoning_conflict_warning())
             if _core_notifier_conflict(runtime_config):
@@ -678,6 +734,8 @@ def _command(raw_args: str = "") -> str:
                         f"session {label}: last_reasoning source={ctx.last_reasoning_source} chars={ctx.last_reasoning_chars} at={when}"
                     )
         else:
+            if _builtin_interim_conflict(runtime_config):
+                lines.append(_interim_conflict_warning())
             if _builtin_reasoning_conflict(runtime_config):
                 lines.append(_reasoning_conflict_warning())
             if _core_notifier_conflict(runtime_config):
@@ -709,6 +767,8 @@ def _command(raw_args: str = "") -> str:
 
 def register(ctx):
     runtime_config = _load_runtime_config()
+    if _builtin_interim_conflict(runtime_config):
+        logger.warning(_interim_conflict_warning())
     if _builtin_reasoning_conflict(runtime_config):
         logger.warning(_reasoning_conflict_warning())
     if _core_notifier_conflict(runtime_config):

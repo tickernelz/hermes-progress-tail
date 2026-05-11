@@ -49,6 +49,12 @@ DEFAULT_CONFIG = {
         "preview_chars": 48,
         "max_files": 3,
     },
+    "assistant": {
+        "enabled": True,
+        "max_lines": 3,
+        "max_chars": 500,
+        "min_update_chars": 40,
+    },
     "reasoning": {
         "enabled": True,
         "max_lines": 3,
@@ -239,6 +245,7 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
                 "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
             },
             "delegates": copy.deepcopy(DEFAULT_CONFIG["delegates"]),
+            "assistant": copy.deepcopy(DEFAULT_CONFIG["assistant"]),
             "reasoning": copy.deepcopy(DEFAULT_CONFIG["reasoning"]),
             "background_jobs": copy.deepcopy(DEFAULT_CONFIG["background_jobs"]),
             "renderer": {
@@ -265,16 +272,24 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
     return changed
 
 
-def _reasoning_tail_enabled(config: dict[str, Any]) -> bool:
+def _feature_enabled(config: dict[str, Any], name: str, default: bool = True) -> bool:
     section = config.get("progress_tail")
     if not isinstance(section, dict):
-        return True
+        return default
     if section.get("enabled") is False:
         return False
-    reasoning = section.get("reasoning")
-    if not isinstance(reasoning, dict):
-        return True
-    return reasoning.get("enabled") is not False
+    feature = section.get(name)
+    if not isinstance(feature, dict):
+        return default
+    return feature.get("enabled") is not False
+
+
+def _assistant_tail_enabled(config: dict[str, Any]) -> bool:
+    return _feature_enabled(config, "assistant", True)
+
+
+def _reasoning_tail_enabled(config: dict[str, Any]) -> bool:
+    return _feature_enabled(config, "reasoning", True)
 
 
 def _progress_tail_enabled(config: dict[str, Any]) -> bool:
@@ -400,6 +415,12 @@ def _update_config(
             changed = True
         if display.get("tool_progress") != "off":
             display["tool_progress"] = "off"
+            changed = True
+        if (
+            _assistant_tail_enabled(config)
+            and display.get("interim_assistant_messages") is not False
+        ):
+            display["interim_assistant_messages"] = False
             changed = True
         if _reasoning_tail_enabled(config) and display.get("show_reasoning") is not False:
             display["show_reasoning"] = False

@@ -91,7 +91,7 @@ def test_reasoning_tail_renders_section_with_latest_lines():
         )
 
         assert adapter.sent
-        assert adapter.sent[0][1] == "💭 Reasoning\nsecond line\nthird line"
+        assert adapter.sent[0][1] == "▰ 💭 Reasoning\nsecond line\nthird line"
 
     asyncio.run(run())
 
@@ -126,7 +126,7 @@ def test_reasoning_and_tools_share_one_progress_bubble():
         assert len(adapter.sent) == 1
         assert (
             adapter.edits[-1][2]
-            == "💭 Reasoning\nneed inspect hooks\n\n🧰 Tools\n🔎 search_files: reasoning_callback"
+            == "▰ 💭 Reasoning\nneed inspect hooks\n\n▰ 🧰 Tools\n🔎 search_files: reasoning_callback"
         )
 
     asyncio.run(run())

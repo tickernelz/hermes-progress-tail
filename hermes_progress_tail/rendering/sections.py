@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from ..models.state import SessionContext, TodoItem, ToolEvent
+from ..models.state import AssistantLine, SessionContext, TodoItem, ToolEvent
 from ..settings.config import Settings
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
@@ -11,6 +11,9 @@ from ..utils.text import truncate_text
 
 def compose_content(renderer, ctx: SessionContext) -> str:
     parts = []
+    assistant = renderer._assistant_tail(ctx)
+    if assistant:
+        parts.append(renderer._section("Progress", "💬", assistant))
     reasoning = renderer._reasoning_tail(ctx)
     if reasoning:
         parts.append(renderer._section("Reasoning", "💭", reasoning))
@@ -34,8 +37,21 @@ def compose_content(renderer, ctx: SessionContext) -> str:
 
 
 def section(title: str, emoji: str, body: str, *, style: str) -> str:
-    header = f"{emoji} {title}" if style == "emoji" else title
-    return header + "\n" + body
+    label = f"{emoji} {title}" if style == "emoji" else title
+    return f"▰ {label}\n{body}"
+
+
+def assistant_tail(lines: tuple[AssistantLine, ...], *, max_lines: int, max_chars: int) -> str:
+    text = "\n".join(line.text.strip() for line in lines if line.text.strip())
+    if not text:
+        return ""
+    visible = [line for line in text.splitlines() if line.strip()]
+    if max_lines > 0:
+        visible = visible[-max_lines:]
+    rendered = "\n".join(visible).strip()
+    if max_chars > 0 and len(rendered) > max_chars:
+        rendered = truncate_text(rendered[-max_chars:].lstrip(), max_chars)
+    return rendered
 
 
 def debug_section(ctx: SessionContext, *, section: Callable[[str, str, str], str]) -> str:
@@ -75,7 +91,7 @@ def todo_section(ctx: SessionContext, *, settings: Settings) -> str:
         return todo_compact(ctx.todo_items, title, settings=settings)
     header = f"📋 {title}" if settings.renderer.style == "emoji" else title
     lines = todo_lines(ctx.todo_items, settings=settings)
-    return header + "\n" + "\n".join(lines)
+    return f"▰ {header}\n" + "\n".join(lines)
 
 
 def todo_compact(items: tuple[TodoItem, ...], title: str, *, settings: Settings) -> str:
@@ -98,7 +114,7 @@ def todo_compact(items: tuple[TodoItem, ...], title: str, *, settings: Settings)
             parts.append(f"{counts[status]} {label}")
     body = " · ".join(parts) or "no tasks"
     prefix = "📋 " if settings.renderer.style == "emoji" else ""
-    return f"{prefix}{title}: {body}"
+    return f"▰ {prefix}{title}: {body}"
 
 
 def timestamp_text(value: float, fmt: str) -> str:

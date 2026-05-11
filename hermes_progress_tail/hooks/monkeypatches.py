@@ -37,10 +37,15 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
         return True
     init = getattr(agent_cls, "__init__", None)
     fire_reasoning = getattr(agent_cls, "_fire_reasoning_delta", None)
+    emit_interim = getattr(agent_cls, "_emit_interim_assistant_message", None)
     if init is None or fire_reasoning is None:
         logger.warning("hermes-progress-tail monkeypatch disabled: AIAgent callback API missing")
         return False
-    _ORIGINALS[agent_cls] = {"__init__": init, "_fire_reasoning_delta": fire_reasoning}
+    _ORIGINALS[agent_cls] = {
+        "__init__": init,
+        "_fire_reasoning_delta": fire_reasoning,
+        "_emit_interim_assistant_message": emit_interim,
+    }
 
     @wraps(init)
     def patched_init(self, *args, **kwargs):
@@ -76,10 +81,50 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
                 logger.debug("hermes-progress-tail reasoning capture failed", exc_info=True)
         return fire_reasoning(self, *args, **kwargs)
 
+    def patched_emit_interim_assistant_message(self, assistant_msg):
+        if emit_interim is None:
+            return None
+        handled = False
+        visible = _assistant_visible_text(self, assistant_msg)
+        already_streamed = bool(
+            assistant_msg.get("already_streamed") if isinstance(assistant_msg, dict) else False
+        )
+        if visible:
+            try:
+                from ..runtime.plugin import on_assistant_progress_from_agent
+
+                handled = on_assistant_progress_from_agent(
+                    self, visible, already_streamed=already_streamed
+                )
+            except Exception:
+                logger.debug(
+                    "hermes-progress-tail assistant progress capture failed", exc_info=True
+                )
+        if handled:
+            return None
+        return emit_interim(self, assistant_msg)
+
     agent_cls.__init__ = patched_init
     agent_cls._fire_reasoning_delta = patched_fire_reasoning_delta
+    if emit_interim is not None:
+        agent_cls._emit_interim_assistant_message = wraps(emit_interim)(
+            patched_emit_interim_assistant_message
+        )
     setattr(agent_cls, _PATCH_MARKER, True)
     return True
+
+
+def _assistant_visible_text(agent: Any, assistant_msg: Any) -> str:
+    if not isinstance(assistant_msg, dict):
+        return ""
+    content = str(assistant_msg.get("content") or "")
+    if not content:
+        return ""
+    stripper = getattr(agent, "_strip_think_blocks", None)
+    if callable(stripper):
+        with suppress(Exception):
+            content = stripper(content)
+    return content.strip()
 
 
 def _wrap_stream_delta_callback(agent: Any, callback: Any) -> Any:
@@ -298,6 +343,9 @@ def uninstall_agent_monkeypatches(agent_cls: type | None = None) -> bool:
         return False
     agent_cls.__init__ = originals["__init__"]
     agent_cls._fire_reasoning_delta = originals["_fire_reasoning_delta"]
+    emit_interim = originals.get("_emit_interim_assistant_message")
+    if emit_interim is not None:
+        agent_cls._emit_interim_assistant_message = emit_interim
     try:
         delattr(agent_cls, _PATCH_MARKER)
     except Exception:

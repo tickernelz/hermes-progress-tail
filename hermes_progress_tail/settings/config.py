@@ -61,6 +61,14 @@ class PatchSettings:
 
 
 @dataclass(frozen=True)
+class AssistantSettings:
+    enabled: bool = True
+    max_lines: int = 3
+    max_chars: int = 500
+    min_update_chars: int = 40
+
+
+@dataclass(frozen=True)
 class ReasoningSettings:
     enabled: bool = True
     max_lines: int = 3
@@ -127,6 +135,7 @@ class PlatformSettings:
     redact_secrets: bool = True
     show_completed: bool = False
     tools_enabled: bool = True
+    assistant_enabled: bool = True
     reasoning_enabled: bool = True
     delegates_enabled: bool = True
     background_jobs_enabled: bool = True
@@ -142,6 +151,7 @@ class Settings:
     delegates: DelegateSettings = DelegateSettings()
     todo: TodoSettings = TodoSettings()
     patch: PatchSettings = PatchSettings()
+    assistant: AssistantSettings = AssistantSettings()
     reasoning: ReasoningSettings = ReasoningSettings()
     background_jobs: BackgroundJobSettings = BackgroundJobSettings()
     renderer: RendererSettings = RendererSettings()
@@ -186,6 +196,7 @@ def _legacy_to_progress_tail(section: dict[str, Any]) -> dict[str, Any]:
             "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
         },
         "delegates": section.get("delegates", {}),
+        "assistant": section.get("assistant", {}),
         "renderer": {
             "strategy": "auto",
             "edit_interval": defaults.get("edit_interval", 1.5),
@@ -262,6 +273,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         section.get("renderer") if isinstance(section.get("renderer"), dict) else legacy_defaults
     )
     delegates_raw = section.get("delegates") if isinstance(section.get("delegates"), dict) else {}
+    assistant_raw = section.get("assistant") if isinstance(section.get("assistant"), dict) else {}
     reasoning_raw = section.get("reasoning") if isinstance(section.get("reasoning"), dict) else {}
     no_edit_raw = section.get("no_edit") if isinstance(section.get("no_edit"), dict) else {}
     todo_raw = section.get("todo") if isinstance(section.get("todo"), dict) else {}
@@ -301,6 +313,12 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         detail=_patch_detail(patch_raw.get("detail"), "smart"),
         preview_chars=_int(patch_raw.get("preview_chars"), 48, min_value=10),
         max_files=_int(patch_raw.get("max_files"), 3),
+    )
+    assistant = AssistantSettings(
+        enabled=_bool(assistant_raw.get("enabled"), True),
+        max_lines=_int(assistant_raw.get("max_lines"), 3),
+        max_chars=_int(assistant_raw.get("max_chars"), 500),
+        min_update_chars=_int(assistant_raw.get("min_update_chars"), 40),
     )
     reasoning = ReasoningSettings(
         enabled=_bool(reasoning_raw.get("enabled"), True),
@@ -349,6 +367,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         delegates=delegates,
         todo=todo,
         patch=patch,
+        assistant=assistant,
         reasoning=reasoning,
         background_jobs=background_jobs,
         renderer=renderer,
@@ -373,6 +392,7 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         redact_secrets=settings.renderer.redact_secrets,
         show_completed=settings.tools.show_completed,
         tools_enabled=settings.tools.enabled,
+        assistant_enabled=settings.assistant.enabled,
         reasoning_enabled=settings.reasoning.enabled,
         delegates_enabled=settings.delegates.enabled,
         background_jobs_enabled=settings.background_jobs.enabled,
@@ -394,6 +414,9 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         redact_secrets=_bool(raw.get("redact_secrets"), base.redact_secrets),
         show_completed=_bool(raw.get("show_completed"), base.show_completed),
         tools_enabled=_bool(raw.get("tools", raw.get("tools_enabled")), base.tools_enabled),
+        assistant_enabled=_bool(
+            raw.get("assistant", raw.get("assistant_enabled")), base.assistant_enabled
+        ),
         reasoning_enabled=_bool(
             raw.get("reasoning", raw.get("reasoning_enabled")), base.reasoning_enabled
         ),
