@@ -2,7 +2,7 @@ import asyncio
 
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.monkeypatches import install_monkeypatches, uninstall_monkeypatches
-from hermes_progress_tail.plugin import _on_pre_gateway_dispatch
+from hermes_progress_tail.plugin import _on_pre_gateway_dispatch, _on_pre_tool_call
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import AssistantEvent, ReasoningEvent, SessionContext
 
@@ -312,3 +312,119 @@ def test_monkeypatch_captures_interim_assistant_commentary_and_suppresses_defaul
         uninstall_monkeypatches(FakeAgent)
 
     asyncio.run(run())
+
+
+def test_monkeypatch_computes_already_streamed_from_agent_checker(monkeypatch):
+    import hermes_progress_tail.plugin as plugin
+
+    events = []
+
+    class FakeAgent:
+        def __init__(self):
+            self.session_id = "s1"
+            self._gateway_session_key = "k1"
+            self.reasoning_callback = None
+            self.stream_delta_callback = None
+
+        def _fire_reasoning_delta(self, text):
+            return None
+
+        def _interim_content_was_streamed(self, visible):
+            return visible == "already visible"
+
+        def _emit_interim_assistant_message(self, assistant_msg):
+            events.append(("original", assistant_msg))
+            return "original"
+
+    monkeypatch.setattr(
+        plugin,
+        "on_assistant_progress_from_agent",
+        lambda agent, text, *, already_streamed=False: (
+            events.append(("captured", text, already_streamed)) or False
+        ),
+    )
+
+    uninstall_monkeypatches(FakeAgent)
+    install_monkeypatches(FakeAgent)
+    agent = FakeAgent()
+
+    assert agent._emit_interim_assistant_message({"content": "already visible"}) == "original"
+
+    assert events[0] == ("captured", "already visible", True)
+    assert events[1][0] == "original"
+    uninstall_monkeypatches(FakeAgent)
+
+
+def test_assistant_progress_falls_back_to_unique_session_context(monkeypatch):
+    import hermes_progress_tail.plugin as plugin
+    from hermes_progress_tail.plugin import on_assistant_progress_from_agent
+
+    agent = type("Agent", (), {"session_id": "s1", "_gateway_session_key": "stale-key"})()
+    ctx = SessionContext(
+        "s1", "fresh-key", "discord", "chat", None, EditableAdapter(), None, "live_tail"
+    )
+    scheduled = []
+
+    class Renderer:
+        settings = load_settings({"progress_tail": {"assistant": {"enabled": True}}})
+        sessions = {"s1": ctx}
+        session_keys = {"fresh-key": "s1"}
+
+        def find_context(self, session_id, session_key=""):
+            return ctx if (session_id, session_key) == ("s1", "fresh-key") else None
+
+    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
+    monkeypatch.setattr(
+        plugin, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
+    )
+
+    assert on_assistant_progress_from_agent(agent, "Need fallback context") is True
+    assert scheduled
+    assert scheduled[0].session_key == "fresh-key"
+
+
+def test_pre_tool_call_does_not_emit_fake_assistant_progress(monkeypatch):
+    import hermes_progress_tail.plugin as plugin
+
+    ctx = SessionContext("s1", "k1", "discord", "chat", None, EditableAdapter(), None, "live_tail")
+    scheduled = []
+
+    class Renderer:
+        settings = load_settings({"progress_tail": {"assistant": {"enabled": True}}})
+        sessions = {"s1": ctx}
+        session_keys = {"k1": "s1"}
+
+        def find_context(self, session_id, session_key=""):
+            return ctx if session_id == "s1" or session_key == "k1" else None
+
+    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
+    monkeypatch.setattr(
+        plugin, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
+    )
+
+    _on_pre_tool_call("search_files", {"pattern": "foo"}, session_id="s1", task_id="k1")
+
+    assert not [event for event in scheduled if isinstance(event, AssistantEvent)]
+
+
+def test_status_reports_assistant_capture_diagnostics(monkeypatch):
+    import hermes_progress_tail.plugin as plugin
+
+    plugin._renderer = None
+    plugin._record_assistant_capture(
+        "scheduled",
+        session_id="s1",
+        session_key="k1",
+        text="Need inspect token abc123",
+        already_streamed=False,
+    )
+    monkeypatch.setattr(
+        plugin, "_load_runtime_config", lambda: {"plugins": {"enabled": ["hermes-progress-tail"]}}
+    )
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings({}))
+
+    status = plugin._command("status")
+
+    assert "assistant_capture=scheduled" in status
+    assert "synthetic=" not in status
+    assert "key_present=True" in status

@@ -25,7 +25,15 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.22"
+VERSION = "0.1.23"
+_ASSISTANT_CAPTURE: dict[str, Any] = {
+    "status": "never",
+    "session_id": "",
+    "session_key_present": False,
+    "text_preview": "",
+    "already_streamed": False,
+    "updated_at": 0.0,
+}
 
 
 def _agent_session_id(agent: Any) -> str:
@@ -60,6 +68,45 @@ def _load_runtime_config() -> dict[str, Any]:
 
 def _load_runtime_settings():
     return load_settings(_load_runtime_config())
+
+
+def _record_assistant_capture(
+    status: str,
+    *,
+    session_id: str = "",
+    session_key: str = "",
+    text: str = "",
+    already_streamed: bool = False,
+) -> None:
+    _ASSISTANT_CAPTURE.update(
+        {
+            "status": status,
+            "session_id": str(session_id or ""),
+            "session_key_present": bool(session_key),
+            "text_preview": redact_text(" ".join(str(text or "").split()))[:120],
+            "already_streamed": bool(already_streamed),
+            "updated_at": time.time(),
+        }
+    )
+
+
+def _context_for(renderer: ProgressRenderer, session_id: str = "", session_key: str = ""):
+    ctx = renderer.find_context(session_id, session_key)
+    if ctx is not None:
+        return ctx
+    if session_id:
+        matches = [
+            candidate
+            for candidate in renderer.sessions.values()
+            if candidate.session_id == session_id
+        ]
+        if len(matches) == 1:
+            return matches[0]
+    if session_key:
+        mapped = renderer.session_keys.get(session_key)
+        if mapped:
+            return renderer.sessions.get(mapped)
+    return None
 
 
 def _progress_tail_enabled(config: dict[str, Any]) -> bool:
@@ -410,8 +457,10 @@ def _on_pre_tool_call(
     **_: Any,
 ):
     renderer = _get_renderer()
-    ctx = renderer.find_context(session_id or task_id, task_id)
-    if ctx is None or not ctx.tools_enabled:
+    ctx = _context_for(renderer, session_id or task_id, task_id)
+    if ctx is None:
+        return None
+    if not ctx.tools_enabled:
         return None
     line = format_tool_line(
         tool_name,
@@ -448,7 +497,7 @@ def _on_post_tool_call(
     **_: Any,
 ):
     renderer = _get_renderer()
-    ctx = renderer.find_context(session_id or task_id, task_id)
+    ctx = _context_for(renderer, session_id or task_id, task_id)
     if ctx is None or not ctx.tools_enabled:
         return None
     result_obj = _json_obj(result)
@@ -510,7 +559,7 @@ def on_reasoning_delta_from_agent(
     renderer = _get_renderer()
     session_id = _agent_session_id(agent)
     session_key = _agent_session_key(agent)
-    ctx = renderer.find_context(session_id, session_key)
+    ctx = _context_for(renderer, session_id, session_key)
     if ctx is None or not ctx.reasoning_enabled:
         return
     _schedule_render(
@@ -521,13 +570,31 @@ def on_reasoning_delta_from_agent(
 def on_assistant_progress_from_agent(
     agent: Any, text: str, *, already_streamed: bool = False
 ) -> bool:
-    if not str(text or "").strip():
+    clean = str(text or "").strip()
+    if not clean:
+        _record_assistant_capture("empty", already_streamed=already_streamed)
         return False
     renderer = _get_renderer()
     session_id = _agent_session_id(agent)
     session_key = _agent_session_key(agent)
-    ctx = renderer.find_context(session_id, session_key)
-    if ctx is None or not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
+    ctx = _context_for(renderer, session_id, session_key)
+    if ctx is None:
+        _record_assistant_capture(
+            "no_context",
+            session_id=session_id,
+            session_key=session_key,
+            text=clean,
+            already_streamed=already_streamed,
+        )
+        return False
+    if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
+        _record_assistant_capture(
+            "disabled",
+            session_id=ctx.session_id,
+            session_key=ctx.session_key,
+            text=clean,
+            already_streamed=already_streamed,
+        )
         return False
     scheduled = _schedule_render(
         ctx,
@@ -535,9 +602,16 @@ def on_assistant_progress_from_agent(
             ctx.session_id,
             ctx.session_key,
             ctx.platform,
-            str(text),
+            clean,
             already_streamed=already_streamed,
         ),
+    )
+    _record_assistant_capture(
+        "scheduled" if scheduled else "schedule_failed",
+        session_id=ctx.session_id,
+        session_key=ctx.session_key,
+        text=clean,
+        already_streamed=already_streamed,
     )
     return scheduled and not already_streamed
 
@@ -702,6 +776,10 @@ def _command(raw_args: str = "") -> str:
         agent_config = (
             runtime_config.get("agent") if isinstance(runtime_config.get("agent"), dict) else {}
         )
+        capture_at = float(_ASSISTANT_CAPTURE.get("updated_at") or 0.0)
+        capture_when = (
+            time.strftime("%H:%M:%S", time.localtime(capture_at)) if capture_at else "never"
+        )
         lines = [
             f"hermes-progress-tail {VERSION}",
             f"plugin={'enabled' if 'hermes-progress-tail' in enabled_plugins else 'not listed'}",
@@ -711,6 +789,7 @@ def _command(raw_args: str = "") -> str:
             f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
             f"patch=detail:{settings.patch.detail} preview_chars:{settings.patch.preview_chars} max_files:{settings.patch.max_files}",
             f"assistant={'enabled' if settings.assistant.enabled else 'disabled'} max_lines={settings.assistant.max_lines} max_chars={settings.assistant.max_chars}",
+            f"assistant_capture={_ASSISTANT_CAPTURE.get('status', 'never')} already_streamed={_ASSISTANT_CAPTURE.get('already_streamed', False)} session={_ASSISTANT_CAPTURE.get('session_id') or '-'} key_present={_ASSISTANT_CAPTURE.get('session_key_present', False)} at={capture_when}",
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
             f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} thinking={settings.delegates.thinking}",
@@ -741,6 +820,11 @@ def _command(raw_args: str = "") -> str:
                     lines.append(f"session {label}: downgraded={redact_text(ctx.downgrade_reason)}")
                 if ctx.last_error:
                     lines.append(f"session {label}: last_error={redact_text(ctx.last_error)}")
+                if ctx.last_assistant_at:
+                    when = time.strftime("%H:%M:%S", time.localtime(ctx.last_assistant_at))
+                    lines.append(
+                        f"session {label}: assistant chars={ctx.last_assistant_chars} at={when}"
+                    )
                 if ctx.last_reasoning_source:
                     when = time.strftime("%H:%M:%S", time.localtime(ctx.last_reasoning_at))
                     lines.append(

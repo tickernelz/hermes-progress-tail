@@ -86,9 +86,7 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
             return None
         handled = False
         visible = _assistant_visible_text(self, assistant_msg)
-        already_streamed = bool(
-            assistant_msg.get("already_streamed") if isinstance(assistant_msg, dict) else False
-        )
+        already_streamed = _assistant_already_streamed(self, visible, assistant_msg)
         if visible:
             try:
                 from ..runtime.plugin import on_assistant_progress_from_agent
@@ -125,6 +123,16 @@ def _assistant_visible_text(agent: Any, assistant_msg: Any) -> str:
         with suppress(Exception):
             content = stripper(content)
     return content.strip()
+
+
+def _assistant_already_streamed(agent: Any, visible: str, assistant_msg: Any) -> bool:
+    checker = getattr(agent, "_interim_content_was_streamed", None)
+    if callable(checker) and visible:
+        with suppress(Exception):
+            return bool(checker(visible))
+    if isinstance(assistant_msg, dict):
+        return bool(assistant_msg.get("already_streamed"))
+    return False
 
 
 def _wrap_stream_delta_callback(agent: Any, callback: Any) -> Any:
