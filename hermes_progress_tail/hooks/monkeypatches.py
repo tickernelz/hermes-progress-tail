@@ -159,8 +159,10 @@ def _agent_reasoning_enabled(agent: Any) -> bool:
         from ..runtime.plugin import _get_renderer
 
         renderer = _get_renderer()
-        session_id = str(getattr(agent, "session_id", "") or "")
-        session_key = str(getattr(agent, "gateway_session_key", "") or "")
+        from ..runtime.plugin import _agent_session_id, _agent_session_key
+
+        session_id = _agent_session_id(agent)
+        session_key = _agent_session_key(agent)
         ctx = renderer.find_context(session_id, session_key)
         return bool(
             ctx is not None and ctx.reasoning_enabled and renderer.settings.reasoning.enabled

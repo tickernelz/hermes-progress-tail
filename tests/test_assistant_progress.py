@@ -174,6 +174,63 @@ def test_assistant_progress_can_be_disabled_per_platform():
     asyncio.run(run())
 
 
+def test_assistant_progress_uses_private_gateway_session_key(monkeypatch):
+    import hermes_progress_tail.plugin as plugin
+    from hermes_progress_tail.plugin import on_assistant_progress_from_agent
+
+    agent = type("Agent", (), {"session_id": "s1", "_gateway_session_key": "k1"})()
+    ctx = SessionContext("s1", "k1", "discord", "chat", None, EditableAdapter(), None, "live_tail")
+    scheduled = []
+
+    class Renderer:
+        settings = load_settings({"progress_tail": {"assistant": {"enabled": True}}})
+
+        def find_context(self, session_id, session_key=""):
+            assert session_id == "s1"
+            assert session_key == "k1"
+            return ctx
+
+    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
+    monkeypatch.setattr(
+        plugin, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
+    )
+
+    assert on_assistant_progress_from_agent(agent, "Need inspect private key") is True
+    assert scheduled
+    assert scheduled[0].session_key == "k1"
+    assert scheduled[0].text == "Need inspect private key"
+
+
+def test_assistant_progress_renders_already_streamed_but_does_not_suppress_native(monkeypatch):
+    import hermes_progress_tail.plugin as plugin
+    from hermes_progress_tail.plugin import on_assistant_progress_from_agent
+
+    agent = type("Agent", (), {"session_id": "s1", "_gateway_session_key": "k1"})()
+    ctx = SessionContext("s1", "k1", "discord", "chat", None, EditableAdapter(), None, "live_tail")
+    scheduled = []
+
+    class Renderer:
+        settings = load_settings({"progress_tail": {"assistant": {"enabled": True}}})
+
+        def find_context(self, session_id, session_key=""):
+            return ctx if (session_id, session_key) == ("s1", "k1") else None
+
+    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
+    monkeypatch.setattr(
+        plugin, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
+    )
+
+    assert (
+        on_assistant_progress_from_agent(
+            agent, "Need inspect streamed commentary", already_streamed=True
+        )
+        is False
+    )
+    assert scheduled
+    assert scheduled[0].already_streamed is True
+    assert scheduled[0].text == "Need inspect streamed commentary"
+
+
 def test_monkeypatch_falls_back_to_original_interim_send_when_render_cannot_schedule(
     monkeypatch,
 ):
@@ -219,7 +276,7 @@ def test_monkeypatch_captures_interim_assistant_commentary_and_suppresses_defaul
         class FakeAgent:
             def __init__(self):
                 self.session_id = "session-1"
-                self.gateway_session_key = "key-1"
+                self._gateway_session_key = "key-1"
                 self.platform = "discord"
                 self.chat_id = "chat"
                 self.thread_id = "thread"

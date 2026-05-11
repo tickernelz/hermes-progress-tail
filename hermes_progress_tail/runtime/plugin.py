@@ -25,7 +25,19 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.21"
+VERSION = "0.1.22"
+
+
+def _agent_session_id(agent: Any) -> str:
+    return str(getattr(agent, "session_id", "") or "")
+
+
+def _agent_session_key(agent: Any) -> str:
+    return str(
+        getattr(agent, "gateway_session_key", None)
+        or getattr(agent, "_gateway_session_key", None)
+        or ""
+    )
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -496,8 +508,8 @@ def on_reasoning_delta_from_agent(
     if not text:
         return
     renderer = _get_renderer()
-    session_id = str(getattr(agent, "session_id", "") or "")
-    session_key = str(getattr(agent, "gateway_session_key", "") or "")
+    session_id = _agent_session_id(agent)
+    session_key = _agent_session_key(agent)
     ctx = renderer.find_context(session_id, session_key)
     if ctx is None or not ctx.reasoning_enabled:
         return
@@ -509,15 +521,15 @@ def on_reasoning_delta_from_agent(
 def on_assistant_progress_from_agent(
     agent: Any, text: str, *, already_streamed: bool = False
 ) -> bool:
-    if already_streamed or not str(text or "").strip():
+    if not str(text or "").strip():
         return False
     renderer = _get_renderer()
-    session_id = str(getattr(agent, "session_id", "") or "")
-    session_key = str(getattr(agent, "gateway_session_key", "") or "")
+    session_id = _agent_session_id(agent)
+    session_key = _agent_session_key(agent)
     ctx = renderer.find_context(session_id, session_key)
     if ctx is None or not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
         return False
-    return _schedule_render(
+    scheduled = _schedule_render(
         ctx,
         AssistantEvent(
             ctx.session_id,
@@ -527,6 +539,7 @@ def on_assistant_progress_from_agent(
             already_streamed=already_streamed,
         ),
     )
+    return scheduled and not already_streamed
 
 
 def on_delegate_progress_from_agent(
@@ -539,8 +552,8 @@ def on_delegate_progress_from_agent(
 ) -> None:
     _ = args
     renderer = _get_renderer()
-    session_id = str(getattr(parent_agent, "session_id", "") or "")
-    session_key = str(getattr(parent_agent, "gateway_session_key", "") or "")
+    session_id = _agent_session_id(parent_agent)
+    session_key = _agent_session_key(parent_agent)
     ctx = renderer.find_context(session_id, session_key)
     if ctx is None or not ctx.delegates_enabled:
         return
