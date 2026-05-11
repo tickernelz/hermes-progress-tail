@@ -161,7 +161,7 @@ def test_background_job_secret_output_is_redacted_and_ansi_is_stripped():
     asyncio.run(run())
 
 
-def test_code_fence_auto_wraps_discord_but_not_webhook():
+def test_code_fence_auto_wraps_discord_but_not_telegram_or_webhook():
     async def run():
         discord_adapter = EditableAdapter()
         renderer = ProgressRenderer(
@@ -172,6 +172,23 @@ def test_code_fence_auto_wraps_discord_but_not_webhook():
         await renderer.handle_event(ToolEvent("s1", "k1", "discord", "tool one"), force=True)
         assert discord_adapter.sent[0][1].startswith("```\n")
         assert discord_adapter.sent[0][1].endswith("\n```")
+
+        telegram_adapter = EditableAdapter()
+        telegram_ctx = SessionContext(
+            "s3",
+            "k3",
+            "telegram",
+            "chat",
+            None,
+            telegram_adapter,
+            asyncio.get_running_loop(),
+            "live_tail",
+            timestamp=False,
+            code_fence="auto",
+        )
+        renderer.register_context(telegram_ctx)
+        await renderer.handle_event(ToolEvent("s3", "k3", "telegram", "tool three"), force=True)
+        assert not telegram_adapter.sent[0][1].startswith("```")
 
         webhook_adapter = EditableAdapter()
         webhook_ctx = SessionContext(
@@ -193,7 +210,7 @@ def test_code_fence_auto_wraps_discord_but_not_webhook():
     asyncio.run(run())
 
 
-def test_code_fence_escapes_internal_fences_and_respects_telegram_limit():
+def test_code_fence_escapes_internal_fences_for_supported_platforms():
     async def run():
         adapter = EditableAdapter()
         renderer = ProgressRenderer(
@@ -206,14 +223,40 @@ def test_code_fence_escapes_internal_fences_and_respects_telegram_limit():
                 }
             )
         )
-        ctx = make_ctx(adapter, platform="telegram", code_fence="auto")
+        ctx = make_ctx(adapter, platform="discord", code_fence="auto")
         renderer.register_context(ctx)
-        huge = "prefix ``` unsafe\n" + ("x" * 5000)
-        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", huge), force=True)
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "discord", "prefix ``` unsafe"), force=True
+        )
         content = adapter.sent[0][1]
         assert content.startswith("```\n")
         assert content.endswith("\n```")
         assert "`\u200b`` unsafe" in content
+
+    asyncio.run(run())
+
+
+def test_telegram_code_fence_on_is_ignored_and_respects_message_limit():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"code_fence": "auto"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram", code_fence="on")
+        renderer.register_context(ctx)
+        huge = "prefix ``` unsafe\n" + ("x" * 5000)
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", huge), force=True)
+        content = adapter.sent[0][1]
+        assert not content.startswith("```")
+        assert not content.endswith("\n```")
+        assert "``` unsafe" in content
         assert len(content) <= 4096
 
     asyncio.run(run())

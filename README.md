@@ -22,7 +22,7 @@ Compact Hermes gateway plugin for live progress tails.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.20/install.sh | bash
 ```
 
 Restart Hermes manually after install/update:
@@ -34,7 +34,7 @@ Restart Hermes manually after install/update:
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.20/uninstall.sh | bash
 ```
 
 By default, the installer is interactive and asks for target profile plus setup depth. It never restarts Hermes automatically.
@@ -49,16 +49,16 @@ Use environment variables for automation:
 - `HPT_ALL_PROFILES=1` — install/update default plus every discovered profile.
 - `HERMES_HOME=/path/to/.hermes` — target a custom Hermes home.
 - `HPT_REPO=owner/repo` — download from another GitHub repo.
-- `HPT_REF=v0.1.19` — download a specific tag/branch/ref.
+- `HPT_REF=v0.1.20` — download a specific tag/branch/ref.
 - `HPT_SOURCE_DIR=/path/to/repo` — install from a local checkout instead of downloading.
 
 Examples:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | env HPT_INTERACTIVE=0 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | env HPT_DRY_RUN=1 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | env HPT_PROFILES=work,personal bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.19/install.sh | env HPT_ALL_PROFILES=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.20/install.sh | env HPT_INTERACTIVE=0 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.20/install.sh | env HPT_DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.20/install.sh | env HPT_PROFILES=work,personal bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.20/install.sh | env HPT_ALL_PROFILES=1 bash
 ```
 
 Local checkout install:
@@ -154,7 +154,7 @@ progress_tail:
     mode: sectioned
     style: emoji # emoji|plain
     density: normal # compact|normal|debug
-    code_fence: auto # auto|on|off
+    code_fence: auto # auto|on|off; auto fences Discord/Slack/Mattermost, not Telegram
     code_fence_language: ""
 
   no_edit:
@@ -197,3 +197,5 @@ git diff --check
 ## Notes
 
 Reasoning and delegate progress use guarded plugin-local monkeypatches around Hermes `AIAgent` / `delegate_task` internals. Hermes source files are not modified. If upstream internals change, the plugin should fail closed and `/progresstail status` should show the issue.
+
+Telegram progress bubbles intentionally do not use code fences by default. Hermes Telegram sends may render Markdown on the first message, but live edits are plain text in current Hermes gateway behavior; fenced progress would show literal triple backticks after the first edit. Use `progress_tail.platforms.telegram.code_fence: off` or leave `code_fence: auto`.

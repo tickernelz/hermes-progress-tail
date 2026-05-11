@@ -27,7 +27,7 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
 
     status = plugin._command("status")
 
-    assert "hermes-progress-tail 0.1.19" in status
+    assert "hermes-progress-tail 0.1.20" in status
     assert "tools=enabled" in status
     assert "completed=True" in status
     assert "duration=True" in status
@@ -107,6 +107,24 @@ def test_doctor_reports_display_warning_and_session_errors(monkeypatch):
     assert "agent.gateway_notify_interval=180" in doctor
     assert "session key: strategy=snapshot" in doctor
     assert "downgraded=edit not supported" in doctor
+
+
+def test_doctor_warns_when_telegram_code_fence_is_forced_on(monkeypatch):
+    plugin._renderer = None
+    config = {
+        "display": {"tool_progress": "off", "show_reasoning": False},
+        "agent": {"gateway_notify_interval": 0},
+        "progress_tail": {
+            "enabled": True,
+            "renderer": {"code_fence": "on"},
+        },
+    }
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
+
+    doctor = plugin._command("doctor")
+
+    assert "warning: Telegram progress code_fence=on is unsupported" in doctor
 
 
 def test_demo_commands_return_sample_progress(monkeypatch):

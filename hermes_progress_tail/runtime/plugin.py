@@ -24,7 +24,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.19"
+VERSION = "0.1.20"
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -91,6 +91,18 @@ def _core_notifier_conflict_warning() -> str:
         "Hermes core Still working notifications use send() and can duplicate progress. "
         "Set agent.gateway_notify_interval=0."
     )
+
+
+def _telegram_code_fence_warning() -> str:
+    return (
+        "warning: Telegram progress code_fence=on is unsupported for live edits; "
+        "Hermes Telegram edits are plain text, so triple backticks become visible. "
+        "Use code_fence=auto/off for Telegram."
+    )
+
+
+def _telegram_code_fence_conflict(settings: Any) -> bool:
+    return resolve_platform_settings(settings, "telegram").code_fence == "on"
 
 
 def _get_renderer() -> ProgressRenderer:
@@ -649,6 +661,8 @@ def _command(raw_args: str = "") -> str:
                 lines.append(_reasoning_conflict_warning())
             if _core_notifier_conflict(runtime_config):
                 lines.append(_core_notifier_conflict_warning())
+            if _telegram_code_fence_conflict(settings):
+                lines.append(_telegram_code_fence_warning())
             for sid, ctx in renderer.sessions.items():
                 label = ctx.session_key or sid
                 lines.append(

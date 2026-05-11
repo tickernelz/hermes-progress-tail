@@ -6,7 +6,7 @@ from typing import Any, Literal
 VALID_STRATEGIES = {"auto", "live_tail", "snapshot", "summary_only", "off"}
 VALID_CODE_FENCE = {"auto", "on", "off"}
 BATCH_DEFAULT_OFF = {"email", "sms", "webhook", "homeassistant"}
-CODE_FENCE_DEFAULTS = {"discord", "telegram", "slack", "mattermost"}
+CODE_FENCE_DEFAULTS = {"discord", "slack", "mattermost"}
 SNAPSHOT_DEFAULTS = {
     "slack",
     "signal",
