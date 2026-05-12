@@ -89,9 +89,14 @@ class SessionContext:
     disabled: bool = False
     progress_state: str = "active"
     finalized_at: float = 0.0
+    started_at: float = field(default_factory=time.monotonic)
     tool_lines: deque[str] = field(default_factory=lambda: deque(maxlen=3))
     active_tool_lines: dict[str, str] = field(default_factory=dict)
     active_tool_fingerprints: dict[str, str] = field(default_factory=dict)
+    tool_started_count: int = 0
+    tool_completed_count: int = 0
+    tool_failed_count: int = 0
+    completed_tool_ids: set[str] = field(default_factory=set)
     delegate_branches: dict[str, DelegateBranch] = field(default_factory=dict)
     delegate_order: deque[str] = field(default_factory=deque)
     background_jobs: dict[str, BackgroundJob] = field(default_factory=dict)

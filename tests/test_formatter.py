@@ -43,7 +43,7 @@ def test_formats_search_terminal_and_parallel():
     )
     assert (
         format_tool_line("terminal", {"command": "python3 - <<'PY'\nprint('x')\nPY"})
-        == "💻 terminal: python inline script · 3 lines"
+        == "💻 terminal: python inline script · print('x') · 3 lines"
     )
     assert (
         format_tool_line("terminal", {"command": "npm run build >/tmp/build.log 2>&1; echo ok"})
@@ -64,9 +64,57 @@ def test_formats_search_terminal_and_parallel():
         == '🔎 search_files: "tool_progress" in gateway'
     )
     assert (
-        format_tool_line("multi_tool_use.parallel", {"tool_uses": [{}, {}, {}]})
-        == "🧰 parallel: 3 tool calls"
+        format_tool_line(
+            "multi_tool_use.parallel",
+            {
+                "tool_uses": [
+                    {
+                        "recipient_name": "functions.read_file",
+                        "parameters": {"path": "formatter.py"},
+                    },
+                    {
+                        "recipient_name": "functions.search_files",
+                        "parameters": {"pattern": "density|verbose", "path": "tests"},
+                    },
+                    {
+                        "recipient_name": "functions.terminal",
+                        "parameters": {"command": "git status"},
+                    },
+                ]
+            },
+        )
+        == '🧰 parallel: read_file formatter.py · search_files "density|verbose" · terminal git status'
     )
+
+
+def test_python_inline_script_summary_uses_meaningful_start_and_end():
+    command = """python - <<'PY'
+from pathlib import Path
+import json
+# prepare report
+repo = Path.cwd()
+result = {"repo": repo.name}
+print(json.dumps(result))
+PY"""
+
+    line = format_tool_line("terminal", {"command": command}, preview_length=160)
+
+    assert line == (
+        "💻 terminal: python inline script · repo = Path.cwd() … "
+        "print(json.dumps(result)) · 8 lines"
+    )
+
+
+def test_python_inline_script_summary_redacts_secret_values():
+    command = """python - <<'PY'
+OPENAI_API_KEY = "sk-secret"
+print(OPENAI_API_KEY)
+PY"""
+
+    line = format_tool_line("terminal", {"command": command}, preview_length=160)
+
+    assert "sk-secret" not in line
+    assert "[redacted_env]" in line
 
 
 def test_formatter_truncates_and_redacts():

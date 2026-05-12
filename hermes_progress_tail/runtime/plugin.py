@@ -25,7 +25,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.24"
+VERSION = "0.1.25"
 _ASSISTANT_CAPTURE: dict[str, Any] = {
     "status": "never",
     "session_id": "",

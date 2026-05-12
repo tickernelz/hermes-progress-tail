@@ -13,6 +13,11 @@ def reset_turn(ctx: SessionContext) -> None:
     ctx.tool_lines.clear()
     ctx.active_tool_lines.clear()
     ctx.active_tool_fingerprints.clear()
+    ctx.tool_started_count = 0
+    ctx.tool_completed_count = 0
+    ctx.tool_failed_count = 0
+    ctx.completed_tool_ids.clear()
+    ctx.started_at = time.monotonic()
     ctx.delegate_branches.clear()
     ctx.delegate_order.clear()
     ctx.todo_items = ()

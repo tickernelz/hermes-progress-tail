@@ -55,7 +55,7 @@ def compose_focused_content(renderer, ctx: SessionContext) -> str:
 
 
 def focused_header(renderer, ctx: SessionContext) -> str:
-    now = clean_live_markdown(latest_activity(ctx), platform=ctx.platform) or "working"
+    now = clean_live_markdown(focused_now(ctx), platform=ctx.platform) or "working"
     why = clean_live_markdown(renderer._assistant_tail(ctx), platform=ctx.platform)
     if not why:
         why = clean_live_markdown(renderer._reasoning_tail(ctx), platform=ctx.platform)
@@ -83,6 +83,44 @@ def focused_block(title: str, body: str) -> str:
     return f"{title}\n{body}"
 
 
+def focused_now(ctx: SessionContext) -> str:
+    activity = latest_activity(ctx)
+    return semantic_activity(activity) if activity else "working"
+
+
+def semantic_activity(activity: str) -> str:
+    text = normalize_tool_line(activity)
+    lowered = text.lower()
+    if lowered.startswith("patch"):
+        path = extract_change_path(text)
+        return "patching " + short_filename(path) if path else text
+    if lowered.startswith("write_file") or lowered.startswith("write file"):
+        path = extract_change_path(text)
+        return "writing " + short_filename(path) if path else text
+    if lowered.startswith("read_file") or lowered.startswith("read file"):
+        path = extract_change_path(text)
+        return "reading " + short_filename(path) if path else text
+    if lowered.startswith("search_files") or lowered.startswith("search files"):
+        match = re.search(r'"([^"]+)"', text)
+        return f'searching "{match.group(1)}"' if match else text
+    if lowered.startswith("terminal:"):
+        command = text.split(":", 1)[1].strip()
+        command_lower = command.lower()
+        if command_lower.startswith(("pytest", "python -m pytest", "python3 -m pytest")):
+            return "running tests"
+        if "python inline script" in command_lower:
+            return "running python script"
+        return "running " + truncate_text(command, 64)
+    return text
+
+
+def short_filename(path: str) -> str:
+    cleaned = str(path or "").strip()
+    if not cleaned:
+        return ""
+    return cleaned.rstrip("/").rsplit("/", 1)[-1]
+
+
 def latest_activity(ctx: SessionContext) -> str:
     if ctx.tool_lines:
         return normalize_tool_line(ctx.tool_lines[-1])
@@ -102,24 +140,26 @@ def latest_activity(ctx: SessionContext) -> str:
 
 
 def focused_state(ctx: SessionContext) -> str:
-    tool_count = len(ctx.tool_lines)
-    hidden_todo_done = 1 if ctx.todo_items else 0
-    running_tools = 1 if tool_count else 0
-    done_tools = max(0, tool_count - running_tools) + hidden_todo_done
+    total_tools = ctx.tool_started_count or len(ctx.tool_lines)
+    completed = ctx.tool_completed_count
+    failed = ctx.tool_failed_count
+    if not ctx.tool_started_count:
+        running = 1 if ctx.tool_lines else 0
+        completed = max(0, len(ctx.tool_lines) - running)
+    else:
+        running = max(0, total_tools - completed - failed)
     queued = sum(1 for item in ctx.todo_items if item.status == "pending")
-    parts = [f"{done_tools} tools done", f"{running_tools} running"]
+    parts = [f"{total_tools} tools", f"{completed} done"]
+    if failed:
+        parts.append(f"{failed} failed")
+    parts.append(f"{running} running")
     if queued:
         parts.append(f"{queued} queued")
     return " · ".join(parts)
 
 
 def focused_elapsed(ctx: SessionContext) -> str:
-    newest = max(
-        [
-            time.monotonic(),
-        ]
-    )
-    elapsed = max(0, int(newest - ctx.last_event_at))
+    elapsed = max(0, int(time.monotonic() - ctx.started_at))
     if elapsed <= 0:
         return "just now"
     if elapsed < 60:
@@ -178,7 +218,7 @@ def focused_changes(ctx: SessionContext, *, settings: Settings) -> str:
             continue
         path = extract_change_path(line)
         if path:
-            candidates.append("~ " + truncate_text(path, settings.patch.preview_chars + 24))
+            candidates.append("• " + truncate_text(path, settings.patch.preview_chars + 24))
     if not candidates:
         return ""
     deduped = list(dict.fromkeys(candidates))[-settings.patch.max_files :]

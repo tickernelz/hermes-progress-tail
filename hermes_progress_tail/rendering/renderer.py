@@ -60,8 +60,13 @@ class ProgressRenderer:
             if reuse_progress:
                 ctx.message_id = existing.message_id
                 ctx.tool_lines = existing.tool_lines
+                ctx.started_at = existing.started_at
                 ctx.active_tool_lines = existing.active_tool_lines
                 ctx.active_tool_fingerprints = existing.active_tool_fingerprints
+                ctx.tool_started_count = existing.tool_started_count
+                ctx.tool_completed_count = existing.tool_completed_count
+                ctx.tool_failed_count = existing.tool_failed_count
+                ctx.completed_tool_ids = existing.completed_tool_ids
                 ctx.delegate_branches = existing.delegate_branches
                 ctx.delegate_order = existing.delegate_order
                 ctx.todo_items = existing.todo_items
@@ -174,6 +179,9 @@ class ProgressRenderer:
                 line = self._format_tool_line(ctx, event)
                 if event.replace_existing:
                     previous = self._find_previous_tool_line(ctx, event, line)
+                    terminal_status = self._record_tool_lifecycle(ctx, event, line)
+                    if terminal_status:
+                        self._clear_previous_tool_tracking(ctx, event, previous)
                     if previous in ctx.tool_lines:
                         items = list(ctx.tool_lines)
                         items[items.index(previous)] = line
@@ -181,13 +189,16 @@ class ProgressRenderer:
                         ctx.tool_lines.extend(items)
                     else:
                         ctx.tool_lines.append(line)
-                    if event.tool_call_id:
-                        ctx.active_tool_lines[event.tool_call_id] = line
-                    fingerprint = self._tool_line_fingerprint(line)
-                    if fingerprint:
-                        ctx.active_tool_fingerprints[fingerprint] = line
+                    if not terminal_status:
+                        self._clear_previous_tool_tracking(ctx, event, previous)
+                        if event.tool_call_id:
+                            ctx.active_tool_lines[event.tool_call_id] = line
+                        fingerprint = self._tool_line_fingerprint(line)
+                        if fingerprint:
+                            ctx.active_tool_fingerprints[fingerprint] = line
                     force = True
                 else:
+                    self._record_tool_lifecycle(ctx, event, line)
                     ctx.tool_lines.append(line)
                     if event.tool_call_id:
                         ctx.active_tool_lines[event.tool_call_id] = line
@@ -311,6 +322,72 @@ class ProgressRenderer:
         ctx.last_reasoning_chars = len(str(event.text))
         ctx.last_reasoning_at = event.created_at
         return ctx.reasoning_pending_chars
+
+    def _record_tool_lifecycle(self, ctx: SessionContext, event: ToolEvent, line: str) -> bool:
+        if event.tool_name == "todo":
+            return False
+        identity = self._tool_event_identity(event, line)
+        if not event.replace_existing:
+            self._complete_active_tools(ctx)
+            ctx.tool_started_count += 1
+            return False
+        terminal_status = self._tool_line_terminal_status(line)
+        if not terminal_status:
+            return False
+        if identity in ctx.completed_tool_ids:
+            return True
+        if terminal_status == "failed":
+            ctx.tool_failed_count += 1
+        else:
+            ctx.tool_completed_count += 1
+        ctx.completed_tool_ids.add(identity)
+        if event.tool_call_id:
+            ctx.active_tool_lines.pop(event.tool_call_id, None)
+        fingerprint = self._tool_line_fingerprint(line)
+        if fingerprint:
+            ctx.active_tool_fingerprints.pop(fingerprint, None)
+        return True
+
+    @staticmethod
+    def _tool_line_terminal_status(line: str) -> str:
+        text = str(line or "").strip().lower()
+        if text.startswith("❌") or " · failed" in text:
+            return "failed"
+        if text.startswith("✅") or " · done" in text:
+            return "done"
+        return ""
+
+    def _complete_active_tools(self, ctx: SessionContext) -> None:
+        identities: set[str] = set()
+        active_lines = set(ctx.active_tool_lines.values())
+        for tool_call_id in ctx.active_tool_lines:
+            identities.add("id:" + tool_call_id)
+        for fingerprint, line in ctx.active_tool_fingerprints.items():
+            if line not in active_lines:
+                identities.add("fp:" + fingerprint)
+        new_completions = identities - ctx.completed_tool_ids
+        if new_completions:
+            ctx.tool_completed_count += len(new_completions)
+            ctx.completed_tool_ids.update(new_completions)
+        ctx.active_tool_lines.clear()
+        ctx.active_tool_fingerprints.clear()
+
+    def _clear_previous_tool_tracking(
+        self, ctx: SessionContext, event: ToolEvent, previous: str
+    ) -> None:
+        if event.tool_call_id:
+            ctx.active_tool_lines.pop(event.tool_call_id, None)
+        fingerprint = self._tool_line_fingerprint(previous)
+        if fingerprint:
+            ctx.active_tool_fingerprints.pop(fingerprint, None)
+
+    def _tool_event_identity(self, event: ToolEvent, line: str) -> str:
+        if event.tool_call_id:
+            return "id:" + event.tool_call_id
+        fingerprint = self._tool_line_fingerprint(line)
+        if fingerprint:
+            return "fp:" + fingerprint
+        return "line:" + line.strip()
 
     def _find_previous_tool_line(self, ctx: SessionContext, event: ToolEvent, line: str) -> str:
         if event.tool_call_id:

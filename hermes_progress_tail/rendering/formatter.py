@@ -149,16 +149,61 @@ def _compact_command_path(token: str) -> str:
     return prefix + _short_path(body, keep_parent=True)
 
 
+def _script_snippet(command: str, part_limit: int = 36) -> str:
+    body = _script_body(command)
+    meaningful = [_clean_script_line(line) for line in body]
+    meaningful = [line for line in meaningful if line]
+    preferred = [line for line in meaningful if not _low_signal_script_line(line)]
+    candidates = preferred or meaningful
+    if not candidates:
+        return ""
+    first = _truncate(redact_text(candidates[0]), part_limit)
+    last = _truncate(redact_text(candidates[-1]), part_limit)
+    if first == last:
+        return first
+    return f"{first} … {last}"
+
+
+def _script_body(command: str) -> list[str]:
+    lines = [line.rstrip() for line in str(command or "").splitlines() if line.strip()]
+    if len(lines) <= 1:
+        return lines
+    first = lines[0].strip()
+    heredoc = re.search(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?", first)
+    if heredoc and lines[-1].strip() == heredoc.group(1):
+        return lines[1:-1]
+    return lines
+
+
+def _clean_script_line(line: str) -> str:
+    return " ".join(str(line or "").strip().split())
+
+
+def _low_signal_script_line(line: str) -> bool:
+    stripped = line.strip()
+    return (
+        not stripped
+        or stripped.startswith("#")
+        or stripped.startswith("import ")
+        or stripped.startswith("from ")
+    )
+
+
 def _fmt_terminal_command(command: str) -> str:
-    command = redact_text(command).strip()
+    raw_command = str(command or "")
+    command = redact_text(raw_command).strip()
     if not command:
         return "<empty>"
     lines = [line for line in command.splitlines() if line.strip()]
     if len(lines) > 1:
         first = lines[0].strip()
         if re.match(r"^(python3?|python)\s+-\s*<<", first) or first.startswith("python3 - <<"):
-            return f"python inline script · {len(lines)} lines"
-        return f"shell script · {len(lines)} lines"
+            snippet = _script_snippet(raw_command)
+            detail = f" · {snippet}" if snippet else ""
+            return f"python inline script{detail} · {len(lines)} lines"
+        snippet = _script_snippet(raw_command)
+        detail = f" · {snippet}" if snippet else ""
+        return f"shell script{detail} · {len(lines)} lines"
     words = _shell_words(command)
     joined = " ".join(words)
     if not words:
@@ -329,9 +374,37 @@ def _fmt_delegate(args: dict[str, Any], limit: int) -> str:
 
 def _fmt_parallel(args: dict[str, Any]) -> str:
     tool_uses = args.get("tool_uses")
-    if isinstance(tool_uses, list):
-        return f"{len(tool_uses)} tool calls"
-    return "parallel tools"
+    if not isinstance(tool_uses, list):
+        return "parallel tools"
+    summaries = []
+    for item in tool_uses[:4]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("recipient_name") or item.get("name") or "tool")
+        name = name.rsplit(".", 1)[-1]
+        params = item.get("parameters") if isinstance(item.get("parameters"), dict) else {}
+        summaries.append(_parallel_tool_summary(name, params))
+    hidden = len(tool_uses) - len(summaries)
+    if hidden > 0:
+        summaries.append(f"+{hidden} more")
+    return " · ".join(summaries) if summaries else f"{len(tool_uses)} tool calls"
+
+
+def _parallel_tool_summary(name: str, params: dict[str, Any]) -> str:
+    if name == "read_file":
+        return f"read_file {_short_path(params.get('path'), keep_parent=False)}"
+    if name == "search_files":
+        pattern = _truncate(
+            redact_text(str(params.get("pattern") or params.get("q") or "")).strip(), 40
+        )
+        return f'search_files "{pattern}"' if pattern else "search_files"
+    if name == "terminal":
+        command = _fmt_terminal_command(str(params.get("command") or ""))
+        return "terminal " + _truncate(command, 48)
+    if name in {"write_file", "patch"}:
+        path = params.get("path") or params.get("file_path")
+        return f"{name} {_short_path(path, keep_parent=False)}" if path else name
+    return name
 
 
 def _fallback(args: dict[str, Any], preview: str | None, limit: int) -> str:

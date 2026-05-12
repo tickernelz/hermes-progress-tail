@@ -211,9 +211,9 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
 
         content = adapter.edits[-1][2]
         assert content.startswith("Jono is working\n────────────────")
-        assert "Now     patch · rendering/formatter.py" in content
+        assert "Now     patching formatter.py" in content
         assert "Why     Gue cek formatter path dulu, jangan sampai strip code/path." in content
-        assert "State   3 tools done · 1 running · 2 queued" in content
+        assert "State   3 tools · 2 done · 1 running · 2 queued" in content
         assert "Progress\nGue cek formatter path dulu" in content
         assert "Reasoning\nPlanning task execution" in content
         assert "**Planning task execution**" not in content
@@ -224,7 +224,131 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
         assert "Background\n" in content
         assert "Tools\n✓ read_file · telegram.py:3108" in content
         assert "→ patch · rendering/formatter.py" in content
-        assert "Changes\n~ rendering/formatter.py" in content
+        assert "Changes\n• rendering/formatter.py" in content
+        assert "~ ~/" not in content
+
+    asyncio.run(run())
+
+
+def test_focused_header_elapsed_uses_turn_start_not_latest_event():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"mode": "focused", "density": "verbose", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+        ctx.started_at = time.monotonic() - 3600
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "terminal: pytest · running", created_at=10),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "Time    1h 00m" in content
+        assert "Time    just now" not in content
+
+    asyncio.run(run())
+
+
+def test_focused_state_uses_tool_lifecycle_counts_not_visible_tail_size():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False, "lines": 3},
+                        "renderer": {"mode": "focused", "density": "verbose", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        for index in range(10):
+            await renderer.handle_event(
+                ToolEvent(
+                    "s1",
+                    "k1",
+                    "telegram",
+                    f"tool {index} · running",
+                    tool_call_id=f"call-{index}",
+                    created_at=index,
+                ),
+                force=True,
+            )
+            await renderer.handle_event(
+                ToolEvent(
+                    "s1",
+                    "k1",
+                    "telegram",
+                    f"✅ tool {index} · done · 1.0s",
+                    tool_call_id=f"call-{index}",
+                    replace_existing=True,
+                    created_at=index + 0.5,
+                ),
+                force=True,
+            )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "terminal: pytest · running",
+                tool_call_id="call-running",
+                created_at=11,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert len(ctx.tool_lines) == 3
+        assert "State   11 tools · 10 done · 1 running" in content
+        assert "State   3 tools" not in content
+
+    asyncio.run(run())
+
+
+def test_focused_changes_marker_does_not_double_home_tilde():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"mode": "focused", "density": "verbose", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "✍️ write_file: ~/Works/HMX/hmx-002/tools/promotion/ai_replay.py · done",
+                tool_name="write_file",
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "Changes\n• ~/Works/HMX/hmx-002/tools/promotion/ai_replay.py" in content
+        assert "~ ~/Works" not in content
 
     asyncio.run(run())
 
@@ -880,6 +1004,144 @@ def test_tool_completion_replaces_emoji_running_line_by_fingerprint_without_tool
         assert "💻 terminal: pytest tests/a.py · running" not in content
         assert "✅ 💻 terminal: pytest tests/a.py · done · 1.3s" in content
         assert len(ctx.tool_lines) == 1
+
+    asyncio.run(run())
+
+
+def test_tool_replacement_without_terminal_status_remains_running():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False, "show_completed": True},
+                        "renderer": {"mode": "focused", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "terminal: pytest · running",
+                tool_call_id="call-1",
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "terminal: pytest tests/test_renderer.py · running",
+                tool_call_id="call-1",
+                replace_existing=True,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "State   1 tools · 0 done · 1 running" in content
+        assert ctx.tool_completed_count == 0
+        assert "call-1" in ctx.active_tool_lines
+
+    asyncio.run(run())
+
+
+def test_terminal_tool_completion_clears_active_tracking():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {"progress_tail": {"tools": {"timestamp": False, "show_completed": True}}}
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "discord", "terminal: pytest · running", tool_call_id="call-1"),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "discord",
+                "✅ terminal: pytest · done · 2.1s",
+                tool_call_id="call-1",
+                replace_existing=True,
+            ),
+            force=True,
+        )
+
+        assert ctx.tool_completed_count == 1
+        assert ctx.active_tool_lines == {}
+        assert ctx.active_tool_fingerprints == {}
+
+    asyncio.run(run())
+
+
+def test_tool_replacement_changing_fingerprint_does_not_double_count_completion():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False, "show_completed": True},
+                        "renderer": {"mode": "focused", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "terminal: pytest · running", tool_call_id="call-1"),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "terminal: pytest tests/test_renderer.py · running",
+                tool_call_id="call-1",
+                replace_existing=True,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "✅ terminal: pytest tests/test_renderer.py --rerun · done · 1s",
+                tool_call_id="call-1",
+                replace_existing=True,
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1", "k1", "telegram", "terminal: ruff check · running", tool_call_id="call-2"
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert ctx.tool_started_count == 2
+        assert ctx.tool_completed_count == 1
+        assert "State   2 tools · 1 done · 1 running" in content
+        assert "terminal: pytest" not in ctx.active_tool_fingerprints
 
     asyncio.run(run())
 
@@ -1705,11 +1967,11 @@ def test_delegate_normal_density_terminal_renders_safe_multiline_details():
         )
 
         content = adapter.sent[0][1]
-        assert "└ tool: 💻 terminal: python inline script · 4 lines" in content
+        assert "└ tool: 💻 terminal: python inline script" in content
+        assert "· 4 lines" in content
         assert "   cwd: ." in content
         assert "   first: python - <<'PY'" in content
-        assert "safe first" not in content
-        assert "safe second" not in content
+        assert "print('safe first') … print('safe second')" in content
 
     asyncio.run(run())
 
