@@ -4,6 +4,7 @@ import re
 import shlex
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 
 from ..models.state import TodoItem
 from ..utils.redaction import redact_text, sanitize
@@ -263,6 +264,12 @@ def _fmt_search(args: dict[str, Any], limit: int) -> str:
     text = f'"{_truncate(pattern, 50)}"'
     if path:
         text += f" in {_short_path(path, keep_parent=True)}"
+    target = str(args.get("target") or "").strip()
+    file_glob = str(args.get("file_glob") or "").strip()
+    if target:
+        text += f" · {redact_text(target)}"
+    if file_glob:
+        text += f" · {redact_text(file_glob)}"
     return _truncate(text, limit)
 
 
@@ -460,6 +467,75 @@ def _fmt_session_search(args: dict[str, Any], limit: int) -> str:
     return _truncate(f'"{query}"' if query != "<empty>" else "recent sessions", limit)
 
 
+def _short_url(raw: Any) -> str:
+    text = redact_text(str(raw or "").strip())
+    if not text:
+        return "<unknown>"
+    parsed = urlsplit(text)
+    if parsed.scheme and parsed.netloc:
+        path = parsed.path.rstrip("/")
+        return parsed.netloc + (path or "")
+    return _short_path(text)
+
+
+def _fmt_send_message(args: dict[str, Any], limit: int) -> str:
+    return _truncate(redact_text(str(args.get("target") or "default").strip()), limit)
+
+
+def _fmt_output_path(args: dict[str, Any], limit: int) -> str:
+    return _truncate(
+        _short_path(args.get("output_path") or args.get("path"), keep_parent=False), limit
+    )
+
+
+def _fmt_vision(args: dict[str, Any], limit: int) -> str:
+    return _truncate(
+        _short_url(args.get("image_url") or args.get("url") or args.get("path")), limit
+    )
+
+
+def _fmt_prompt_only(args: dict[str, Any], limit: int) -> str:
+    prompt = str(args.get("prompt") or "")
+    return _truncate(f"prompt · {len(prompt)} chars" if prompt else "prompt", limit)
+
+
+def _fmt_browser(args: dict[str, Any], limit: int) -> str:
+    if args.get("url"):
+        return _truncate(_short_url(args.get("url")), limit)
+    if args.get("ref"):
+        return _truncate(redact_text(str(args.get("ref")).strip()), limit)
+    if bool(args.get("full")):
+        return "full"
+    return "browser"
+
+
+def _fmt_video(args: dict[str, Any], limit: int) -> str:
+    text = _short_url(args.get("path") or args.get("url"))
+    start = str(args.get("start_time") or "").strip()
+    end = str(args.get("end_time") or "").strip()
+    if start or end:
+        text += f" · {start or '?'}-{end or '?'}"
+    return _truncate(text, limit)
+
+
+def _fmt_hindsight_retain(args: dict[str, Any], limit: int) -> str:
+    context = _preview_text(args.get("context"), 72)
+    return _truncate(context if context != "<empty>" else "retain memory", limit)
+
+
+def _fmt_lcm_expand(args: dict[str, Any], limit: int) -> str:
+    for key in ("store_id", "node_id", "externalized_ref"):
+        value = args.get(key)
+        if value not in {None, ""}:
+            return _truncate(f"{key}={redact_text(str(value))}", limit)
+    return "expand context"
+
+
+def _fmt_lcm_load_session(args: dict[str, Any], limit: int) -> str:
+    session_id = str(args.get("session_id") or "").strip()
+    return _truncate(redact_text(session_id or "session"), limit)
+
+
 def _fmt_parallel(args: dict[str, Any]) -> str:
     tool_uses = args.get("tool_uses")
     if not isinstance(tool_uses, list):
@@ -531,6 +607,14 @@ FORMATTERS = {
     "cronjob": lambda args, preview, limit, **_: _fmt_cronjob(args, limit),
     "delegate_task": lambda args, preview, limit, **_: _fmt_delegate(args, limit),
     "execute_code": lambda args, preview, limit, **_: _fmt_execute_code(args, limit),
+    "hindsight_recall": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
+    "hindsight_reflect": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
+    "hindsight_retain": lambda args, preview, limit, **_: _fmt_hindsight_retain(args, limit),
+    "imagegen": lambda args, preview, limit, **_: _fmt_prompt_only(args, limit),
+    "lcm_expand": lambda args, preview, limit, **_: _fmt_lcm_expand(args, limit),
+    "lcm_expand_query": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
+    "lcm_grep": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
+    "lcm_load_session": lambda args, preview, limit, **_: _fmt_lcm_load_session(args, limit),
     "memory": lambda args, preview, limit, **_: _fmt_memory(args, limit),
     "multi_tool_use.parallel": lambda args, preview, limit, **_: _fmt_parallel(args),
     "patch": lambda args, preview, limit, patch_detail="smart", patch_preview_chars=48, patch_max_files=3, **_: (
@@ -546,13 +630,40 @@ FORMATTERS = {
     "read_file": lambda args, preview, limit, **_: _fmt_read(args, limit),
     "search_files": lambda args, preview, limit, **_: _fmt_search(args, limit),
     "session_search": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
+    "send_message": lambda args, preview, limit, **_: _fmt_send_message(args, limit),
     "skill_manage": lambda args, preview, limit, **_: _fmt_skill_manage(args, limit),
     "skill_view": lambda args, preview, limit, **_: _fmt_skill_view(args, limit),
     "skills_list": lambda args, preview, limit, **_: _fmt_skills_list(args, limit),
     "terminal": lambda args, preview, limit, **_: _fmt_terminal(args, limit),
+    "text_to_speech": lambda args, preview, limit, **_: _fmt_output_path(args, limit),
     "todo": lambda args, preview, limit, **_: _fmt_todo(args, preview, limit),
+    "vision_analyze": lambda args, preview, limit, **_: _fmt_vision(args, limit),
     "write_file": lambda args, preview, limit, **_: _fmt_write(args, limit),
 }
+
+for _browser_tool in (
+    "browser_back",
+    "browser_click",
+    "browser_console",
+    "browser_get_images",
+    "browser_navigate",
+    "browser_press",
+    "browser_scroll",
+    "browser_snapshot",
+    "browser_type",
+    "browser_vision",
+):
+    FORMATTERS[_browser_tool] = lambda args, preview, limit, **_: _fmt_browser(args, limit)
+
+for _video_tool in (
+    "mcp_claude_video_vision_video_analyze",
+    "mcp_claude_video_vision_video_configure",
+    "mcp_claude_video_vision_video_detail",
+    "mcp_claude_video_vision_video_info",
+    "mcp_claude_video_vision_video_setup",
+    "mcp_claude_video_vision_video_watch",
+):
+    FORMATTERS[_video_tool] = lambda args, preview, limit, **_: _fmt_video(args, limit)
 
 
 def format_tool_line(

@@ -147,6 +147,89 @@ def test_formats_skill_and_memory_tools_without_raw_json():
         assert "}" not in line
 
 
+def test_formats_communication_and_media_tools_without_raw_json():
+    cases = {
+        "send_message": (
+            {"target": "telegram", "message": "build finished"},
+            "⚙️ send_message: telegram",
+        ),
+        "text_to_speech": (
+            {"text": "Halo semuanya", "output_path": "/tmp/progress.mp3"},
+            "⚙️ text_to_speech: progress.mp3",
+        ),
+        "vision_analyze": (
+            {
+                "image_url": "https://cdn.example.com/screens/fail.png?token=secret#frag",
+                "question": "apa yang rusak?",
+            },
+            "⚙️ vision_analyze: cdn.example.com/screens/fail.png",
+        ),
+        "imagegen": ({"prompt": "dark HUD"}, "⚙️ imagegen: prompt · 8 chars"),
+    }
+
+    for tool_name, (args, expected) in cases.items():
+        line = format_tool_line(tool_name, args, preview_length=120)
+        assert line == expected
+        assert "{" not in line
+        assert "}" not in line
+        assert "build finished" not in line
+        assert "Halo semuanya" not in line
+        assert "apa yang rusak" not in line
+        assert "dark HUD" not in line
+
+
+def test_formats_browser_and_video_tools_without_raw_json():
+    cases = {
+        "browser_navigate": (
+            {"url": "https://example.com/path?q=secret"},
+            "⚙️ browser_navigate: example.com/path",
+        ),
+        "browser_click": ({"ref": "@e12"}, "⚙️ browser_click: @e12"),
+        "browser_type": ({"ref": "@e2", "text": "secret input"}, "⚙️ browser_type: @e2"),
+        "browser_console": ({"expression": "document.cookie"}, "⚙️ browser_console: browser"),
+        "browser_snapshot": ({"full": True}, "⚙️ browser_snapshot: full"),
+        "mcp_claude_video_vision_video_info": (
+            {"path": "/tmp/videos/demo.mp4"},
+            "⚙️ mcp_claude_video_vision_video_info: videos/demo.mp4",
+        ),
+        "mcp_claude_video_vision_video_watch": (
+            {"path": "https://youtu.be/abc123", "start_time": "00:00:10", "end_time": "00:00:20"},
+            "⚙️ mcp_claude_video_vision_video_watch: youtu.be/abc123 · 00:00:10-00:00:20",
+        ),
+    }
+
+    for tool_name, (args, expected) in cases.items():
+        line = format_tool_line(tool_name, args, preview_length=140)
+        assert line == expected
+        assert "{" not in line
+        assert "}" not in line
+        assert "secret" not in line
+
+
+def test_formats_file_search_and_memory_extended_tools_without_raw_json():
+    cases = {
+        "search_files": (
+            {"pattern": "agent_label", "path": ".", "target": "content", "file_glob": "*.py"},
+            '🔎 search_files: "agent_label" in . · content · *.py',
+        ),
+        "hindsight_recall": ({"query": "progress tail"}, '⚙️ hindsight_recall: "progress tail"'),
+        "hindsight_retain": (
+            {"context": "project convention", "content": "secret note"},
+            "⚙️ hindsight_retain: project convention",
+        ),
+        "lcm_grep": ({"query": "progress OR tail", "limit": 5}, '⚙️ lcm_grep: "progress OR tail"'),
+        "lcm_expand": ({"store_id": 123, "max_tokens": 2000}, "⚙️ lcm_expand: store_id=123"),
+        "lcm_load_session": ({"session_id": "abc", "limit": 100}, "⚙️ lcm_load_session: abc"),
+    }
+
+    for tool_name, (args, expected) in cases.items():
+        line = format_tool_line(tool_name, args, preview_length=140)
+        assert line == expected
+        assert "{" not in line
+        assert "}" not in line
+        assert "secret note" not in line
+
+
 def test_generic_fallback_prefers_compact_key_values_not_raw_json():
     line = format_tool_line(
         "custom_tool",
