@@ -274,6 +274,7 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
         timestamp=settings.timestamp,
         timestamp_format=settings.timestamp_format,
         code_fence=settings.code_fence,
+        agent_label=renderer.settings.renderer.agent_label,
     )
     renderer.register_context(ctx)
     return None

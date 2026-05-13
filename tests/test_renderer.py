@@ -107,6 +107,7 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
             )
         )
         ctx = make_ctx(adapter, platform="telegram")
+        ctx.agent_label = "Akbar"
         renderer.register_context(ctx)
 
         await renderer.handle_event(
@@ -210,7 +211,7 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
         )
 
         content = adapter.edits[-1][2]
-        assert content.startswith("Jono is working\n────────────────")
+        assert content.startswith("Akbar is working\n────────────────")
         assert "Now     patching formatter.py" in content
         assert "Why     Gue cek formatter path dulu, jangan sampai strip code/path." in content
         assert "State   3 tools · 2 done · 1 running · 2 queued" in content
@@ -224,7 +225,7 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
         assert "Background\n" in content
         assert "Tools\n✓ read_file · telegram.py:3108" in content
         assert "→ patch · rendering/formatter.py" in content
-        assert "Changes\n• rendering/formatter.py" in content
+        assert "Changes\n" not in content
         assert "~ ~/" not in content
 
     asyncio.run(run())
@@ -319,7 +320,7 @@ def test_focused_state_uses_tool_lifecycle_counts_not_visible_tail_size():
     asyncio.run(run())
 
 
-def test_focused_changes_marker_does_not_double_home_tilde():
+def test_focused_mode_does_not_render_changes_section_for_write_file():
     async def run():
         adapter = EditableAdapter()
         renderer = ProgressRenderer(
@@ -347,8 +348,68 @@ def test_focused_changes_marker_does_not_double_home_tilde():
         )
 
         content = adapter.sent[0][1]
-        assert "Changes\n• ~/Works/HMX/hmx-002/tools/promotion/ai_replay.py" in content
+        assert "Changes\n" not in content
+        assert "write_file: ~/Works/HMX/hmx-002/tools/promotion/ai_replay.py" in content
         assert "~ ~/Works" not in content
+
+    asyncio.run(run())
+
+
+def test_focused_header_uses_renderer_agent_label_when_configured():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {
+                            "mode": "focused",
+                            "density": "verbose",
+                            "style": "plain",
+                            "agent_label": "Akbar",
+                        },
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "terminal: pytest · running", created_at=1),
+            force=True,
+        )
+
+        assert adapter.sent[0][1].startswith("Akbar is working\n────────────────")
+
+    asyncio.run(run())
+
+
+def test_focused_header_falls_back_to_hermes_not_jono():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"mode": "focused", "density": "verbose", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "terminal: pytest · running", created_at=1),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert content.startswith("Hermes is working\n────────────────")
+        assert "Jono is working" not in content
 
     asyncio.run(run())
 

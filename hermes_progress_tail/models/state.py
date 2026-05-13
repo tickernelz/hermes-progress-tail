@@ -135,6 +135,7 @@ class SessionContext:
     timestamp: bool | None = None
     timestamp_format: str = ""
     code_fence: str = "off"
+    agent_label: str = ""
     lock: Any = field(default_factory=asyncio.Lock)
 
     @property

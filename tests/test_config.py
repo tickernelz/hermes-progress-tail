@@ -24,6 +24,7 @@ def test_load_settings_defaults():
     assert not hasattr(settings.reasoning, "capture_inline_think_tags")
     assert settings.renderer.style == "emoji"
     assert settings.renderer.density == "normal"
+    assert settings.renderer.agent_label == ""
     assert (
         load_settings({"progress_tail": {"renderer": {"density": "verbose"}}}).renderer.density
         == "verbose"
@@ -33,6 +34,12 @@ def test_load_settings_defaults():
     assert settings.background_jobs.suppress_native_notify is True
     assert settings.background_jobs.max_jobs == 4
     assert not hasattr(settings, "finalization")
+
+
+def test_load_settings_accepts_renderer_agent_label():
+    settings = load_settings({"progress_tail": {"renderer": {"agent_label": "Akbar"}}})
+
+    assert settings.renderer.agent_label == "Akbar"
 
 
 def test_resolve_platform_override():

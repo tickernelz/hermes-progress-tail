@@ -154,6 +154,7 @@ progress_tail:
     mode: focused # focused|sectioned|compact
     style: emoji # emoji|plain
     density: verbose # compact|normal|verbose|debug
+    agent_label: "" # optional label for focused HUD header, e.g. Akbar
     code_fence: auto # auto|on|off; auto fences Discord/Slack/Mattermost, not Telegram
     code_fence_language: ""
 

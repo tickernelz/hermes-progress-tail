@@ -50,6 +50,7 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert config["progress_tail"]["patch"]["preview_chars"] == 48
     assert config["progress_tail"]["patch"]["max_files"] == 3
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
+    assert config["progress_tail"]["renderer"]["agent_label"] == ""
     assert "finalization" not in config["progress_tail"]
     assert "progress_tail" in config
     assert (hermes_home / "hermes-progress-tail" / "backups").exists()
@@ -127,6 +128,7 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     assert "finalization" not in config["progress_tail"]
     assert config["progress_tail"]["renderer"]["strategy"] == "live_tail"
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
+    assert config["progress_tail"]["renderer"]["agent_label"] == ""
     assert any("progress_tail.todo" in message for message in result.messages)
     assert any(
         "Removed retired config keys: progress_tail.finalization" in message

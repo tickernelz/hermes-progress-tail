@@ -41,10 +41,6 @@ def compose_focused_content(renderer, ctx: SessionContext) -> str:
     if tools:
         parts.append(focused_block("Tools", tools))
 
-    changes = focused_changes(ctx, settings=settings)
-    if changes:
-        parts.append(focused_block("Changes", changes))
-
     if settings.renderer.density == "debug":
         debug = strip_legacy_section_header(renderer._debug_section(ctx), "Debug")
         if debug:
@@ -55,6 +51,7 @@ def compose_focused_content(renderer, ctx: SessionContext) -> str:
 
 
 def focused_header(renderer, ctx: SessionContext) -> str:
+    agent_label = focused_agent_label(renderer, ctx)
     now = clean_live_markdown(focused_now(ctx), platform=ctx.platform) or "working"
     why = clean_live_markdown(renderer._assistant_tail(ctx), platform=ctx.platform)
     if not why:
@@ -66,7 +63,7 @@ def focused_header(renderer, ctx: SessionContext) -> str:
     elapsed = focused_elapsed(ctx)
     return "\n".join(
         [
-            "Jono is working",
+            f"{agent_label} is working",
             "────────────────",
             f"Now     {truncate_text(now, 76)}",
             f"Why     {why}",
@@ -74,6 +71,21 @@ def focused_header(renderer, ctx: SessionContext) -> str:
             f"Time    {elapsed}",
         ]
     )
+
+
+def focused_agent_label(renderer, ctx: SessionContext) -> str:
+    settings = getattr(renderer, "settings", None)
+    renderer_settings = getattr(settings, "renderer", None)
+    configured = getattr(renderer_settings, "agent_label", "")
+    label = str(getattr(ctx, "agent_label", "") or configured or "").strip()
+    return sanitize_agent_label(label) or "Hermes"
+
+
+def sanitize_agent_label(label: str) -> str:
+    text = " ".join(str(label or "").split())
+    if not text:
+        return ""
+    return truncate_text(text, 32)
 
 
 def focused_block(title: str, body: str) -> str:
@@ -207,22 +219,6 @@ def tool_done_marker(raw: str) -> str:
     if "failed" in text.lower() or text.lstrip().startswith("❌"):
         return "×"
     return "✓"
-
-
-def focused_changes(ctx: SessionContext, *, settings: Settings) -> str:
-    candidates = []
-    for raw in ctx.tool_lines:
-        line = normalize_tool_line(raw)
-        lowered = line.lower()
-        if not any(token in lowered for token in ("patch", "write_file", "write file")):
-            continue
-        path = extract_change_path(line)
-        if path:
-            candidates.append("• " + truncate_text(path, settings.patch.preview_chars + 24))
-    if not candidates:
-        return ""
-    deduped = list(dict.fromkeys(candidates))[-settings.patch.max_files :]
-    return "\n".join(deduped)
 
 
 def extract_change_path(line: str) -> str:

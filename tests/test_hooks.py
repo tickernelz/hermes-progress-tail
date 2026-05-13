@@ -57,7 +57,14 @@ def test_pre_gateway_dispatch_registers_context(monkeypatch):
         monkeypatch.setattr(
             hermes_progress_tail.plugin,
             "_load_runtime_settings",
-            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
+            lambda: load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"agent_label": "Akbar"},
+                    }
+                }
+            ),
         )
 
         result = hermes_progress_tail._on_pre_gateway_dispatch(
@@ -70,6 +77,7 @@ def test_pre_gateway_dispatch_registers_context(monkeypatch):
         assert isinstance(ctx, SessionContext)
         assert ctx.chat_id == "chat"
         assert ctx.thread_id == "thread"
+        assert ctx.agent_label == "Akbar"
 
     asyncio.run(run())
 

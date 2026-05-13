@@ -114,6 +114,7 @@ class RendererSettings:
     density: Literal["compact", "normal", "verbose", "debug"] = "normal"
     code_fence: Literal["auto", "on", "off"] = "auto"
     code_fence_language: str = ""
+    agent_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -355,6 +356,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         density=_density(renderer_raw.get("density"), "normal"),
         code_fence=_code_fence(renderer_raw.get("code_fence"), "auto"),
         code_fence_language=str(renderer_raw.get("code_fence_language") or ""),
+        agent_label=str(renderer_raw.get("agent_label") or "").strip(),
     )
     no_edit = NoEditSettings(
         interval_seconds=_int(no_edit_raw.get("interval_seconds"), 30),
