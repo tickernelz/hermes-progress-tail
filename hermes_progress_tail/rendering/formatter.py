@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import shlex
 from pathlib import Path, PurePosixPath
@@ -21,6 +20,26 @@ EMOJI = {
     "execute_code": "🐍",
     "multi_tool_use.parallel": "🧰",
     "parallel": "🧰",
+}
+
+SKIP_FALLBACK_KEYS = {
+    "api_key",
+    "authorization",
+    "bearer",
+    "content",
+    "cookie",
+    "env",
+    "file_content",
+    "headers",
+    "message",
+    "new_string",
+    "old_string",
+    "password",
+    "patch",
+    "prompt",
+    "secret",
+    "text",
+    "token",
 }
 
 STATUS_LABELS = {
@@ -368,8 +387,77 @@ def _fmt_delegate(args: dict[str, Any], limit: int) -> str:
         return _truncate(redact_text(str(goal).strip()), limit)
     tasks = args.get("tasks")
     if isinstance(tasks, list):
-        return f"{len(tasks)} task(s)"
+        task_word = "task" if len(tasks) == 1 else "tasks"
+        return f"{len(tasks)} {task_word}"
     return "subagent task"
+
+
+def _fmt_execute_code(args: dict[str, Any], limit: int) -> str:
+    code = str(args.get("code") or "")
+    lines = [line for line in code.splitlines() if line.strip()]
+    summary = f"Python script · {len(lines)} lines" if lines else "Python script"
+    return _truncate(summary, limit)
+
+
+def _fmt_process(args: dict[str, Any], limit: int) -> str:
+    action = str(args.get("action") or "").strip() or "inspect"
+    session_id = str(args.get("session_id") or "").strip()
+    text = f"{action} {session_id}" if session_id else action
+    return _truncate(text, limit)
+
+
+def _fmt_cronjob(args: dict[str, Any], limit: int) -> str:
+    action = str(args.get("action") or "").strip() or "manage"
+    name = str(args.get("name") or args.get("job_id") or "").strip()
+    schedule = str(args.get("schedule") or "").strip()
+    parts = [action]
+    if name:
+        parts.append(redact_text(name))
+    text = " ".join(parts)
+    if schedule:
+        text += f" · {redact_text(schedule)}"
+    return _truncate(text, limit)
+
+
+def _fmt_clarify(args: dict[str, Any], limit: int) -> str:
+    question = _preview_text(args.get("question"), 64)
+    choices = args.get("choices")
+    if isinstance(choices, list) and choices:
+        question += f" · {len(choices)} choices"
+    return _truncate(question, limit)
+
+
+def _fmt_skill_view(args: dict[str, Any], limit: int) -> str:
+    name = str(args.get("name") or "").strip()
+    file_path = str(args.get("file_path") or "").strip()
+    text = name or "skill"
+    if file_path:
+        text += f" · {_short_path(file_path)}"
+    return _truncate(redact_text(text), limit)
+
+
+def _fmt_skills_list(args: dict[str, Any], limit: int) -> str:
+    category = str(args.get("category") or "").strip()
+    return _truncate(redact_text(category or "all skills"), limit)
+
+
+def _fmt_skill_manage(args: dict[str, Any], limit: int) -> str:
+    action = str(args.get("action") or "").strip() or "manage"
+    name = str(args.get("name") or "").strip()
+    text = f"{action} {name}" if name else action
+    return _truncate(redact_text(text), limit)
+
+
+def _fmt_memory(args: dict[str, Any], limit: int) -> str:
+    action = str(args.get("action") or "").strip() or "manage"
+    target = str(args.get("target") or "").strip()
+    text = f"{action} {target}" if target else action
+    return _truncate(redact_text(text), limit)
+
+
+def _fmt_session_search(args: dict[str, Any], limit: int) -> str:
+    query = _preview_text(args.get("query"), 72)
+    return _truncate(f'"{query}"' if query != "<empty>" else "recent sessions", limit)
 
 
 def _fmt_parallel(args: dict[str, Any]) -> str:
@@ -407,15 +495,64 @@ def _parallel_tool_summary(name: str, params: dict[str, Any]) -> str:
     return name
 
 
+def _fallback_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list):
+        item_word = "item" if len(value) == 1 else "items"
+        return f"{len(value)} {item_word}"
+    if isinstance(value, dict):
+        key_word = "key" if len(value) == 1 else "keys"
+        return f"{len(value)} {key_word}"
+    return _preview_text(value, 40)
+
+
 def _fallback(args: dict[str, Any], preview: str | None, limit: int) -> str:
     if preview:
         return _truncate(redact_text(str(preview)), limit)
     safe = sanitize(args)
-    try:
-        raw = json.dumps(safe, ensure_ascii=False, default=str, separators=(",", ":"))
-    except TypeError:
-        raw = str(safe)
-    return _truncate(raw, limit)
+    if not isinstance(safe, dict) or not safe:
+        return "tool call"
+    chunks = []
+    for key, value in safe.items():
+        key_text = str(key or "").strip()
+        if not key_text or key_text.lower() in SKIP_FALLBACK_KEYS:
+            continue
+        chunks.append(f"{key_text}={_fallback_value(value)}")
+        if len(chunks) >= 4:
+            break
+    if not chunks:
+        return "tool call"
+    return _truncate(" · ".join(chunks), limit)
+
+
+FORMATTERS = {
+    "clarify": lambda args, preview, limit, **_: _fmt_clarify(args, limit),
+    "cronjob": lambda args, preview, limit, **_: _fmt_cronjob(args, limit),
+    "delegate_task": lambda args, preview, limit, **_: _fmt_delegate(args, limit),
+    "execute_code": lambda args, preview, limit, **_: _fmt_execute_code(args, limit),
+    "memory": lambda args, preview, limit, **_: _fmt_memory(args, limit),
+    "multi_tool_use.parallel": lambda args, preview, limit, **_: _fmt_parallel(args),
+    "patch": lambda args, preview, limit, patch_detail="smart", patch_preview_chars=48, patch_max_files=3, **_: (
+        _fmt_patch(
+            args,
+            limit,
+            detail=patch_detail,
+            preview_chars=patch_preview_chars,
+            max_files=patch_max_files,
+        )
+    ),
+    "process": lambda args, preview, limit, **_: _fmt_process(args, limit),
+    "read_file": lambda args, preview, limit, **_: _fmt_read(args, limit),
+    "search_files": lambda args, preview, limit, **_: _fmt_search(args, limit),
+    "session_search": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
+    "skill_manage": lambda args, preview, limit, **_: _fmt_skill_manage(args, limit),
+    "skill_view": lambda args, preview, limit, **_: _fmt_skill_view(args, limit),
+    "skills_list": lambda args, preview, limit, **_: _fmt_skills_list(args, limit),
+    "terminal": lambda args, preview, limit, **_: _fmt_terminal(args, limit),
+    "todo": lambda args, preview, limit, **_: _fmt_todo(args, preview, limit),
+    "write_file": lambda args, preview, limit, **_: _fmt_write(args, limit),
+}
 
 
 def format_tool_line(
@@ -430,28 +567,16 @@ def format_tool_line(
     args = args or {}
     display_name = "parallel" if tool_name == "multi_tool_use.parallel" else tool_name
     limit = max(10, int(preview_length or 120))
-    if tool_name == "todo":
-        summary = _fmt_todo(args, preview, limit)
-    elif tool_name == "terminal":
-        summary = _fmt_terminal(args, limit)
-    elif tool_name == "search_files":
-        summary = _fmt_search(args, limit)
-    elif tool_name == "read_file":
-        summary = _fmt_read(args, limit)
-    elif tool_name == "write_file":
-        summary = _fmt_write(args, limit)
-    elif tool_name == "patch":
-        summary = _fmt_patch(
+    formatter = FORMATTERS.get(tool_name)
+    if formatter:
+        summary = formatter(
             args,
+            preview,
             limit,
-            detail=patch_detail,
-            preview_chars=patch_preview_chars,
-            max_files=patch_max_files,
+            patch_detail=patch_detail,
+            patch_preview_chars=patch_preview_chars,
+            patch_max_files=patch_max_files,
         )
-    elif tool_name == "delegate_task":
-        summary = _fmt_delegate(args, limit)
-    elif tool_name == "multi_tool_use.parallel":
-        summary = _fmt_parallel(args)
     else:
         summary = _fallback(args, preview, limit)
     line = f"{EMOJI.get(tool_name, '⚙️')} {display_name}: {summary}"

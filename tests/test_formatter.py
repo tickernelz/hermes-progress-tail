@@ -87,6 +87,91 @@ def test_formats_search_terminal_and_parallel():
     )
 
 
+def test_formats_execution_and_orchestration_tools_without_raw_json():
+    cases = {
+        "execute_code": (
+            {"code": "from pathlib import Path\npath = Path('/tmp/x')\nprint(path)"},
+            "🐍 execute_code: Python script · 3 lines",
+        ),
+        "process": (
+            {"action": "poll", "session_id": "proc_abc123", "timeout": 30},
+            "⚙️ process: poll proc_abc123",
+        ),
+        "cronjob": (
+            {"action": "create", "name": "daily report", "schedule": "0 9 * * *"},
+            "⚙️ cronjob: create daily report · 0 9 * * *",
+        ),
+        "clarify": (
+            {"question": "Pilih mode?", "choices": ["focused", "sectioned"]},
+            "⚙️ clarify: Pilih mode? · 2 choices",
+        ),
+        "delegate_task": (
+            {"tasks": [{"goal": "review formatter"}, {"goal": "review renderer"}]},
+            "🧑‍💻 delegate_task: 2 tasks",
+        ),
+    }
+
+    for tool_name, (args, expected) in cases.items():
+        line = format_tool_line(tool_name, args, preview_length=120)
+        assert line == expected
+        assert "{" not in line
+        assert "}" not in line
+
+    assert format_tool_line("delegate_task", {"tasks": [{"goal": "review formatter"}]}) == (
+        "🧑‍💻 delegate_task: 1 task"
+    )
+
+
+def test_formats_skill_and_memory_tools_without_raw_json():
+    cases = {
+        "skill_view": ({"name": "hermes-agent"}, "📚 skill_view: hermes-agent"),
+        "skills_list": (
+            {"category": "software-development"},
+            "⚙️ skills_list: software-development",
+        ),
+        "skill_manage": (
+            {"action": "patch", "name": "hermes-agent"},
+            "⚙️ skill_manage: patch hermes-agent",
+        ),
+        "memory": ({"action": "add", "target": "user"}, "⚙️ memory: add user"),
+        "session_search": (
+            {"query": "progress tail", "limit": 3},
+            '⚙️ session_search: "progress tail"',
+        ),
+    }
+
+    for tool_name, (args, expected) in cases.items():
+        line = format_tool_line(tool_name, args, preview_length=120)
+        assert line == expected
+        assert "{" not in line
+        assert "}" not in line
+
+
+def test_generic_fallback_prefers_compact_key_values_not_raw_json():
+    line = format_tool_line(
+        "custom_tool",
+        {
+            "action": "inspect",
+            "target": "renderer",
+            "api_key": "sk-secret",
+            "headers": {"Authorization": "Bearer secret-token"},
+            "env": {"API_KEY": "sk-secret"},
+            "items": [1, 2, 3],
+            "metadata": {"nested": True},
+        },
+        preview_length=120,
+    )
+
+    assert "headers=" not in line
+    assert "env=" not in line
+    assert line.startswith("⚙️ custom_tool: action=inspect · target=renderer")
+    assert "items=3 items" in line
+    assert "metadata=1 key" in line
+    assert "sk-secret" not in line
+    assert "{" not in line
+    assert "}" not in line
+
+
 def test_python_inline_script_summary_uses_meaningful_start_and_end():
     command = """python - <<'PY'
 from pathlib import Path
