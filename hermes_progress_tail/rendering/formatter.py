@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shlex
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
@@ -602,46 +603,10 @@ def _fallback(args: dict[str, Any], preview: str | None, limit: int) -> str:
     return _truncate(" · ".join(chunks), limit)
 
 
-FORMATTERS = {
-    "clarify": lambda args, preview, limit, **_: _fmt_clarify(args, limit),
-    "cronjob": lambda args, preview, limit, **_: _fmt_cronjob(args, limit),
-    "delegate_task": lambda args, preview, limit, **_: _fmt_delegate(args, limit),
-    "execute_code": lambda args, preview, limit, **_: _fmt_execute_code(args, limit),
-    "hindsight_recall": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
-    "hindsight_reflect": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
-    "hindsight_retain": lambda args, preview, limit, **_: _fmt_hindsight_retain(args, limit),
-    "imagegen": lambda args, preview, limit, **_: _fmt_prompt_only(args, limit),
-    "lcm_expand": lambda args, preview, limit, **_: _fmt_lcm_expand(args, limit),
-    "lcm_expand_query": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
-    "lcm_grep": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
-    "lcm_load_session": lambda args, preview, limit, **_: _fmt_lcm_load_session(args, limit),
-    "memory": lambda args, preview, limit, **_: _fmt_memory(args, limit),
-    "multi_tool_use.parallel": lambda args, preview, limit, **_: _fmt_parallel(args),
-    "patch": lambda args, preview, limit, patch_detail="smart", patch_preview_chars=48, patch_max_files=3, **_: (
-        _fmt_patch(
-            args,
-            limit,
-            detail=patch_detail,
-            preview_chars=patch_preview_chars,
-            max_files=patch_max_files,
-        )
-    ),
-    "process": lambda args, preview, limit, **_: _fmt_process(args, limit),
-    "read_file": lambda args, preview, limit, **_: _fmt_read(args, limit),
-    "search_files": lambda args, preview, limit, **_: _fmt_search(args, limit),
-    "session_search": lambda args, preview, limit, **_: _fmt_session_search(args, limit),
-    "send_message": lambda args, preview, limit, **_: _fmt_send_message(args, limit),
-    "skill_manage": lambda args, preview, limit, **_: _fmt_skill_manage(args, limit),
-    "skill_view": lambda args, preview, limit, **_: _fmt_skill_view(args, limit),
-    "skills_list": lambda args, preview, limit, **_: _fmt_skills_list(args, limit),
-    "terminal": lambda args, preview, limit, **_: _fmt_terminal(args, limit),
-    "text_to_speech": lambda args, preview, limit, **_: _fmt_output_path(args, limit),
-    "todo": lambda args, preview, limit, **_: _fmt_todo(args, preview, limit),
-    "vision_analyze": lambda args, preview, limit, **_: _fmt_vision(args, limit),
-    "write_file": lambda args, preview, limit, **_: _fmt_write(args, limit),
-}
+Formatter = Callable[..., str]
+SimpleFormatter = Callable[[dict[str, Any], int], str]
 
-for _browser_tool in (
+BROWSER_TOOLS = (
     "browser_back",
     "browser_click",
     "browser_console",
@@ -652,18 +617,90 @@ for _browser_tool in (
     "browser_snapshot",
     "browser_type",
     "browser_vision",
-):
-    FORMATTERS[_browser_tool] = lambda args, preview, limit, **_: _fmt_browser(args, limit)
+)
 
-for _video_tool in (
+VIDEO_TOOLS = (
     "mcp_claude_video_vision_video_analyze",
     "mcp_claude_video_vision_video_configure",
     "mcp_claude_video_vision_video_detail",
     "mcp_claude_video_vision_video_info",
     "mcp_claude_video_vision_video_setup",
     "mcp_claude_video_vision_video_watch",
-):
-    FORMATTERS[_video_tool] = lambda args, preview, limit, **_: _fmt_video(args, limit)
+)
+
+
+def _wrap_simple(formatter: SimpleFormatter) -> Formatter:
+    def wrapped(args: dict[str, Any], preview: str | None, limit: int, **_: Any) -> str:
+        return formatter(args, limit)
+
+    return wrapped
+
+
+def _fmt_patch_dispatch(
+    args: dict[str, Any],
+    preview: str | None,
+    limit: int,
+    *,
+    patch_detail: str = "smart",
+    patch_preview_chars: int = 48,
+    patch_max_files: int = 3,
+    **_: Any,
+) -> str:
+    return _fmt_patch(
+        args,
+        limit,
+        detail=patch_detail,
+        preview_chars=patch_preview_chars,
+        max_files=patch_max_files,
+    )
+
+
+def _fmt_todo_dispatch(args: dict[str, Any], preview: str | None, limit: int, **_: Any) -> str:
+    return _fmt_todo(args, preview, limit)
+
+
+def _fmt_parallel_dispatch(args: dict[str, Any], preview: str | None, limit: int, **_: Any) -> str:
+    return _fmt_parallel(args)
+
+
+def _build_formatters() -> dict[str, Formatter]:
+    simple_formatters: dict[str, SimpleFormatter] = {
+        "clarify": _fmt_clarify,
+        "cronjob": _fmt_cronjob,
+        "delegate_task": _fmt_delegate,
+        "execute_code": _fmt_execute_code,
+        "hindsight_recall": _fmt_session_search,
+        "hindsight_reflect": _fmt_session_search,
+        "hindsight_retain": _fmt_hindsight_retain,
+        "imagegen": _fmt_prompt_only,
+        "lcm_expand": _fmt_lcm_expand,
+        "lcm_expand_query": _fmt_session_search,
+        "lcm_grep": _fmt_session_search,
+        "lcm_load_session": _fmt_lcm_load_session,
+        "memory": _fmt_memory,
+        "process": _fmt_process,
+        "read_file": _fmt_read,
+        "search_files": _fmt_search,
+        "session_search": _fmt_session_search,
+        "send_message": _fmt_send_message,
+        "skill_manage": _fmt_skill_manage,
+        "skill_view": _fmt_skill_view,
+        "skills_list": _fmt_skills_list,
+        "terminal": _fmt_terminal,
+        "text_to_speech": _fmt_output_path,
+        "vision_analyze": _fmt_vision,
+        "write_file": _fmt_write,
+    }
+    formatters = {name: _wrap_simple(formatter) for name, formatter in simple_formatters.items()}
+    formatters["multi_tool_use.parallel"] = _fmt_parallel_dispatch
+    formatters["patch"] = _fmt_patch_dispatch
+    formatters["todo"] = _fmt_todo_dispatch
+    formatters.update({tool_name: _wrap_simple(_fmt_browser) for tool_name in BROWSER_TOOLS})
+    formatters.update({tool_name: _wrap_simple(_fmt_video) for tool_name in VIDEO_TOOLS})
+    return formatters
+
+
+FORMATTERS = _build_formatters()
 
 
 def format_tool_line(
