@@ -87,10 +87,13 @@ def _project_relative_path(raw: str) -> str | None:
         return None
 
 
-def _looks_like_readable_path_component(value: str) -> bool:
-    stem = PurePosixPath(value).stem if "." in value else value
+def _looks_like_preservable_path_component(value: str) -> bool:
+    path = PurePosixPath(value)
+    stem = path.stem if path.suffix else value
     if len(stem) < 80:
         return False
+    if path.suffix:
+        return bool(re.fullmatch(r"[A-Za-z0-9_.-]+", value))
     if any(ch.isdigit() for ch in stem):
         return False
     return bool(re.fullmatch(r"[A-Za-z][A-Za-z_.-]*", stem))
@@ -103,7 +106,7 @@ def _redact_path_display(path: str) -> str:
             redacted_parts.append(part)
             continue
         redacted = redact_text(part)
-        if redacted.startswith("[redacted_blob]") and _looks_like_readable_path_component(part):
+        if redacted.startswith("[redacted_blob]") and _looks_like_preservable_path_component(part):
             redacted = part
         redacted_parts.append(redacted)
     return "/".join(redacted_parts)

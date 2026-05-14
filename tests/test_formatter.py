@@ -440,3 +440,20 @@ def test_long_normal_file_names_keep_extension_context(monkeypatch, tmp_path):
 
     assert line == f"📖 read_file: src/pages/{component}.vue:120+95"
     assert "[redacted_blob]" not in line
+
+
+def test_hashed_asset_file_names_keep_extension_context(monkeypatch, tmp_path):
+    project = tmp_path / "Projects" / "tail"
+    filename = "a1b2c3d4e5f67890" * 6 + ".css"
+    file_path = project / "dist" / filename
+    file_path.parent.mkdir(parents=True)
+    monkeypatch.chdir(project)
+
+    line = format_tool_line(
+        "patch",
+        {"path": str(file_path), "old_string": ".hx-has", "new_string": ".hx-new"},
+        preview_length=180,
+    )
+
+    assert line == f'🔧 patch: dist/{filename} replace ".hx-has" → ".hx-new"'
+    assert "[redacted_blob]" not in line
