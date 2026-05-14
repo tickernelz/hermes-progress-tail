@@ -87,6 +87,28 @@ def _project_relative_path(raw: str) -> str | None:
         return None
 
 
+def _looks_like_readable_path_component(value: str) -> bool:
+    stem = PurePosixPath(value).stem if "." in value else value
+    if len(stem) < 80:
+        return False
+    if any(ch.isdigit() for ch in stem):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z_.-]*", stem))
+
+
+def _redact_path_display(path: str) -> str:
+    redacted_parts = []
+    for part in path.split("/"):
+        if part in {"", "~"}:
+            redacted_parts.append(part)
+            continue
+        redacted = redact_text(part)
+        if redacted.startswith("[redacted_blob]") and _looks_like_readable_path_component(part):
+            redacted = part
+        redacted_parts.append(redacted)
+    return "/".join(redacted_parts)
+
+
 def _short_path(path: Any, *, keep_parent: bool = True) -> str:
     raw = str(path or "").strip()
     if not raw:
@@ -94,7 +116,7 @@ def _short_path(path: Any, *, keep_parent: bool = True) -> str:
     if raw.startswith("[redacted_blob]") and "/" not in raw:
         return raw
     relative = _project_relative_path(raw)
-    raw = redact_text(relative) if relative else redact_text(raw)
+    raw = _redact_path_display(relative) if relative else _redact_path_display(raw)
     p = PurePosixPath(raw)
     parts = [part for part in p.parts if part not in {"/", ""}]
     if not parts:

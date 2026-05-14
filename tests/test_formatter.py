@@ -423,3 +423,20 @@ def test_project_relative_paths_still_redact_secret_like_components(monkeypatch,
 
     assert "supersecret" not in line
     assert "[redacted_env]" in line
+
+
+def test_long_normal_file_names_keep_extension_context(monkeypatch, tmp_path):
+    project = tmp_path / "Projects" / "tail"
+    component = "VeryLongGeneratedButNormalComponentName" * 3
+    file_path = project / "src" / "pages" / f"{component}.vue"
+    file_path.parent.mkdir(parents=True)
+    monkeypatch.chdir(project)
+
+    line = format_tool_line(
+        "read_file",
+        {"path": str(file_path), "offset": 120, "limit": 95},
+        preview_length=180,
+    )
+
+    assert line == f"📖 read_file: src/pages/{component}.vue:120+95"
+    assert "[redacted_blob]" not in line
