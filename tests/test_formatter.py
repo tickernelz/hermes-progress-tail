@@ -534,3 +534,19 @@ def test_long_home_paths_use_middle_ellipsis_and_keep_filename(monkeypatch, tmp_
     assert line == "📖 read_file: ~/Works/HMX/.../static/css/views/ai-chat-interface.css:1384+26"
     assert "[redacted_blob]" not in line
     assert "hmx-002-Fundamental-New/hmx/module/basic/ai" not in line
+
+
+def test_vue_paths_keep_filename_instead_of_redacted_blob(monkeypatch, tmp_path):
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    component = "A" * 96 + ".vue"
+    path = tmp_path / "Works" / "HMX" / "frontend" / "src" / "components" / component
+
+    line = format_tool_line(
+        "read_file",
+        {"path": str(path), "offset": 120, "limit": 95},
+        preview_length=180,
+    )
+
+    assert "[redacted_blob]" not in line
+    assert line.endswith(f"components/{component}:120+95")
+    assert line.startswith("📖 read_file: ~/Works/HMX/...")

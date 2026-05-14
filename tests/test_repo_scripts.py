@@ -14,11 +14,11 @@ def test_curl_install_commands_are_documented():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     assert (
-        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.33/install.sh | bash"
+        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.34/install.sh | bash"
         in readme
     )
     assert (
-        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.33/uninstall.sh | bash"
+        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.34/uninstall.sh | bash"
         in readme
     )
 

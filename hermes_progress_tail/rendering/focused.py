@@ -63,11 +63,10 @@ def compose_focused_content(renderer, ctx: SessionContext) -> str:
 
 def focused_header(renderer, ctx: SessionContext) -> str:
     agent_label = focused_agent_label(renderer, ctx)
-    now = clean_live_markdown(focused_now(ctx), platform=ctx.platform) or "working"
-    why = clean_live_markdown(renderer._assistant_tail(ctx), platform=ctx.platform)
+    now = header_value_text(focused_now(ctx), 76) or "working"
+    why = header_value_text(renderer._assistant_tail(ctx), 76)
     if not why:
-        why = clean_live_markdown(renderer._reasoning_tail(ctx), platform=ctx.platform)
-    why = one_line(why, 76)
+        why = header_value_text(renderer._reasoning_tail(ctx), 76)
     if not why:
         why = "collecting progress signals"
     state = focused_state(ctx)
@@ -375,6 +374,14 @@ def strip_legacy_section_header(text: str, title: str) -> str:
     if plain_first in {title, title.replace(" Jobs", "")}:
         return "\n".join(lines[1:]).strip()
     return body
+
+
+def header_value_text(text: str, limit: int) -> str:
+    value = clean_plain_markdown_segment(str(text or ""))
+    value = re.sub(r"`([^`\n]+)`", r"\1", value)
+    value = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", value)
+    value = one_line(value, limit)
+    return value
 
 
 def clean_live_markdown(text: str, *, platform: str = "") -> str:

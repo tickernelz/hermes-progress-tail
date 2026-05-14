@@ -140,6 +140,10 @@ def _short_path(path: Any, *, keep_parent: bool = True) -> str:
         head = parts[:3]
         tail = parts[-4:] if keep_parent else parts[-1:]
         compact = "/".join([*head, "...", *tail])
+        if len(compact) <= 80:
+            return compact
+        if keep_parent and len(tail) >= 2:
+            return "/".join([*head, "...", *tail[-2:]])
         return _truncate_middle(compact, 80)
     if keep_parent:
         compact = "/".join(parts) if relative else "/".join(parts[-2:])

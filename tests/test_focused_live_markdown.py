@@ -105,6 +105,31 @@ def test_focused_live_markdown_preserves_progress_and_reasoning_markdown():
     asyncio.run(run())
 
 
+def test_focused_header_values_strip_markdown_without_flattening_sections():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ReasoningEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "**Considering project planning**\n\nNeed the next plan.",
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "**Why** Considering project planning" in content
+        assert "**Why** **Considering project planning**" not in content
+        assert "**Reasoning**\n**Considering project planning**" in content
+
+    asyncio.run(run())
+
+
 def test_focused_plain_platforms_do_not_emit_structural_markdown_and_strip_live_markdown():
     async def run(platform):
         adapter = EditableAdapter()
