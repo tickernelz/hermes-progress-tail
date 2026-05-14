@@ -819,7 +819,7 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
             input_stream,
         ),
         "mode": _prompt_choice(
-            "Renderer layout mode", ("focused", "sectioned", "compact"), "focused", input_stream
+            "Renderer layout mode", ("focused", "sectioned"), "focused", input_stream
         ),
         "style": _prompt_choice("Renderer style", ("emoji", "plain"), "emoji", input_stream),
         "density": _prompt_choice(

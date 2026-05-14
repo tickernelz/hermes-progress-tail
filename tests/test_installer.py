@@ -581,9 +581,9 @@ def test_interactive_cli_selects_profiles_and_features(tmp_path):
         "64\n"  # patch.preview_chars
         "4\n"  # patch.max_files
         "snapshot\n"  # renderer.strategy
-        "compact\n"  # renderer.mode
+        "sectioned\n"  # renderer.mode
         "plain\n"  # renderer.style
-        "debug\n"  # renderer.density
+        "compact\n"  # renderer.density
         "2.5\n"  # renderer.edit_interval
         "1200\n"  # renderer.stale_ttl_seconds
         "y\n"  # renderer.redact_secrets
@@ -654,12 +654,16 @@ def test_interactive_cli_selects_profiles_and_features(tmp_path):
     assert progress_tail["patch"]["preview_chars"] == 64
     assert progress_tail["patch"]["max_files"] == 4
     assert progress_tail["renderer"]["strategy"] == "snapshot"
-    assert progress_tail["renderer"]["mode"] == "compact"
+    assert progress_tail["renderer"]["mode"] == "sectioned"
     assert progress_tail["renderer"]["style"] == "plain"
-    assert progress_tail["renderer"]["density"] == "debug"
+    assert progress_tail["renderer"]["density"] == "compact"
     assert progress_tail["renderer"]["edit_interval"] == 2.5
     assert progress_tail["renderer"]["stale_ttl_seconds"] == 1200
     assert progress_tail["renderer"]["redact_secrets"] is True
+    assert (
+        "compact"
+        not in result.stdout.split("Renderer layout mode", 1)[1].split("Renderer style", 1)[0]
+    )
     assert progress_tail["no_edit"]["interval_seconds"] == 45
     assert progress_tail["no_edit"]["min_new_events"] == 4
     assert progress_tail["no_edit"]["final_summary"] is True

@@ -14,11 +14,11 @@ def test_curl_install_commands_are_documented():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     assert (
-        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.34/install.sh | bash"
+        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.35/install.sh | bash"
         in readme
     )
     assert (
-        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.34/uninstall.sh | bash"
+        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.35/uninstall.sh | bash"
         in readme
     )
 
@@ -50,7 +50,8 @@ def test_readme_documents_background_job_defaults_without_finalization_config():
     assert "background_jobs:" in readme
     assert "finalization:" not in readme
     assert "cleanup_stale_on_next_turn" not in readme
-    assert "mode: focused # focused|sectioned|compact" in readme
+    assert "mode: focused # focused|sectioned" in readme
+    assert "mode: focused # focused|sectioned|compact" not in readme
     assert "density: verbose # compact|normal|verbose|debug" in readme
     assert (
         "code_fence: auto # auto|on|off; auto fences Discord/Slack/Mattermost, not Telegram"

@@ -253,6 +253,18 @@ def _density(
     return val if val in {"compact", "normal", "verbose", "debug"} else "normal"
 
 
+def _renderer_mode_and_density(
+    raw: dict[str, Any],
+) -> tuple[str, Literal["compact", "normal", "verbose", "debug"]]:
+    mode = str(raw.get("mode") or "sectioned").strip().lower() or "sectioned"
+    density = _density(raw.get("density"), "normal")
+    if mode == "compact":
+        return "sectioned", "compact"
+    if mode not in {"focused", "sectioned"}:
+        return "sectioned", density
+    return mode, density
+
+
 def _patch_detail(value: Any, default: str = "smart") -> str:
     val = str(value or default).strip().lower()
     return val if val in {"off", "path", "smart", "stats"} else default
@@ -346,14 +358,15 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         ),
         default_notify_on_complete=_bool(background_raw.get("default_notify_on_complete"), False),
     )
+    renderer_mode, renderer_density = _renderer_mode_and_density(renderer_raw)
     renderer = RendererSettings(
         strategy=_strategy(renderer_raw.get("strategy"), "auto"),
         edit_interval=_float(renderer_raw.get("edit_interval"), 1.5),
         stale_ttl_seconds=_int(renderer_raw.get("stale_ttl_seconds"), 900),
         redact_secrets=_bool(renderer_raw.get("redact_secrets"), True),
-        mode=str(renderer_raw.get("mode") or "sectioned").strip().lower() or "sectioned",
+        mode=renderer_mode,
         style=_style(renderer_raw.get("style"), "emoji"),
-        density=_density(renderer_raw.get("density"), "normal"),
+        density=renderer_density,
         code_fence=_code_fence(renderer_raw.get("code_fence"), "auto"),
         code_fence_language=str(renderer_raw.get("code_fence_language") or ""),
         agent_label=str(renderer_raw.get("agent_label") or "").strip(),

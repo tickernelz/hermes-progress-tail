@@ -248,6 +248,13 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
     asyncio.run(run())
 
 
+def test_compact_renderer_mode_normalizes_to_sectioned_compact_density():
+    settings = load_settings({"progress_tail": {"renderer": {"mode": "compact"}}})
+
+    assert settings.renderer.mode == "sectioned"
+    assert settings.renderer.density == "compact"
+
+
 def test_focused_header_shows_semantic_now_for_execute_code():
     async def run():
         adapter = EditableAdapter()
