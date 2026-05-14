@@ -60,6 +60,16 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit - 3] + "..."
 
 
+def _truncate_middle(text: str, limit: int) -> str:
+    if limit <= 0 or len(text) <= limit:
+        return text
+    if limit <= 3:
+        return text[:limit]
+    head = max(1, (limit - 3) // 2)
+    tail = max(1, limit - 3 - head)
+    return f"{text[:head]}...{text[-tail:]}"
+
+
 def _project_relative_path(raw: str) -> str | None:
     if not raw.startswith("/"):
         return raw or None
@@ -125,9 +135,17 @@ def _short_path(path: Any, *, keep_parent: bool = True) -> str:
     if not parts:
         return raw
     if raw.startswith("~/"):
-        return raw
+        if len(raw) <= 80:
+            return raw
+        head = parts[:3]
+        tail = parts[-4:] if keep_parent else parts[-1:]
+        compact = "/".join([*head, "...", *tail])
+        return _truncate_middle(compact, 80)
     if keep_parent:
-        return "/".join(parts) if relative else "/".join(parts[-2:])
+        compact = "/".join(parts) if relative else "/".join(parts[-2:])
+        if len(compact) > 80 and len(parts) > 5:
+            compact = "/".join([*parts[:3], "...", *parts[-4:]])
+        return _truncate_middle(compact, 80)
     return parts[-1]
 
 

@@ -438,7 +438,9 @@ def test_long_normal_file_names_keep_extension_context(monkeypatch, tmp_path):
         preview_length=180,
     )
 
-    assert line == f"📖 read_file: src/pages/{component}.vue:120+95"
+    assert line.startswith("📖 read_file: src/pages/VeryLongGeneratedButNormalCo")
+    assert line.endswith("LongGeneratedButNormalComponentName.vue:120+95")
+    assert "..." in line
     assert "[redacted_blob]" not in line
 
 
@@ -455,5 +457,31 @@ def test_hashed_asset_file_names_keep_extension_context(monkeypatch, tmp_path):
         preview_length=180,
     )
 
-    assert line == f'🔧 patch: dist/{filename} replace ".hx-has" → ".hx-new"'
+    assert line.startswith("🔧 patch: dist/a1b2c3d4e5f67890a")
+    assert line.endswith('.css replace ".hx-has" → ".hx-new"')
+    assert "..." in line
     assert "[redacted_blob]" not in line
+
+
+def test_long_home_paths_use_middle_ellipsis_and_keep_filename(monkeypatch, tmp_path):
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    path = (
+        tmp_path
+        / "Works"
+        / "HMX"
+        / "hmx-002-Fundamental-New"
+        / "hmx"
+        / "module"
+        / "basic"
+        / "ai"
+        / "static"
+        / "css"
+        / "views"
+        / "ai-chat-interface.css"
+    )
+
+    line = format_tool_line("read_file", {"path": str(path), "offset": 1384, "limit": 26})
+
+    assert line == "📖 read_file: ~/Works/HMX/.../static/css/views/ai-chat-interface.css:1384+26"
+    assert "[redacted_blob]" not in line
+    assert "hmx-002-Fundamental-New/hmx/module/basic/ai" not in line

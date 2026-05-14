@@ -18,7 +18,7 @@ _PRIVATE_KEY_RE = re.compile(
 )
 _PRIVATE_KEY_PLACEHOLDER_RE = re.compile(r"\[REDACTED PRIVATE KEY\]", re.IGNORECASE)
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\b")
-_BLOB_RE = re.compile(r"\b[A-Za-z0-9_+/=-]{80,}\b")
+_BLOB_RE = re.compile(r"(?<![/~.-])\b[A-Za-z0-9_+/=-]{80,}\b(?![.][A-Za-z0-9]{1,12}\b)")
 _AUTH_HEADER_RE = re.compile(
     r"\b(Authorization\s*:\s*Bearer)\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE
 )

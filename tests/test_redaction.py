@@ -38,6 +38,16 @@ def test_redacts_jwt_and_long_opaque_blobs():
     assert "[redacted_blob]" in redacted
 
 
+def test_redaction_preserves_long_filename_components():
+    filename = "a1b2c3d4e5f67890" * 6 + ".css"
+    text = f"📖 read_file: ~/Works/HMX/.../views/{filename}:1384+26"
+
+    redacted = redact_text(text)
+
+    assert redacted == text
+    assert "[redacted_blob]" not in redacted
+
+
 def test_redacts_quoted_env_sk_dash_tokens_and_secret_flags():
     text = "EXAMPLE_TOKEN=tok-test-value curl --password hunter2 --token abcdef123456"
 
