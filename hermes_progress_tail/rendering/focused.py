@@ -230,11 +230,59 @@ def focused_tools(ctx: SessionContext, *, settings: Settings) -> str:
     if not ctx.tool_lines:
         return ""
     visible = list(ctx.tool_lines)[-settings.tools.lines :]
-    lines = []
+    rows = []
     for index, raw in enumerate(visible):
         marker = "→" if index == len(visible) - 1 else tool_done_marker(raw)
-        lines.append(f"{marker} {normalize_tool_line(raw)}")
-    return "\n".join(lines)
+        rows.append((marker, normalize_tool_line(raw), raw))
+    return "\n".join(collapse_tool_rows(rows))
+
+
+def collapse_tool_rows(rows: list[tuple[str, str, str]]) -> list[str]:
+    output: list[str] = []
+    index = 0
+    while index < len(rows):
+        marker, line, raw = rows[index]
+        if marker == "✓" and is_collapsible_read_file(line, raw):
+            run: list[tuple[str, str, str]] = []
+            while index < len(rows):
+                candidate_marker, candidate_line, candidate_raw = rows[index]
+                if candidate_marker != "✓" or not is_collapsible_read_file(
+                    candidate_line, candidate_raw
+                ):
+                    break
+                run.append((candidate_marker, candidate_line, candidate_raw))
+                index += 1
+            if len(run) >= 3:
+                output.append(format_read_file_burst(run))
+            else:
+                output.extend(f"{item_marker} {item_line}" for item_marker, item_line, _ in run)
+            continue
+        output.append(f"{marker} {line}")
+        index += 1
+    return output
+
+
+def is_collapsible_read_file(line: str, raw: str) -> bool:
+    text = str(line or "")
+    raw_text = str(raw or "").lower()
+    return text.startswith("read_file:") and "failed" not in raw_text
+
+
+def format_read_file_burst(rows: list[tuple[str, str, str]]) -> str:
+    names = [read_file_display_name(line) for _, line, _ in rows]
+    shown = names[:3]
+    hidden = len(names) - len(shown)
+    suffix = ", ".join(shown)
+    if hidden:
+        suffix += f", +{hidden}"
+    return f"✓ read_file: {len(rows)} files · {suffix}"
+
+
+def read_file_display_name(line: str) -> str:
+    body = strip_tool_label(line)
+    body = body.split(" · ", 1)[0]
+    body = re.sub(r":\d+(?:\+\d+)?$", "", body)
+    return short_filename(body)
 
 
 def tool_done_marker(raw: str) -> str:

@@ -1,5 +1,6 @@
 import asyncio
 import time
+from collections import deque
 
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.delegate_renderer import DelegateProgressRenderer
@@ -277,6 +278,86 @@ def test_focused_header_shows_semantic_now_for_execute_code():
         content = adapter.sent[0][1]
         assert "Now     running Python script: root = Path('…') … print(root)" in content
         assert "Tools\n→ execute_code: root = Path('…') … print(root) · 4 lines" in content
+
+    asyncio.run(run())
+
+
+def test_focused_tools_collapses_completed_read_file_burst():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False, "lines": 4},
+                        "renderer": {"mode": "focused", "density": "verbose", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        ctx.lines = 4
+        ctx.tool_lines = deque(
+            [
+                "✅ read_file: hermes_progress_tail/rendering/focused.py:1+80 · done · 0.1s",
+                "✅ read_file: tests/test_renderer.py:1+60 · done · 0.1s",
+                "✅ read_file: README.md:20+10 · done · 0.1s",
+                "terminal: python -m pytest tests/test_renderer.py -q · running",
+            ],
+            maxlen=4,
+        )
+        ctx.tool_started_count = 4
+        ctx.tool_completed_count = 3
+        renderer.register_context(ctx)
+
+        await renderer._render_for_strategy(ctx, None, force=True)
+
+        content = adapter.sent[0][1]
+        assert "Tools\n✓ read_file: 3 files · focused.py, test_renderer.py, README.md" in content
+        assert "→ terminal: python -m pytest tests/test_renderer.py -q" in content
+        assert "read_file: hermes_progress_tail/rendering/focused.py" not in content
+        assert "read_file: tests/test_renderer.py" not in content
+
+    asyncio.run(run())
+
+
+def test_focused_tools_keeps_failed_tool_visible_inside_burst():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False, "lines": 4},
+                        "renderer": {"mode": "focused", "density": "verbose", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        ctx.lines = 4
+        ctx.tool_lines = deque(
+            [
+                "✅ read_file: a.py:1+10 · done · 0.1s",
+                "❌ read_file: missing.py · failed · 0.1s",
+                "✅ read_file: b.py:1+10 · done · 0.1s",
+                "patch: hermes_progress_tail/rendering/focused.py replace · running",
+            ],
+            maxlen=4,
+        )
+        ctx.tool_started_count = 4
+        ctx.tool_completed_count = 2
+        ctx.tool_failed_count = 1
+        renderer.register_context(ctx)
+
+        await renderer._render_for_strategy(ctx, None, force=True)
+
+        content = adapter.sent[0][1]
+        assert "✓ read_file: a.py" in content
+        assert "× read_file: missing.py" in content
+        assert "✓ read_file: b.py" in content
+        assert "→ patch: hermes_progress_tail/rendering/focused.py replace" in content
+        assert "read_file: 3 files" not in content
 
     asyncio.run(run())
 
