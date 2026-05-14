@@ -5,6 +5,7 @@ from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.delegate_renderer import DelegateProgressRenderer
 from hermes_progress_tail.formatter import extract_todo_items, format_tool_line
 from hermes_progress_tail.renderer import ProgressRenderer
+from hermes_progress_tail.rendering.focused import semantic_activity
 from hermes_progress_tail.state import (
     AssistantEvent,
     BackgroundJobEvent,
@@ -73,6 +74,21 @@ class SequenceEditAdapter(EditableAdapter):
     async def delete_message(self, chat_id, message_id):
         self.deleted.append((chat_id, message_id))
         return True
+
+
+def test_semantic_activity_classifies_common_tool_intents():
+    cases = {
+        "terminal: python -m pytest tests/test_formatter.py -q": "running tests",
+        "terminal: git push origin main": "publishing git changes",
+        "terminal: gh release create v0.1.31": "publishing GitHub release",
+        "execute_code: root = Path('…') … print(root) · 4 lines": "running Python script: root = Path('…') … print(root)",
+        "🐍 execute_code: root = Path('…') … print(root) · 4 lines": "running Python script: root = Path('…') … print(root)",
+        "delegate_task: Review formatter changes": "waiting on subagent: Review formatter changes",
+        "patch: hermes_progress_tail/rendering/focused.py replace": "patching focused.py",
+    }
+
+    for raw, expected in cases.items():
+        assert semantic_activity(raw) == expected
 
 
 def make_ctx(adapter, *, strategy="live_tail", timestamp=False, platform="discord"):
@@ -227,6 +243,40 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
         assert "→ patch · rendering/formatter.py" in content
         assert "Changes\n" not in content
         assert "~ ~/" not in content
+
+    asyncio.run(run())
+
+
+def test_focused_header_shows_semantic_now_for_execute_code():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"mode": "focused", "density": "verbose", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "execute_code: root = Path('…') … print(root) · 4 lines",
+                tool_name="execute_code",
+            ),
+            force=True,
+        )
+
+        content = adapter.sent[0][1]
+        assert "Now     running Python script: root = Path('…') … print(root)" in content
+        assert "Tools\n→ execute_code: root = Path('…') … print(root) · 4 lines" in content
 
     asyncio.run(run())
 

@@ -115,15 +115,38 @@ def semantic_activity(activity: str) -> str:
     if lowered.startswith("search_files") or lowered.startswith("search files"):
         match = re.search(r'"([^"]+)"', text)
         return f'searching "{match.group(1)}"' if match else text
+    if lowered.startswith("execute_code"):
+        script = strip_tool_label(text)
+        script = strip_duration_suffix(script)
+        return (
+            "running Python script: " + truncate_text(script, 56)
+            if script
+            else "running Python script"
+        )
+    if lowered.startswith("delegate_task") or lowered.startswith("delegate task"):
+        goal = strip_tool_label(text)
+        return "waiting on subagent: " + truncate_text(goal, 56) if goal else "waiting on subagent"
     if lowered.startswith("terminal:"):
         command = text.split(":", 1)[1].strip()
         command_lower = command.lower()
         if command_lower.startswith(("pytest", "python -m pytest", "python3 -m pytest")):
             return "running tests"
+        if command_lower.startswith("git push"):
+            return "publishing git changes"
+        if command_lower.startswith("gh release"):
+            return "publishing GitHub release"
         if "python inline script" in command_lower:
             return "running python script"
         return "running " + truncate_text(command, 64)
     return text
+
+
+def strip_tool_label(text: str) -> str:
+    return str(text or "").split(":", 1)[1].strip() if ":" in str(text or "") else ""
+
+
+def strip_duration_suffix(text: str) -> str:
+    return re.sub(r"\s+·\s+\d+\s+lines?$", "", str(text or "")).strip()
 
 
 def short_filename(path: str) -> str:
@@ -244,6 +267,7 @@ def normalize_tool_line(raw: str) -> str:
         "💻 ",
         "📋 ",
         "🧑‍💻 ",
+        "🐍 ",
         "🧰 ",
     ):
         if text.startswith(prefix):
