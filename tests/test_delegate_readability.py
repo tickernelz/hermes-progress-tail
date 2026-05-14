@@ -54,7 +54,7 @@ def test_delegate_section_simplifies_tool_labels_and_paths():
             ],
             maxlen=3,
         ),
-        completion_line="✅ done: Sudah saya lakukan smoke check read-only pada implementasi progress tail yang terpasang di /home/zhafron/.hermes/plugins/hermes-progress-tail",
+        completion_line="✓ done: Sudah saya lakukan smoke check read-only pada implementasi progress tail yang terpasang di /home/zhafron/.hermes/plugins/hermes-progress-tail",
     )
     ctx.delegate_branches["sa-1"] = branch
     ctx.delegate_order.append("sa-1")
@@ -91,7 +91,7 @@ def test_delegate_section_collapses_completed_tool_burst_when_result_exists():
             ],
             maxlen=5,
         ),
-        completion_line="✅ done: smoke check passed",
+        completion_line="✓ done: smoke check passed",
     )
     ctx.delegate_branches["sa-1"] = branch
     ctx.delegate_order.append("sa-1")
@@ -102,4 +102,27 @@ def test_delegate_section_collapses_completed_tool_burst_when_result_exists():
     assert "read_file: /repo/a.py" not in section
     assert 'search_files "format"' not in section
     assert "terminal: pytest -q" not in section
-    assert "└ result: ✅ done: smoke check passed" in section
+    assert "└ result: ✓ done: smoke check passed" in section
+
+
+def test_delegate_title_uses_plain_status_symbol_in_emoji_style():
+    renderer = make_renderer(
+        renderer={"style": "emoji"},
+        delegates={"lines_per_delegate": 1, "max_line_chars": 180},
+    )
+    ctx = make_ctx()
+    branch = DelegateBranch(
+        subagent_id="sa-1",
+        task_index=0,
+        task_count=1,
+        goal="Review compact renderer mode cleanup",
+        status="completed",
+        duration_seconds=47,
+    )
+    ctx.delegate_branches["sa-1"] = branch
+    ctx.delegate_order.append("sa-1")
+
+    section = renderer.section(ctx)
+
+    assert "[1/1] ✓ completed · Review compact renderer mode cleanup · 47s" in section
+    assert "[1/1] ✅ completed" not in section

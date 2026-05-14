@@ -265,7 +265,7 @@ class DelegateProgressRenderer:
             else "done"
         )
         if self.settings.renderer.style == "emoji":
-            label = f"{self._status_emoji(label)} {label}"
+            label = f"{self._status_symbol(label)} {label}"
         summary = self._simplify_known_plugin_paths(summary)
         summary = re.sub(
             r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail\b",
@@ -371,7 +371,7 @@ class DelegateProgressRenderer:
         )
         status = branch.status or "running"
         if self.settings.renderer.style == "emoji":
-            status = f"{self._status_emoji(status)} {status}"
+            status = f"{self._status_symbol(status)} {status}"
         parts = [f"[{branch.task_index + 1}/{branch.task_count}] {status}"]
         if label:
             parts.append(label)
@@ -435,15 +435,15 @@ class DelegateProgressRenderer:
         return any(token in lowered for token in ("<empty>", "stdout", "stderr", "exit_code"))
 
     @staticmethod
-    def _status_emoji(status: str) -> str:
+    def _status_symbol(status: str) -> str:
         normalized = str(status or "").strip().lower()
         if normalized in {"completed", "done"}:
-            return "✅"
+            return "✓"
         if normalized in {"failed", "cancelled"}:
-            return "❌"
+            return "✗"
         if normalized in {"queued", "pending"}:
-            return "⏳"
-        return "🔄"
+            return "…"
+        return "→"
 
     @staticmethod
     def _duration(seconds: float) -> str:

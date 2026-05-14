@@ -1530,10 +1530,10 @@ def test_delegate_progress_renders_grouped_section_and_resets_on_finalize():
 
         content = adapter.edits[-1][2]
         assert "🔀 Delegates" in content
-        assert "[1/2] ✅ completed · review renderer implementation · 2 tools · 12s" in content
+        assert "[1/2] ✓ completed · review renderer implementation · 2 tools · 12s" in content
         assert "├ read_file: renderer.py" in content
         assert "├ terminal: pytest tests/test_renderer.py" in content
-        assert "└ result: ✅ done: PASS: renderer grouped delegates correctly" in content
+        assert "└ result: ✓ done: PASS: renderer grouped delegates correctly" in content
 
         await renderer.finalize(session_id="s1")
         assert renderer.sessions["s1"].delegate_branches == {}
@@ -1594,7 +1594,7 @@ def test_delegate_completion_does_not_replace_latest_tool_line():
         assert "done: Selesai dites" in content
         assert "Menjalankan `pwd && date`" not in content
         assert "├ read_file" in content
-        assert "└ result: ✅ done:" in content
+        assert "└ result: ✓ done:" in content
 
     asyncio.run(run())
 
@@ -1870,9 +1870,9 @@ def test_delegate_section_respects_emoji_style_for_status_and_tool_lines():
 
         content = adapter.edits[-1][2]
         assert "🔀 Delegates" in content
-        assert "✅ completed" in content
+        assert "✓ completed" in content
         assert "terminal: pytest tests/test_renderer.py" in content
-        assert "✅ done: PASS" in content
+        assert "✓ done: PASS" in content
 
     asyncio.run(run())
 
@@ -1988,7 +1988,7 @@ def test_delegate_grouped_rendering_labels_events_without_fake_tool_children():
         content = adapter.edits[-1][2]
         assert "├ terminal: python inline script" in content
         assert "├ update: terminal: <empty>" in content
-        assert '└ result: ✅ done: {"passed":true}' in content
+        assert '└ result: ✓ done: {"passed":true}' in content
         assert "  - terminal:" not in content
         assert "  - done:" not in content
 
@@ -2035,7 +2035,7 @@ def test_delegate_unknown_tool_details_are_suppressed_in_normal_density():
         content = adapter.edits[-1][2]
         assert "<unknown>" not in content
         assert "read_file" not in content
-        assert "└ result: ✅ done: PASS" in content
+        assert "└ result: ✓ done: PASS" in content
 
     asyncio.run(run())
 
@@ -2064,7 +2064,7 @@ def test_delegate_suppressed_unknown_tool_still_marks_branch_running():
         )
 
         content = adapter.sent[0][1]
-        assert "🔄 running" in content
+        assert "→ running" in content
         assert "pending" not in content
         assert "<unknown>" not in content
 
@@ -2314,7 +2314,7 @@ def test_delegate_compact_density_omits_timeline_details():
 
         content = adapter.edits[-1][2]
         assert "compact shape delegate" in content
-        assert "✅ done: PASS" in content
+        assert "✓ done: PASS" in content
         assert "├" not in content
         assert "└" not in content
         assert "│  cwd:" not in content
