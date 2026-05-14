@@ -91,7 +91,7 @@ def test_formats_execution_and_orchestration_tools_without_raw_json():
     cases = {
         "execute_code": (
             {"code": "from pathlib import Path\npath = Path('/tmp/x')\nprint(path)"},
-            "🐍 execute_code: Python script · 3 lines",
+            "🐍 execute_code: path = Path('…') … print(path) · 3 lines",
         ),
         "process": (
             {"action": "poll", "session_id": "proc_abc123", "timeout": 30},
@@ -119,6 +119,55 @@ def test_formats_execution_and_orchestration_tools_without_raw_json():
 
     assert format_tool_line("delegate_task", {"tasks": [{"goal": "review formatter"}]}) == (
         "🧑‍💻 delegate_task: 1 task"
+    )
+
+
+def test_execute_code_summary_uses_meaningful_start_and_end():
+    code = """from pathlib import Path
+import json
+# gather versions
+root = Path('/tmp/project')
+data = {'root': root.name}
+print(json.dumps(data))
+"""
+
+    line = format_tool_line("execute_code", {"code": code}, preview_length=160)
+
+    assert line == "🐍 execute_code: root = Path('…') … print(json.dumps(data)) · 6 lines"
+
+
+def test_execute_code_summary_redacts_secret_values():
+    code = """OPENAI_API_KEY = 'sk-secret'
+print(OPENAI_API_KEY)
+"""
+
+    line = format_tool_line("execute_code", {"code": code}, preview_length=160)
+
+    assert "sk-secret" not in line
+    assert "[redacted_env]" in line
+
+
+def test_execute_code_summary_hides_string_literals():
+    code = """payload = {'password': 'super-secret-literal'}
+print(payload)
+"""
+
+    line = format_tool_line("execute_code", {"code": code}, preview_length=160)
+
+    assert "super-secret-literal" not in line
+    assert line == "🐍 execute_code: payload = {'…': '…'} … print(payload) · 2 lines"
+
+
+def test_long_search_patterns_use_middle_ellipsis():
+    pattern = r"\.hx-ai-chat-interface \.ai-message-action \{|\.hx-ai-chat-interface \.ai-message-content pre code"
+
+    line = format_tool_line(
+        "search_files", {"pattern": pattern, "path": "hmx/module/basic/ai/static/css/views"}
+    )
+
+    assert line == (
+        '🔎 search_files: "\\.hx-ai-chat-interface ...message-content pre code" '
+        "in hmx/module/basic/ai/static/css/views"
     )
 
 

@@ -213,9 +213,10 @@ def _compact_command_path(token: str) -> str:
     return prefix + _short_path(body, keep_parent=True)
 
 
-def _script_snippet(command: str, part_limit: int = 36) -> str:
+def _script_snippet(command: str, part_limit: int = 36, *, hide_literals: bool = False) -> str:
     body = _script_body(command)
-    meaningful = [_clean_script_line(line) for line in body]
+    clean_line = _safe_script_preview_line if hide_literals else _clean_script_line
+    meaningful = [clean_line(line) for line in body]
     meaningful = [line for line in meaningful if line]
     preferred = [line for line in meaningful if not _low_signal_script_line(line)]
     candidates = preferred or meaningful
@@ -241,6 +242,15 @@ def _script_body(command: str) -> list[str]:
 
 def _clean_script_line(line: str) -> str:
     return " ".join(str(line or "").strip().split())
+
+
+def _safe_script_preview_line(line: str) -> str:
+    line = _clean_script_line(line)
+    if not line:
+        return ""
+    return re.sub(
+        r"(['\"])(?:\\.|(?!\1).)*\1", lambda match: match.group(1) + "…" + match.group(1), line
+    )
 
 
 def _low_signal_script_line(line: str) -> bool:
@@ -305,7 +315,7 @@ def _fmt_terminal(args: dict[str, Any], limit: int) -> str:
 def _fmt_search(args: dict[str, Any], limit: int) -> str:
     pattern = redact_text(str(args.get("pattern") or args.get("q") or "")).strip()
     path = str(args.get("path") or "").strip()
-    text = f'"{_truncate(pattern, 50)}"'
+    text = f'"{_truncate_middle(pattern, 50)}"'
     if path:
         text += f" in {_short_path(path, keep_parent=True)}"
     target = str(args.get("target") or "").strip()
@@ -446,7 +456,11 @@ def _fmt_delegate(args: dict[str, Any], limit: int) -> str:
 def _fmt_execute_code(args: dict[str, Any], limit: int) -> str:
     code = str(args.get("code") or "")
     lines = [line for line in code.splitlines() if line.strip()]
-    summary = f"Python script · {len(lines)} lines" if lines else "Python script"
+    snippet = _script_snippet(code, part_limit=48, hide_literals=True)
+    if snippet:
+        summary = f"{snippet} · {len(lines)} lines"
+    else:
+        summary = f"Python script · {len(lines)} lines" if lines else "Python script"
     return _truncate(summary, limit)
 
 
@@ -602,7 +616,7 @@ def _parallel_tool_summary(name: str, params: dict[str, Any]) -> str:
     if name == "read_file":
         return f"read_file {_short_path(params.get('path'), keep_parent=False)}"
     if name == "search_files":
-        pattern = _truncate(
+        pattern = _truncate_middle(
             redact_text(str(params.get("pattern") or params.get("q") or "")).strip(), 40
         )
         return f'search_files "{pattern}"' if pattern else "search_files"
