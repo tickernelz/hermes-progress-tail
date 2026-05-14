@@ -25,7 +25,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.32"
+VERSION = "0.1.33"
 _ASSISTANT_CAPTURE: dict[str, Any] = {
     "status": "never",
     "session_id": "",
@@ -840,27 +840,126 @@ def _command(raw_args: str = "") -> str:
                 lines.append(_core_notifier_conflict_warning())
         return "\n".join(lines)
     if args in {"test", "demo", "demo plain", "demo failed"}:
-        plain = args == "demo plain"
-        failed = args == "demo failed"
-        style_prefix = "" if plain else "📋 "
-        tools_header = "Tools" if plain else "🧰 Tools"
-        failed_line = (
-            "terminal: pytest · failed · 2.1s" if failed else "terminal: pytest · done · 2.1s"
-        )
-        return "\n".join(
-            [
-                f"{style_prefix}Todo [22:41]",
-                "in progress (1): polish progress tail",
-                "pending (2): run tests, review diff",
-                "done (1): inspect renderer",
-                "",
-                tools_header,
-                "[22:41] patch: renderer.py replace status labels",
-                f"[22:42] {failed_line}",
-                "[22:43] terminal: git diff --check",
-            ]
-        )
+        return _demo_command(plain=args == "demo plain", failed=args == "demo failed")
     return "Usage: /progresstail status | doctor | jobs [all] | demo [plain|failed]"
+
+
+def _demo_command(*, plain: bool = False, failed: bool = False) -> str:
+    from ..models.state import (
+        DelegateEvent,
+        SessionContext,
+        TodoItem,
+    )
+
+    renderer = ProgressRenderer(
+        load_settings(
+            {
+                "progress_tail": {
+                    "tools": {"timestamp": False, "lines": 4},
+                    "renderer": {"mode": "focused", "density": "verbose", "style": "emoji"},
+                    "delegates": {"lines_per_delegate": 5, "max_line_chars": 180},
+                }
+            }
+        )
+    )
+    platform = "sms" if plain else "telegram"
+    ctx = SessionContext(
+        "demo-session",
+        "demo-session-key",
+        platform,
+        "demo-chat",
+        None,
+        None,
+        None,
+        "live_tail",
+        timestamp=False,
+    )
+    ctx.agent_label = "Hermes"
+    ctx.todo_items = (
+        TodoItem("Inspect renderer", "completed"),
+        TodoItem("Build deterministic demo", "in_progress"),
+        TodoItem("Run tests", "pending"),
+        TodoItem("Review release", "pending"),
+    )
+    ctx.tool_started_count = 5
+    ctx.tool_completed_count = 4
+    ctx.tool_failed_count = 1 if failed else 0
+    renderer.delegate_renderer.apply_event(
+        ctx,
+        DelegateEvent(
+            "demo-session",
+            "demo-session-key",
+            platform,
+            "demo-agent",
+            task_index=0,
+            task_count=1,
+            goal="demo UI review",
+            event_type="subagent.start",
+            status="running",
+            created_at=1,
+        ),
+    )
+    for index, (tool_name, preview, args) in enumerate(
+        (
+            ("read_file", "hermes_progress_tail/rendering/focused.py:1+120", {}),
+            ("search_files", "focused_block", {"pattern": "focused_block"}),
+            (
+                "terminal",
+                "python -m pytest tests/test_renderer.py -q",
+                {"command": "python -m pytest tests/test_renderer.py -q"},
+            ),
+            ("read_file", "tests/test_focused_live_markdown.py:1+80", {}),
+        ),
+        start=2,
+    ):
+        renderer.delegate_renderer.apply_event(
+            ctx,
+            DelegateEvent(
+                "demo-session",
+                "demo-session-key",
+                platform,
+                "demo-agent",
+                task_index=0,
+                task_count=1,
+                goal="demo UI review",
+                event_type="subagent.tool",
+                tool_name=tool_name,
+                preview=preview,
+                args=args,
+                status="running",
+                created_at=index,
+            ),
+        )
+    renderer.delegate_renderer.apply_event(
+        ctx,
+        DelegateEvent(
+            "demo-session",
+            "demo-session-key",
+            platform,
+            "demo-agent",
+            task_index=0,
+            task_count=1,
+            goal="demo UI review",
+            event_type="subagent.complete",
+            status="completed",
+            duration_seconds=12,
+            summary="demo smoke check passed",
+            created_at=8,
+        ),
+    )
+    ctx.tool_lines.extend(
+        [
+            "✅ read_file: rendering/focused.py:1+120 · done · 0.2s",
+            "✅ search_files: focused_block · done · 0.1s",
+            (
+                "❌ terminal: pytest tests/test_renderer.py -q · failed · 2.1s"
+                if failed
+                else "✅ terminal: pytest tests/test_renderer.py -q · done · 2.1s"
+            ),
+            "terminal: git diff --check · running",
+        ]
+    )
+    return renderer._content(ctx)
 
 
 def register(ctx):

@@ -228,19 +228,19 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
         )
 
         content = adapter.edits[-1][2]
-        assert content.startswith("Akbar is working\n────────────────")
-        assert "Now     patching formatter.py" in content
-        assert "Why     Gue cek formatter path dulu, jangan sampai strip code/path." in content
-        assert "State   3 tools · 2 done · 1 running · 2 queued" in content
-        assert "Progress\nGue cek formatter path dulu" in content
-        assert "Reasoning\nPlanning task execution" in content
-        assert "**Planning task execution**" not in content
-        assert "Plan\n✓ inspect adapter contract" in content
+        assert content.startswith("**Akbar is working**\n────────────────")
+        assert "**Now** patching formatter.py" in content
+        assert "**Why** Gue cek formatter path dulu, jangan sampai strip code/path." in content
+        assert "**State** 3 tools · 2 done · 1 running · 2 queued" in content
+        assert "**Progress**\nGue cek formatter path dulu" in content
+        assert "**Reasoning**\n**Planning task execution**" in content
+        assert "**Planning task execution**" in content
+        assert "**Plan**\n✓ inspect adapter contract" in content
         assert "→ implement plain-live sanitizer" in content
         assert "… 2 queued" in content
-        assert "Delegates\n" in content
-        assert "Background\n" in content
-        assert "Tools\n✓ read_file · telegram.py:3108" in content
+        assert "**Delegates**\n" in content
+        assert "**Background**\n" in content
+        assert "**Tools**\n✓ read_file · telegram.py:3108" in content
         assert "→ patch · rendering/formatter.py" in content
         assert "Changes\n" not in content
         assert "~ ~/" not in content
@@ -276,8 +276,8 @@ def test_focused_header_shows_semantic_now_for_execute_code():
         )
 
         content = adapter.sent[0][1]
-        assert "Now     running Python script: root = Path('…') … print(root)" in content
-        assert "Tools\n→ execute_code: root = Path('…') … print(root) · 4 lines" in content
+        assert "**Now** running Python script: root = Path('…') … print(root)" in content
+        assert "**Tools**\n→ execute_code: root = Path('…') … print(root) · 4 lines" in content
 
     asyncio.run(run())
 
@@ -313,7 +313,9 @@ def test_focused_tools_collapses_completed_read_file_burst():
         await renderer._render_for_strategy(ctx, None, force=True)
 
         content = adapter.sent[0][1]
-        assert "Tools\n✓ read_file: 3 files · focused.py, test_renderer.py, README.md" in content
+        assert (
+            "**Tools**\n✓ read_file: 3 files · focused.py, test_renderer.py, README.md" in content
+        )
         assert "→ terminal: python -m pytest tests/test_renderer.py -q" in content
         assert "read_file: hermes_progress_tail/rendering/focused.py" not in content
         assert "read_file: tests/test_renderer.py" not in content
@@ -385,8 +387,8 @@ def test_focused_header_elapsed_uses_turn_start_not_latest_event():
         )
 
         content = adapter.sent[0][1]
-        assert "Time    1h 00m" in content
-        assert "Time    just now" not in content
+        assert "**Time** 1h 00m" in content
+        assert "**Time** just now" not in content
 
     asyncio.run(run())
 
@@ -445,8 +447,8 @@ def test_focused_state_uses_tool_lifecycle_counts_not_visible_tail_size():
 
         content = adapter.edits[-1][2]
         assert len(ctx.tool_lines) == 3
-        assert "State   11 tools · 10 done · 1 running" in content
-        assert "State   3 tools" not in content
+        assert "**State** 11 tools · 10 done · 1 running" in content
+        assert "**State** 3 tools" not in content
 
     asyncio.run(run())
 
@@ -512,7 +514,7 @@ def test_focused_header_uses_renderer_agent_label_when_configured():
             force=True,
         )
 
-        assert adapter.sent[0][1].startswith("Akbar is working\n────────────────")
+        assert adapter.sent[0][1].startswith("**Akbar is working**\n────────────────")
 
     asyncio.run(run())
 
@@ -539,7 +541,7 @@ def test_focused_header_falls_back_to_hermes_not_jono():
         )
 
         content = adapter.sent[0][1]
-        assert content.startswith("Hermes is working\n────────────────")
+        assert content.startswith("**Hermes is working**\n────────────────")
         assert "Jono is working" not in content
 
     asyncio.run(run())
@@ -585,9 +587,9 @@ def test_focused_telegram_plain_sanitizer_preserves_code_and_paths():
         content = adapter.edits[-1][2]
         assert "Checking formatter" in content
         assert "Inspecting Markdown" in content
-        assert "**Checking formatter**" not in content
-        assert "## Inspecting Markdown" not in content
-        assert "__Do not__" not in content
+        assert "**Checking formatter**" in content
+        assert "Inspecting Markdown" in content
+        assert "__Do not__" in content
         assert "`path/to/file_name.py`" in content
         assert "`/tmp/a_b/file.py`" in content
         assert "foo_bar" in content
@@ -1239,7 +1241,7 @@ def test_tool_replacement_without_terminal_status_remains_running():
         )
 
         content = adapter.edits[-1][2]
-        assert "State   1 tools · 0 done · 1 running" in content
+        assert "**State** 1 tools · 0 done · 1 running" in content
         assert ctx.tool_completed_count == 0
         assert "call-1" in ctx.active_tool_lines
 
@@ -1332,7 +1334,7 @@ def test_tool_replacement_changing_fingerprint_does_not_double_count_completion(
         content = adapter.edits[-1][2]
         assert ctx.tool_started_count == 2
         assert ctx.tool_completed_count == 1
-        assert "State   2 tools · 1 done · 1 running" in content
+        assert "**State** 2 tools · 1 done · 1 running" in content
         assert "terminal: pytest" not in ctx.active_tool_fingerprints
 
     asyncio.run(run())
@@ -1522,8 +1524,8 @@ def test_delegate_progress_renders_grouped_section_and_resets_on_finalize():
         content = adapter.edits[-1][2]
         assert "🔀 Delegates" in content
         assert "[1/2] ✅ completed · review renderer implementation · 2 tools · 12s" in content
-        assert "├ tool: 📖 read_file: renderer.py" in content
-        assert "├ tool: 💻 terminal: pytest tests/test_renderer.py" in content
+        assert "├ read_file: renderer.py" in content
+        assert "├ terminal: pytest tests/test_renderer.py" in content
         assert "└ result: ✅ done: PASS: renderer grouped delegates correctly" in content
 
         await renderer.finalize(session_id="s1")
@@ -1584,7 +1586,7 @@ def test_delegate_completion_does_not_replace_latest_tool_line():
         assert "hermes-progress-tail/plugin.yaml" in content
         assert "done: Selesai dites" in content
         assert "Menjalankan `pwd && date`" not in content
-        assert "├ tool: 📖 read_file" in content
+        assert "├ read_file" in content
         assert "└ result: ✅ done:" in content
 
     asyncio.run(run())
@@ -1862,7 +1864,7 @@ def test_delegate_section_respects_emoji_style_for_status_and_tool_lines():
         content = adapter.edits[-1][2]
         assert "🔀 Delegates" in content
         assert "✅ completed" in content
-        assert "💻 terminal: pytest tests/test_renderer.py" in content
+        assert "terminal: pytest tests/test_renderer.py" in content
         assert "✅ done: PASS" in content
 
     asyncio.run(run())
@@ -1977,7 +1979,7 @@ def test_delegate_grouped_rendering_labels_events_without_fake_tool_children():
         )
 
         content = adapter.edits[-1][2]
-        assert "├ tool: 💻 terminal: python inline script" in content
+        assert "├ terminal: python inline script" in content
         assert "├ update: terminal: <empty>" in content
         assert '└ result: ✅ done: {"passed":true}' in content
         assert "  - terminal:" not in content
@@ -2159,7 +2161,7 @@ def test_delegate_normal_density_terminal_renders_safe_multiline_details():
         )
 
         content = adapter.sent[0][1]
-        assert "└ tool: 💻 terminal: python inline script" in content
+        assert "└ terminal: python inline script" in content
         assert "· 4 lines" in content
         assert "   cwd: ." in content
         assert "   first: python - <<'PY'" in content

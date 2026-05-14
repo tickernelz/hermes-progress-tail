@@ -9,6 +9,17 @@ from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
 
 _CODE_RE = re.compile(r"(```[\s\S]*?```|`[^`]*`)")
+_FORMATTED_LIVE_EDIT_PLATFORMS = frozenset(
+    {
+        "telegram",
+        "discord",
+        "slack",
+        "mattermost",
+        "matrix",
+        "feishu",
+        "dingtalk",
+    }
+)
 
 
 def compose_focused_content(renderer, ctx: SessionContext) -> str:
@@ -19,32 +30,32 @@ def compose_focused_content(renderer, ctx: SessionContext) -> str:
     reasoning = clean_live_markdown(renderer._reasoning_tail(ctx), platform=ctx.platform)
 
     if assistant:
-        parts.append(focused_block("Progress", assistant))
+        parts.append(focused_block("Progress", assistant, platform=ctx.platform))
     if reasoning:
-        parts.append(focused_block("Reasoning", reasoning))
+        parts.append(focused_block("Reasoning", reasoning, platform=ctx.platform))
 
     plan = focused_plan(ctx.todo_items, settings=settings)
     if plan:
-        parts.append(focused_block("Plan", plan))
+        parts.append(focused_block("Plan", plan, platform=ctx.platform))
 
     delegates = strip_legacy_section_header(renderer.delegate_renderer.section(ctx), "Delegates")
     if delegates:
-        parts.append(focused_block("Delegates", delegates))
+        parts.append(focused_block("Delegates", delegates, platform=ctx.platform))
 
     background = strip_legacy_section_header(
         renderer._background_jobs_section(ctx), "Background Jobs"
     )
     if background:
-        parts.append(focused_block("Background", background))
+        parts.append(focused_block("Background", background, platform=ctx.platform))
 
     tools = focused_tools(ctx, settings=settings)
     if tools:
-        parts.append(focused_block("Tools", tools))
+        parts.append(focused_block("Tools", tools, platform=ctx.platform))
 
     if settings.renderer.density == "debug":
         debug = strip_legacy_section_header(renderer._debug_section(ctx), "Debug")
         if debug:
-            parts.append(focused_block("Debug", debug))
+            parts.append(focused_block("Debug", debug, platform=ctx.platform))
 
     content = "\n\n".join(part for part in parts if part.strip())
     return redact_text(content) if settings.renderer.redact_secrets else content
@@ -61,6 +72,17 @@ def focused_header(renderer, ctx: SessionContext) -> str:
         why = "collecting progress signals"
     state = focused_state(ctx)
     elapsed = focused_elapsed(ctx)
+    if supports_live_markdown(ctx.platform):
+        return "\n".join(
+            [
+                markdown_bold(f"{agent_label} is working", platform=ctx.platform),
+                "────────────────",
+                focused_header_row("Now", truncate_text(now, 76), platform=ctx.platform),
+                focused_header_row("Why", why, platform=ctx.platform),
+                focused_header_row("State", state, platform=ctx.platform),
+                focused_header_row("Time", elapsed, platform=ctx.platform),
+            ]
+        )
     return "\n".join(
         [
             f"{agent_label} is working",
@@ -71,6 +93,23 @@ def focused_header(renderer, ctx: SessionContext) -> str:
             f"Time    {elapsed}",
         ]
     )
+
+
+def supports_live_markdown(platform: str) -> bool:
+    return str(platform or "").strip().lower() in _FORMATTED_LIVE_EDIT_PLATFORMS
+
+
+def markdown_bold(text: str, *, platform: str = "") -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    return f"**{value}**" if supports_live_markdown(platform) else value
+
+
+def focused_header_row(label: str, value: str, *, platform: str = "") -> str:
+    if supports_live_markdown(platform):
+        return f"{markdown_bold(label, platform=platform)} {value}"
+    return f"{label:<8}{value}"
 
 
 def focused_agent_label(renderer, ctx: SessionContext) -> str:
@@ -88,11 +127,11 @@ def sanitize_agent_label(label: str) -> str:
     return truncate_text(text, 32)
 
 
-def focused_block(title: str, body: str) -> str:
+def focused_block(title: str, body: str, *, platform: str = "") -> str:
     body = str(body or "").strip()
     if not body:
         return ""
-    return f"{title}\n{body}"
+    return f"{markdown_bold(title, platform=platform)}\n{body}"
 
 
 def focused_now(ctx: SessionContext) -> str:
@@ -341,7 +380,7 @@ def strip_legacy_section_header(text: str, title: str) -> str:
 def clean_live_markdown(text: str, *, platform: str = "") -> str:
     if not text:
         return ""
-    if platform != "telegram":
+    if supports_live_markdown(platform):
         return str(text).strip()
     parts = _CODE_RE.split(str(text))
     cleaned: list[str] = []

@@ -266,6 +266,12 @@ class DelegateProgressRenderer:
         )
         if self.settings.renderer.style == "emoji":
             label = f"{self._status_emoji(label)} {label}"
+        summary = self._simplify_known_plugin_paths(summary)
+        summary = re.sub(
+            r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail\b",
+            "hermes-progress-tail",
+            summary,
+        )
         return self._delegate_line(f"{label}: {summary}", self.settings.delegates.max_line_chars)
 
     @staticmethod
@@ -313,7 +319,7 @@ class DelegateProgressRenderer:
                 lines.append(f"{title}: {current}")
                 continue
             lines.append(title)
-            delegate_lines = list(branch.lines)
+            delegate_lines = self._delegate_display_lines(branch)
             has_result = bool(branch.completion_line)
             total = len(delegate_lines) + (1 if has_result else 0)
             for index, item in enumerate(delegate_lines):
@@ -324,7 +330,9 @@ class DelegateProgressRenderer:
                     lines.append(f"{detail_connector}{detail}")
             if branch.completion_line:
                 connector = self._delegate_connector(len(delegate_lines), total)
-                lines.append(f"{connector} result: {branch.completion_line}")
+                lines.append(
+                    f"{connector} result: {self._simplify_completion_line(branch.completion_line)}"
+                )
         hidden = len(ctx.delegate_order) - len(visible_keys)
         if hidden > 0:
             lines.append(f"+{hidden} older delegate{'s' if hidden != 1 else ''}")
@@ -332,6 +340,29 @@ class DelegateProgressRenderer:
             return ""
         header = "🔀 Delegates" if self.settings.renderer.style == "emoji" else "Delegates"
         return header + "\n" + "\n".join(lines)
+
+    def _simplify_completion_line(self, text: str) -> str:
+        value = self._simplify_known_plugin_paths(text)
+        value = re.sub(
+            r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail\b",
+            "hermes-progress-tail",
+            value,
+        )
+        return value
+
+    def _delegate_display_lines(self, branch: DelegateBranch) -> list[DelegateLine]:
+        lines = list(branch.lines)
+        if not branch.completion_line:
+            return lines
+        tool_lines = [line for line in lines if line.kind == "tool"]
+        if len(tool_lines) < 4 or len(tool_lines) != len(lines):
+            return lines
+        names = [self._delegate_tool_name(line) for line in tool_lines]
+        summary = ", ".join(names[:4])
+        hidden = len(names) - 4
+        if hidden:
+            summary += f", +{hidden}"
+        return [DelegateLine("summary", f"{len(tool_lines)} tools · {summary}")]
 
     def _delegate_title(self, branch: DelegateBranch) -> str:
         settings = self.settings.delegates
@@ -364,10 +395,39 @@ class DelegateProgressRenderer:
 
     def _delegate_event_label(self, item: DelegateLine) -> str:
         if item.kind == "tool":
-            return f"tool: {item.text}"
+            return self._simplify_delegate_tool_text(item.text)
         if item.kind == "debug":
             return f"debug: {item.text}"
+        if item.kind == "summary":
+            return item.text
         return f"update: {item.text}"
+
+    @staticmethod
+    def _delegate_tool_name(item: DelegateLine) -> str:
+        if item.tool_name:
+            return item.tool_name
+        text = DelegateProgressRenderer._strip_tool_emoji(item.text)
+        return text.split(":", 1)[0].strip() or "tool"
+
+    def _simplify_delegate_tool_text(self, text: str) -> str:
+        cleaned = self._strip_tool_emoji(text)
+        cleaned = self._simplify_known_plugin_paths(cleaned)
+        cleaned = re.sub(r"·\s+cwd\s+~/.hermes/plugins/hermes-progress-tail\b", "· cwd .", cleaned)
+        cleaned = re.sub(
+            r"·\s+cwd\s+/home/[^/]+/.hermes/plugins/hermes-progress-tail\b",
+            "· cwd .",
+            cleaned,
+        )
+        return cleaned
+
+    @staticmethod
+    def _simplify_known_plugin_paths(text: str) -> str:
+        return re.sub(
+            r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail/"
+            r"hermes_progress_tail/([\w./-]+?\.py)(:\d+(?:\+\d+)?)?",
+            lambda match: match.group(1) + (match.group(2) or ""),
+            str(text or ""),
+        )
 
     @staticmethod
     def _looks_like_progress_output(text: str) -> bool:

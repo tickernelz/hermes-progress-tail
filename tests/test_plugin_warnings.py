@@ -27,7 +27,7 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
 
     status = plugin._command("status")
 
-    assert "hermes-progress-tail 0.1.32" in status
+    assert "hermes-progress-tail 0.1.33" in status
     assert "tools=enabled" in status
     assert "completed=True" in status
     assert "duration=True" in status
@@ -134,6 +134,7 @@ def test_demo_commands_return_sample_progress(monkeypatch):
 
     demo = plugin._command("demo failed")
 
-    assert "Todo [22:41]" in demo
-    assert "terminal: pytest · failed · 2.1s" in demo
+    assert "**Hermes is working**" in demo
+    assert "**Tools**" in demo
+    assert "× terminal: pytest tests/test_renderer.py -q · 2.1s" in demo
     assert "git diff --check" in demo

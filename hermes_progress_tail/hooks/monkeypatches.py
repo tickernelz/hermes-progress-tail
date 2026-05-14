@@ -8,9 +8,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 _ORIGINALS: dict[type, dict[str, Any]] = {}
 _DELEGATE_ORIGINALS: dict[int, tuple[Any, Any]] = {}
+_TELEGRAM_ORIGINALS: dict[type, Any] = {}
 _NOOP_MARKER = "_hermes_progress_tail_noop"
 _PATCH_MARKER = "_hermes_progress_tail_patched"
 _DELEGATE_PATCH_MARKER = "_hermes_progress_tail_delegate_patched"
+_TELEGRAM_PATCH_MARKER = "_hermes_progress_tail_telegram_format_patched"
 
 
 def _noop_reasoning_callback(_text: str) -> None:
@@ -23,7 +25,65 @@ setattr(_noop_reasoning_callback, _NOOP_MARKER, True)
 def install_monkeypatches(agent_cls: type | None = None) -> bool:
     agent_ok = install_agent_monkeypatches(agent_cls)
     delegate_ok = install_delegate_monkeypatches()
-    return agent_ok or delegate_ok
+    telegram_ok = install_telegram_format_monkeypatch()
+    return agent_ok or delegate_ok or telegram_ok
+
+
+def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None) -> bool:
+    if telegram_adapter_cls is None:
+        try:
+            from gateway.platforms.telegram import TelegramAdapter as telegram_adapter_cls
+        except Exception as exc:
+            logger.debug("hermes-progress-tail could not import TelegramAdapter: %s", exc)
+            return False
+    if getattr(telegram_adapter_cls, _TELEGRAM_PATCH_MARKER, False):
+        return True
+    original = getattr(telegram_adapter_cls, "edit_message", None)
+    if original is None:
+        logger.warning(
+            "hermes-progress-tail Telegram formatting monkeypatch disabled: edit_message missing"
+        )
+        return False
+    _TELEGRAM_ORIGINALS[telegram_adapter_cls] = original
+
+    @wraps(original)
+    async def patched_edit_message(self, chat_id, message_id, content, *, finalize=False):
+        if finalize:
+            return await original(self, chat_id, message_id, content, finalize=finalize)
+        if not getattr(self, "_bot", None):
+            return await original(self, chat_id, message_id, content, finalize=finalize)
+        try:
+            from gateway.platforms.base import SendResult, utf16_len
+            from gateway.platforms.telegram import ParseMode
+        except Exception:
+            return await original(self, chat_id, message_id, content, finalize=finalize)
+        try:
+            max_len = int(getattr(self, "MAX_MESSAGE_LENGTH", 4096) or 4096)
+            if utf16_len(str(content or "")) > max_len:
+                return await original(self, chat_id, message_id, content, finalize=finalize)
+        except Exception:
+            return await original(self, chat_id, message_id, content, finalize=finalize)
+        try:
+            formatted = self.format_message(content)
+            await self._bot.edit_message_text(
+                chat_id=int(chat_id),
+                message_id=int(message_id),
+                text=formatted,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            return SendResult(success=True, message_id=message_id)
+        except Exception as fmt_err:
+            if "not modified" in str(fmt_err).lower():
+                return SendResult(success=True, message_id=message_id)
+            logger.debug(
+                "hermes-progress-tail Telegram formatted live edit failed; falling back plain",
+                exc_info=True,
+            )
+            return await original(self, chat_id, message_id, content, finalize=finalize)
+
+    telegram_adapter_cls.edit_message = patched_edit_message
+    setattr(telegram_adapter_cls, _TELEGRAM_PATCH_MARKER, True)
+    return True
 
 
 def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
@@ -339,7 +399,25 @@ def _extract_delegate_builder_args(args, kwargs) -> tuple[int, str, Any]:
 def uninstall_monkeypatches(agent_cls: type | None = None) -> bool:
     agent_ok = uninstall_agent_monkeypatches(agent_cls)
     delegate_ok = uninstall_delegate_monkeypatches()
-    return agent_ok or delegate_ok
+    telegram_ok = uninstall_telegram_format_monkeypatch()
+    return agent_ok or delegate_ok or telegram_ok
+
+
+def uninstall_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None) -> bool:
+    if telegram_adapter_cls is None:
+        try:
+            from gateway.platforms.telegram import TelegramAdapter as telegram_adapter_cls
+        except Exception:
+            return False
+    original = _TELEGRAM_ORIGINALS.pop(telegram_adapter_cls, None)
+    if original is None:
+        return False
+    telegram_adapter_cls.edit_message = original
+    try:
+        delattr(telegram_adapter_cls, _TELEGRAM_PATCH_MARKER)
+    except Exception:
+        setattr(telegram_adapter_cls, _TELEGRAM_PATCH_MARKER, False)
+    return True
 
 
 def uninstall_agent_monkeypatches(agent_cls: type | None = None) -> bool:
