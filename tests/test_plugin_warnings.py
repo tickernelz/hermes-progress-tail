@@ -27,13 +27,15 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
 
     status = plugin._command("status")
 
-    assert "hermes-progress-tail 0.1.36" in status
+    assert "hermes-progress-tail 0.1.37" in status
     assert "tools=enabled" in status
     assert "completed=True" in status
     assert "duration=True" in status
     assert "todo=sticky:True hide_tool_line:True" in status
     assert "patch=detail:smart preview_chars:48 max_files:3" in status
-    assert "renderer=strategy:auto style:emoji density:normal" in status
+    assert "renderer=mode:sectioned strategy:auto style:emoji density:normal" in status
+    assert "code_fence:auto" in status
+    assert "agent_label:-" in status
     assert "display.show_reasoning=True" in status
 
 

@@ -74,7 +74,6 @@ DEFAULT_CONFIG = {
         "update_interval_seconds": 3,
         "suppress_native_notify": True,
         "suppress_watch_notifications": True,
-        "default_notify_on_complete": False,
     },
     "renderer": {
         "strategy": "auto",
@@ -325,6 +324,10 @@ def _prune_removed_defaults(target: dict[str, Any]) -> list[str]:
     if isinstance(finalization, dict):
         target.pop("finalization", None)
         removed.append("progress_tail.finalization")
+    background_jobs = target.get("background_jobs")
+    if isinstance(background_jobs, dict) and "default_notify_on_complete" in background_jobs:
+        background_jobs.pop("default_notify_on_complete", None)
+        removed.append("progress_tail.background_jobs.default_notify_on_complete")
     return removed
 
 

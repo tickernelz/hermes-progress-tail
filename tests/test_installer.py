@@ -51,6 +51,7 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert config["progress_tail"]["patch"]["max_files"] == 3
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
     assert config["progress_tail"]["renderer"]["agent_label"] == ""
+    assert "default_notify_on_complete" not in config["progress_tail"]["background_jobs"]
     assert "finalization" not in config["progress_tail"]
     assert "progress_tail" in config
     assert (hermes_home / "hermes-progress-tail" / "backups").exists()
@@ -124,6 +125,7 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     assert config["progress_tail"]["delegates"]["enabled"] is True
     assert config["progress_tail"]["delegates"]["max_delegates"] == 4
     assert config["progress_tail"]["todo"]["hide_tool_line"] is True
+    assert "default_notify_on_complete" not in config["progress_tail"]["background_jobs"]
     assert config["progress_tail"]["patch"]["detail"] == "smart"
     assert "finalization" not in config["progress_tail"]
     assert config["progress_tail"]["renderer"]["strategy"] == "live_tail"

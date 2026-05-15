@@ -126,3 +126,26 @@ def test_delegate_title_uses_plain_status_symbol_in_emoji_style():
 
     assert "[1/1] ✓ completed · Review compact renderer mode cleanup · 47s" in section
     assert "[1/1] ✅ completed" not in section
+
+
+def test_delegate_title_infers_total_when_events_default_task_count_to_one():
+    renderer = make_renderer(renderer={"style": "plain"})
+    ctx = make_ctx()
+    for index, goal in enumerate(("Audit config schema", "Audit runtime usage", "Audit docs")):
+        key = f"task-{index}"
+        ctx.delegate_branches[key] = DelegateBranch(
+            subagent_id=key,
+            task_index=index,
+            task_count=1,
+            goal=goal,
+            status="running",
+        )
+        ctx.delegate_order.append(key)
+
+    section = renderer.section(ctx)
+
+    assert "[1/3] running · Audit config schema" in section
+    assert "[2/3] running · Audit runtime usage" in section
+    assert "[3/3] running · Audit docs" in section
+    assert "[2/1]" not in section
+    assert "[3/1]" not in section

@@ -305,11 +305,15 @@ class DelegateProgressRenderer:
         settings = self.settings.delegates
         visible_keys = list(ctx.delegate_order)[-settings.max_delegates :]
         lines: list[str] = []
-        for key in visible_keys:
-            branch = ctx.delegate_branches.get(key)
-            if branch is None:
-                continue
-            title = self._delegate_title(branch)
+        visible_branches = [
+            branch for key in visible_keys if (branch := ctx.delegate_branches.get(key)) is not None
+        ]
+        inferred_task_count = max(
+            [len(visible_branches), *(branch.task_index + 1 for branch in visible_branches)],
+            default=1,
+        )
+        for branch in visible_branches:
+            title = self._delegate_title(branch, inferred_task_count=inferred_task_count)
             if self.settings.renderer.density == "compact":
                 current = branch.completion_line or (
                     self._delegate_compact_line(branch.lines[-1])
@@ -364,7 +368,9 @@ class DelegateProgressRenderer:
             summary += f", +{hidden}"
         return [DelegateLine("summary", f"{len(tool_lines)} tools · {summary}")]
 
-    def _delegate_title(self, branch: DelegateBranch) -> str:
+    def _delegate_title(
+        self, branch: DelegateBranch, *, inferred_task_count: int | None = None
+    ) -> str:
         settings = self.settings.delegates
         label = truncate_text(
             branch.goal or f"task {branch.task_index + 1}", settings.max_goal_chars
@@ -372,7 +378,12 @@ class DelegateProgressRenderer:
         status = branch.status or "running"
         if self.settings.renderer.style == "emoji":
             status = f"{self._status_symbol(status)} {status}"
-        parts = [f"[{branch.task_index + 1}/{branch.task_count}] {status}"]
+        display_total = max(
+            branch.task_count or 1,
+            branch.task_index + 1,
+            inferred_task_count or 1,
+        )
+        parts = [f"[{branch.task_index + 1}/{display_total}] {status}"]
         if label:
             parts.append(label)
         if settings.show_tool_count and branch.tool_count:

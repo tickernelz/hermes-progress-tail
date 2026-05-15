@@ -25,7 +25,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.36"
+VERSION = "0.1.37"
 _ASSISTANT_CAPTURE: dict[str, Any] = {
     "status": "never",
     "session_id": "",
@@ -795,7 +795,7 @@ def _command(raw_args: str = "") -> str:
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
             f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} thinking={settings.delegates.thinking}",
             f"background_jobs={'enabled' if settings.background_jobs.enabled else 'disabled'} max={settings.background_jobs.max_jobs} suppress_native_notify={settings.background_jobs.suppress_native_notify} suppress_watch={settings.background_jobs.suppress_watch_notifications}",
-            f"renderer=strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval} code_fence:{settings.renderer.code_fence}",
+            f"renderer=mode:{settings.renderer.mode} strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval} code_fence:{settings.renderer.code_fence} code_fence_language:{settings.renderer.code_fence_language or '-'} agent_label:{settings.renderer.agent_label or '-'}",
             f"display.tool_progress={display.get('tool_progress', '<unset>')}",
             f"display.show_reasoning={display.get('show_reasoning', '<unset>')}",
             f"monkeypatch={monkeypatch_active}",
