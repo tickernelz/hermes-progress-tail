@@ -7,6 +7,106 @@ VALID_STRATEGIES = {"auto", "live_tail", "snapshot", "summary_only", "off"}
 VALID_CODE_FENCE = {"auto", "on", "off"}
 BATCH_DEFAULT_OFF = {"email", "sms", "webhook", "homeassistant"}
 CODE_FENCE_DEFAULTS = {"discord", "slack", "mattermost"}
+RETIRED_CONFIG_KEYS = {
+    "progress_tail.finalization",
+    "progress_tail.background_jobs.default_notify_on_complete",
+}
+PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
+    "enabled": None,
+    "tools": {
+        "enabled": None,
+        "lines": None,
+        "preview_length": None,
+        "show_completed": None,
+        "show_duration": None,
+        "timestamp": None,
+        "timestamp_format": None,
+    },
+    "delegates": {
+        "enabled": None,
+        "max_delegates": None,
+        "lines_per_delegate": None,
+        "max_goal_chars": None,
+        "max_line_chars": None,
+        "show_model": None,
+        "show_tool_count": None,
+        "show_completion": None,
+        "thinking": None,
+    },
+    "todo": {
+        "sticky": None,
+        "hide_tool_line": None,
+        "max_pending": None,
+        "max_completed": None,
+        "max_cancelled": None,
+        "max_item_chars": None,
+    },
+    "patch": {"detail": None, "preview_chars": None, "max_files": None},
+    "assistant": {"enabled": None, "max_lines": None, "max_chars": None, "min_update_chars": None},
+    "reasoning": {
+        "enabled": None,
+        "max_lines": None,
+        "max_chars": None,
+        "min_update_chars": None,
+        "no_edit_strategy": None,
+    },
+    "background_jobs": {
+        "enabled": None,
+        "list_running": None,
+        "show_completed": None,
+        "completed_ttl_seconds": None,
+        "max_jobs": None,
+        "head_lines": None,
+        "tail_lines": None,
+        "max_line_chars": None,
+        "update_interval_seconds": None,
+        "suppress_native_notify": None,
+        "suppress_watch_notifications": None,
+    },
+    "renderer": {
+        "strategy": None,
+        "edit_interval": None,
+        "stale_ttl_seconds": None,
+        "redact_secrets": None,
+        "mode": None,
+        "style": None,
+        "density": None,
+        "code_fence": None,
+        "code_fence_language": None,
+        "agent_label": None,
+    },
+    "no_edit": {
+        "interval_seconds": None,
+        "min_new_events": None,
+        "final_summary": None,
+        "max_snapshots_per_turn": None,
+    },
+    "platforms": "platform_map",
+    "defaults": "legacy_map",
+}
+PLATFORM_CONFIG_CONTRACT = {
+    "enabled",
+    "strategy",
+    "lines",
+    "preview_length",
+    "edit_interval",
+    "stale_ttl_seconds",
+    "redact_secrets",
+    "show_completed",
+    "tools",
+    "tools_enabled",
+    "assistant",
+    "assistant_enabled",
+    "reasoning",
+    "reasoning_enabled",
+    "delegates",
+    "delegates_enabled",
+    "background_jobs",
+    "background_jobs_enabled",
+    "timestamp",
+    "timestamp_format",
+    "code_fence",
+}
 SNAPSHOT_DEFAULTS = {
     "slack",
     "signal",
@@ -181,6 +281,67 @@ def _as_dict(config: dict[str, Any] | None) -> dict[str, Any]:
     if isinstance(legacy, dict):
         return _legacy_to_progress_tail(legacy)
     return config
+
+
+def _config_section(config: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    section = config.get("progress_tail")
+    if isinstance(section, dict):
+        return section
+    legacy = config.get("tool_progress_tail")
+    if isinstance(legacy, dict):
+        return _legacy_to_progress_tail(legacy)
+    return config
+
+
+def _walk_unknown_keys(raw: dict[str, Any], contract: dict[str, Any], prefix: str) -> list[str]:
+    if not isinstance(raw, dict):
+        return []
+    unknown: list[str] = []
+    for key, value in raw.items():
+        path = f"{prefix}.{key}"
+        if path in RETIRED_CONFIG_KEYS:
+            continue
+        expected = contract.get(key, "__missing__")
+        if expected == "__missing__":
+            unknown.append(path)
+            continue
+        if expected == "legacy_map":
+            continue
+        if expected == "platform_map":
+            if not isinstance(value, dict):
+                continue
+            for platform, platform_raw in value.items():
+                platform_path = f"{path}.{platform}"
+                if not isinstance(platform_raw, dict):
+                    continue
+                for platform_key in platform_raw:
+                    nested_path = f"{platform_path}.{platform_key}"
+                    if nested_path in RETIRED_CONFIG_KEYS:
+                        continue
+                    if platform_key not in PLATFORM_CONFIG_CONTRACT:
+                        unknown.append(nested_path)
+            continue
+        if isinstance(expected, dict) and isinstance(value, dict):
+            unknown.extend(_walk_unknown_keys(value, expected, path))
+    return unknown
+
+
+def find_unknown_config_keys(config: dict[str, Any] | None) -> list[str]:
+    section = _config_section(config)
+    return sorted(_walk_unknown_keys(section, PROGRESS_TAIL_CONFIG_CONTRACT, "progress_tail"))
+
+
+def find_retired_config_keys(config: dict[str, Any] | None) -> list[str]:
+    section = _config_section(config)
+    retired = []
+    if isinstance(section.get("finalization"), dict):
+        retired.append("progress_tail.finalization")
+    background_jobs = section.get("background_jobs")
+    if isinstance(background_jobs, dict) and "default_notify_on_complete" in background_jobs:
+        retired.append("progress_tail.background_jobs.default_notify_on_complete")
+    return retired
 
 
 def _legacy_to_progress_tail(section: dict[str, Any]) -> dict[str, Any]:

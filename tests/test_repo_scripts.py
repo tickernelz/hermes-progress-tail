@@ -60,6 +60,20 @@ def test_readme_documents_background_job_defaults_without_finalization_config():
     )
 
 
+def test_readme_documents_assistant_platforms_and_config_doctor_warnings():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "assistant:" in readme
+    assert "min_update_chars: 40" in readme
+    assert "platforms:" in readme
+    assert "telegram:" in readme
+    assert "discord:" in readme
+    assert "tools_enabled" in readme
+    assert "background_jobs_enabled" in readme
+    assert "warning: unknown config key" in readme
+    assert "warning: retired config key" in readme
+
+
 def test_shell_scripts_exist_and_are_executable():
     assert Path("install.sh").exists()
     assert Path("uninstall.sh").exists()

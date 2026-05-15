@@ -1,0 +1,51 @@
+from hermes_progress_tail.config import find_retired_config_keys, find_unknown_config_keys
+
+
+def test_config_contract_reports_unknown_keys_without_flagging_platform_names():
+    unknown = find_unknown_config_keys(
+        {
+            "progress_tail": {
+                "mystery": True,
+                "tools": {"enabled": True, "typo_lines": 4},
+                "platforms": {
+                    "telegram": {
+                        "strategy": "live_tail",
+                        "bogus": "value",
+                    }
+                },
+            }
+        }
+    )
+
+    assert "progress_tail.mystery" in unknown
+    assert "progress_tail.tools.typo_lines" in unknown
+    assert "progress_tail.platforms.telegram.bogus" in unknown
+    assert "progress_tail.platforms.telegram" not in unknown
+
+
+def test_config_contract_reports_retired_keys_separately_from_unknown_keys():
+    config = {
+        "progress_tail": {
+            "finalization": {"delete_on_success": True},
+            "background_jobs": {"default_notify_on_complete": False},
+        }
+    }
+
+    assert find_retired_config_keys(config) == [
+        "progress_tail.finalization",
+        "progress_tail.background_jobs.default_notify_on_complete",
+    ]
+    assert find_unknown_config_keys(config) == []
+
+
+def test_config_contract_accepts_legacy_tool_progress_tail_shape():
+    legacy_config = {
+        "tool_progress_tail": {
+            "enabled": True,
+            "defaults": {"lines": 4},
+            "no_edit": {"interval_seconds": 60},
+            "platforms": {"discord": {"strategy": "snapshot"}},
+        }
+    }
+
+    assert find_unknown_config_keys(legacy_config) == []

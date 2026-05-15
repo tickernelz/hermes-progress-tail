@@ -129,6 +129,33 @@ def test_doctor_warns_when_telegram_code_fence_is_forced_on(monkeypatch):
     assert "warning: Telegram progress code_fence=on is unsupported" in doctor
 
 
+def test_doctor_reports_unknown_and_retired_config_keys(monkeypatch):
+    plugin._renderer = None
+    config = {
+        "display": {"tool_progress": "off", "show_reasoning": False},
+        "agent": {"gateway_notify_interval": 0},
+        "progress_tail": {
+            "enabled": True,
+            "tools": {"enabled": True, "typo_lines": 4},
+            "background_jobs": {"default_notify_on_complete": False},
+            "finalization": {"delete_on_success": True},
+            "platforms": {"telegram": {"bogus": "value"}},
+        },
+    }
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
+
+    doctor = plugin._command("doctor")
+
+    assert "warning: retired config key progress_tail.finalization" in doctor
+    assert (
+        "warning: retired config key progress_tail.background_jobs.default_notify_on_complete"
+        in doctor
+    )
+    assert "warning: unknown config key progress_tail.tools.typo_lines" in doctor
+    assert "warning: unknown config key progress_tail.platforms.telegram.bogus" in doctor
+
+
 def test_demo_commands_return_sample_progress(monkeypatch):
     plugin._renderer = None
     monkeypatch.setattr(plugin, "_load_runtime_config", lambda: {})

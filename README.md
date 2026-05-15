@@ -125,6 +125,12 @@ progress_tail:
     preview_chars: 48
     max_files: 3
 
+  assistant:
+    enabled: true
+    max_lines: 3
+    max_chars: 500
+    min_update_chars: 40
+
   reasoning:
     enabled: true
     max_lines: 3
@@ -162,7 +168,20 @@ progress_tail:
     min_new_events: 3
     final_summary: true
     max_snapshots_per_turn: 5
+
+  platforms:
+    telegram:
+      code_fence: off
+    discord:
+      strategy: live_tail
+      tools_enabled: true
+      assistant_enabled: true
+      reasoning_enabled: true
+      delegates_enabled: true
+      background_jobs_enabled: true
 ```
+
+`platforms.<name>` overrides support `enabled`, `strategy`, line/preview/edit timing fields, `show_completed`, feature toggles (`tools_enabled`, `assistant_enabled`, `reasoning_enabled`, `delegates_enabled`, `background_jobs_enabled`), timestamps, and `code_fence`.
 
 Turn lifecycle is internal: completed progress bubbles stay visible, but new user turns get new progress bubbles after the prior final answer. If a background job is still visible, its progress bubble can keep updating.
 
@@ -175,6 +194,8 @@ Turn lifecycle is internal: completed progress bubbles stay visible, but new use
 /progresstail demo plain
 /progresstail demo failed
 ```
+
+`/progresstail doctor` also reports config drift. Unknown keys are likely typos or stale docs, for example `warning: unknown config key progress_tail.tools.typo_lines`. Retired keys are old public knobs that should be removed from config, for example `warning: retired config key progress_tail.finalization`.
 
 ## Development
 

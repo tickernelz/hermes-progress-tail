@@ -20,7 +20,12 @@ from ..models.state import (
 )
 from ..rendering.formatter import extract_todo_items, format_tool_line
 from ..rendering.renderer import ProgressRenderer
-from ..settings.config import load_settings, resolve_platform_settings
+from ..settings.config import (
+    find_retired_config_keys,
+    find_unknown_config_keys,
+    load_settings,
+    resolve_platform_settings,
+)
 from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
@@ -812,6 +817,12 @@ def _command(raw_args: str = "") -> str:
                 lines.append(_core_notifier_conflict_warning())
             if _telegram_code_fence_conflict(settings):
                 lines.append(_telegram_code_fence_warning())
+            for key in find_retired_config_keys(runtime_config):
+                lines.append(
+                    f"warning: retired config key {key}; remove it from progress_tail config"
+                )
+            for key in find_unknown_config_keys(runtime_config):
+                lines.append(f"warning: unknown config key {key}; check for typos or stale docs")
             for sid, ctx in renderer.sessions.items():
                 label = ctx.session_key or sid
                 lines.append(
