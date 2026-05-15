@@ -72,6 +72,9 @@ def test_readme_documents_assistant_platforms_and_config_doctor_warnings():
     assert "background_jobs_enabled" in readme
     assert "warning: unknown config key" in readme
     assert "warning: retired config key" in readme
+    assert "Progress-tail owns background job visual status by default" in readme
+    assert "suppress_native_notify" in readme
+    assert "suppress_watch_notifications" in readme
 
 
 def test_shell_scripts_exist_and_are_executable():

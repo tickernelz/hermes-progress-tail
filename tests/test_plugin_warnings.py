@@ -33,6 +33,10 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
     assert "duration=True" in status
     assert "todo=sticky:True hide_tool_line:True" in status
     assert "patch=detail:smart preview_chars:48 max_files:3" in status
+    assert (
+        "background_jobs=enabled list_running=True show_completed=True max=4 "
+        "ttl=180s head=2 tail=3 update=3s suppress_native_notify=True suppress_watch=True"
+    ) in status
     assert "renderer=mode:sectioned strategy:auto style:emoji density:normal" in status
     assert "code_fence:auto" in status
     assert "agent_label:-" in status
@@ -154,6 +158,63 @@ def test_doctor_reports_unknown_and_retired_config_keys(monkeypatch):
     )
     assert "warning: unknown config key progress_tail.tools.typo_lines" in doctor
     assert "warning: unknown config key progress_tail.platforms.telegram.bogus" in doctor
+
+
+def test_doctor_warns_when_background_job_native_notifications_are_not_suppressed(monkeypatch):
+    plugin._renderer = None
+    config = {
+        "display": {"tool_progress": "off", "show_reasoning": False},
+        "agent": {"gateway_notify_interval": 0},
+        "progress_tail": {
+            "enabled": True,
+            "background_jobs": {
+                "enabled": True,
+                "suppress_native_notify": False,
+                "suppress_watch_notifications": False,
+                "list_running": False,
+            },
+        },
+    }
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
+
+    doctor = plugin._command("doctor")
+
+    assert (
+        "warning: background_jobs.enabled=true but suppress_native_notify=false; "
+        "native process notifications may duplicate progress-tail output"
+    ) in doctor
+    assert (
+        "warning: background_jobs.enabled=true but suppress_watch_notifications=false; "
+        "watch pattern notifications may duplicate progress-tail output"
+    ) in doctor
+    assert (
+        "warning: background_jobs.enabled=true but list_running=false; "
+        "running jobs will be hidden from /progresstail jobs"
+    ) in doctor
+
+
+def test_doctor_does_not_warn_background_suppression_when_background_jobs_disabled(monkeypatch):
+    plugin._renderer = None
+    config = {
+        "display": {"tool_progress": "off", "show_reasoning": False},
+        "agent": {"gateway_notify_interval": 0},
+        "progress_tail": {
+            "enabled": True,
+            "background_jobs": {
+                "enabled": False,
+                "suppress_native_notify": False,
+                "suppress_watch_notifications": False,
+                "list_running": False,
+            },
+        },
+    }
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
+
+    doctor = plugin._command("doctor")
+
+    assert "background_jobs.enabled=true but" not in doctor
 
 
 def test_demo_commands_return_sample_progress(monkeypatch):

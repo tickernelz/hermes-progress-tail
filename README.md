@@ -197,6 +197,8 @@ Turn lifecycle is internal: completed progress bubbles stay visible, but new use
 
 `/progresstail doctor` also reports config drift. Unknown keys are likely typos or stale docs, for example `warning: unknown config key progress_tail.tools.typo_lines`. Retired keys are old public knobs that should be removed from config, for example `warning: retired config key progress_tail.finalization`.
 
+Progress-tail owns background job visual status by default, so `suppress_native_notify` and `suppress_watch_notifications` default to `true` to avoid duplicate native Hermes process/watch notifications. If those are disabled while `background_jobs.enabled` is still true, `/progresstail doctor` warns because background job output may appear twice.
+
 ## Development
 
 ```bash
