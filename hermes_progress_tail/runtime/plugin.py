@@ -696,16 +696,30 @@ def _float_kw(value: Any, default: float) -> float:
         return default
 
 
+def _finalize_target_context(renderer: ProgressRenderer, session_id: str = "", platform: str = ""):
+    ctx = renderer.find_context(session_id)
+    if ctx is not None:
+        return ctx
+    if session_id:
+        return None
+    active = [
+        candidate
+        for candidate in renderer.sessions.values()
+        if (not platform or candidate.platform == platform) and candidate.progress_state == "active"
+    ]
+    return active[0] if len(active) == 1 else None
+
+
 def _schedule_finalize(session_id: str = "", platform: str = "", *, purge: bool = False) -> None:
     renderer = _get_renderer()
-    ctx = renderer.find_context(session_id)
+    ctx = _finalize_target_context(renderer, session_id, platform)
     if ctx is None or ctx.loop is None:
         if purge:
             renderer.purge(session_id=session_id, platform=platform)
         return
     try:
         future = asyncio.run_coroutine_threadsafe(
-            renderer.finalize(session_id=session_id, purge=purge), ctx.loop
+            renderer.finalize(session_id=ctx.session_id, purge=purge), ctx.loop
         )
 
         def _consume_done(fut):

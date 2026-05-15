@@ -102,3 +102,39 @@ def test_pre_tool_call_formats_and_renders(monkeypatch):
         assert adapter.sent[0][1] == "```\n▰ 🧰 Tools\n💻 terminal: npm test · running\n```"
 
     asyncio.run(run())
+
+
+def test_post_llm_finalize_with_empty_session_id_uses_active_session(monkeypatch):
+    async def run():
+        adapter = Adapter()
+        hermes_progress_tail.plugin._renderer = None
+        monkeypatch.setattr(
+            hermes_progress_tail.plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
+        )
+        hermes_progress_tail._on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
+        hermes_progress_tail._on_pre_tool_call(
+            "terminal", {"command": "first turn"}, task_id="session-1"
+        )
+        await asyncio.sleep(0.05)
+
+        hermes_progress_tail._on_post_llm_call(session_id="")
+        await asyncio.sleep(0.05)
+
+        renderer = hermes_progress_tail._get_renderer()
+        ctx = renderer.find_context("session-1")
+        assert ctx.progress_state == "finalized"
+
+        hermes_progress_tail._on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
+        hermes_progress_tail._on_pre_tool_call(
+            "terminal", {"command": "second turn"}, task_id="session-1"
+        )
+        await asyncio.sleep(0.05)
+
+        assert len(adapter.sent) == 2
+        assert "first turn" in adapter.sent[0][1]
+        assert "second turn" in adapter.sent[1][1]
+        assert "first turn" not in adapter.sent[1][1]
+
+    asyncio.run(run())
