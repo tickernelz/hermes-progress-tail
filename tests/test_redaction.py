@@ -1,4 +1,4 @@
-from hermes_progress_tail.redaction import redact_text, sanitize
+from hermes_progress_tail.redaction import redact_text, sanitize, simplify_path
 
 
 def test_redacts_secret_keys_recursively():
@@ -46,6 +46,28 @@ def test_redaction_preserves_long_filename_components():
 
     assert redacted == text
     assert "[redacted_blob]" not in redacted
+
+
+def test_simplify_path_keeps_ordinary_paths_visible(monkeypatch, tmp_path):
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    project_file = tmp_path / "Projects" / "app" / "src" / "components" / "Button.vue"
+    home_file = tmp_path / "Downloads" / "report.pdf"
+
+    assert simplify_path(str(project_file)) == "src/components/Button.vue"
+    assert simplify_path(str(home_file)) == "~/Downloads/report.pdf"
+
+
+def test_simplify_path_handles_wsl_windows_user_paths():
+    assert simplify_path("/mnt/c/Users/Zhafron/Downloads/foo.pdf") == "~/Downloads/foo.pdf"
+
+
+def test_simplify_path_redacts_secret_like_components_without_hiding_file_context():
+    path = "/home/zhafron/Projects/app/API_KEY=supersecret1234567890/file.py"
+
+    simplified = simplify_path(path)
+
+    assert simplified == "[redacted_env]/file.py"
+    assert "supersecret" not in simplified
 
 
 def test_redacts_quoted_env_sk_dash_tokens_and_secret_flags():

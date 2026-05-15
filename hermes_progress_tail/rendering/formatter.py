@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 import shlex
 from collections.abc import Callable
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 
 from ..models.state import TodoItem
-from ..utils.redaction import redact_text, sanitize
+from ..utils.redaction import redact_text, sanitize, simplify_path
 
 EMOJI = {
     "skill_view": "📚",
@@ -70,66 +70,14 @@ def _truncate_middle(text: str, limit: int) -> str:
     return f"{text[:head]}...{text[-tail:]}"
 
 
-def _project_relative_path(raw: str) -> str | None:
-    if not raw.startswith("/"):
-        return raw or None
-    try:
-        resolved = Path(raw).expanduser().resolve(strict=False)
-    except Exception:
-        resolved = Path(raw)
-    cwd = Path.cwd().resolve(strict=False)
-    candidates = [cwd]
-    for marker in ("Projects", "projects"):
-        parts = resolved.parts
-        if marker in parts:
-            idx = parts.index(marker)
-            if idx + 2 <= len(parts):
-                candidates.append(Path(*parts[: idx + 2]))
-    for base in candidates:
-        try:
-            return resolved.relative_to(base).as_posix() or resolved.name
-        except ValueError:
-            continue
-    home = Path.home().resolve(strict=False)
-    try:
-        return "~/" + resolved.relative_to(home).as_posix()
-    except ValueError:
-        return None
-
-
-def _looks_like_preservable_path_component(value: str) -> bool:
-    path = PurePosixPath(value)
-    stem = path.stem if path.suffix else value
-    if len(stem) < 80:
-        return False
-    if path.suffix:
-        return bool(re.fullmatch(r"[A-Za-z0-9_.-]+", value))
-    if any(ch.isdigit() for ch in stem):
-        return False
-    return bool(re.fullmatch(r"[A-Za-z][A-Za-z_.-]*", stem))
-
-
-def _redact_path_display(path: str) -> str:
-    redacted_parts = []
-    for part in path.split("/"):
-        if part in {"", "~"}:
-            redacted_parts.append(part)
-            continue
-        redacted = redact_text(part)
-        if redacted.startswith("[redacted_blob]") and _looks_like_preservable_path_component(part):
-            redacted = part
-        redacted_parts.append(redacted)
-    return "/".join(redacted_parts)
-
-
 def _short_path(path: Any, *, keep_parent: bool = True) -> str:
     raw = str(path or "").strip()
     if not raw:
         return "<unknown>"
     if raw.startswith("[redacted_blob]") and "/" not in raw:
         return raw
-    relative = _project_relative_path(raw)
-    raw = _redact_path_display(relative) if relative else _redact_path_display(raw)
+    raw = simplify_path(raw)
+    relative = not raw.startswith(("/", "~/"))
     p = PurePosixPath(raw)
     parts = [part for part in p.parts if part not in {"/", ""}]
     if not parts:

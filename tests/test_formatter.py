@@ -550,3 +550,12 @@ def test_vue_paths_keep_filename_instead_of_redacted_blob(monkeypatch, tmp_path)
     assert "[redacted_blob]" not in line
     assert line.endswith(f"components/{component}:120+95")
     assert line.startswith("📖 read_file: ~/Works/HMX/...")
+
+
+def test_formatter_simplifies_wsl_windows_user_paths():
+    line = format_tool_line(
+        "read_file",
+        {"path": "/mnt/c/Users/Zhafron/Downloads/foo.pdf", "offset": 1, "limit": 5},
+    )
+
+    assert line == "📖 read_file: ~/Downloads/foo.pdf:1+5"

@@ -199,6 +199,8 @@ Turn lifecycle is internal: completed progress bubbles stay visible, but new use
 
 Progress-tail owns background job visual status by default, so `suppress_native_notify` and `suppress_watch_notifications` default to `true` to avoid duplicate native Hermes process/watch notifications. If those are disabled while `background_jobs.enabled` is still true, `/progresstail doctor` warns because background job output may appear twice.
 
+`redact_secrets` redacts sensitive values, not ordinary file paths. File paths are simplified for readability: project paths become relative, home paths become `~/...`, and WSL Windows user paths like `/mnt/c/Users/name/Downloads/file.pdf` become `~/Downloads/file.pdf`.
+
 ## Development
 
 ```bash

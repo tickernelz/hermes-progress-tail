@@ -75,6 +75,8 @@ def test_readme_documents_assistant_platforms_and_config_doctor_warnings():
     assert "Progress-tail owns background job visual status by default" in readme
     assert "suppress_native_notify" in readme
     assert "suppress_watch_notifications" in readme
+    assert "redacts sensitive values, not ordinary file paths" in readme
+    assert "File paths are simplified for readability" in readme
 
 
 def test_shell_scripts_exist_and_are_executable():
