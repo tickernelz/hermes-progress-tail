@@ -7,6 +7,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 _ORIGINALS: dict[type, dict[str, Any]] = {}
+_ADAPTER_ORIGINALS: dict[type, dict[str, Any]] = {}
 _DELEGATE_ORIGINALS: dict[int, tuple[Any, Any]] = {}
 _TELEGRAM_ORIGINALS: dict[type, Any] = {}
 _NOOP_MARKER = "_hermes_progress_tail_noop"
@@ -24,9 +25,55 @@ setattr(_noop_reasoning_callback, _NOOP_MARKER, True)
 
 def install_monkeypatches(agent_cls: type | None = None) -> bool:
     agent_ok = install_agent_monkeypatches(agent_cls)
+    adapter_ok = install_adapter_monkeypatches(agent_cls)
     delegate_ok = install_delegate_monkeypatches()
     telegram_ok = install_telegram_format_monkeypatch()
-    return agent_ok or delegate_ok or telegram_ok
+    return agent_ok or adapter_ok or delegate_ok or telegram_ok
+
+
+def install_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
+    if adapter_cls is None:
+        try:
+            from gateway.platforms.base import BasePlatformAdapter as adapter_cls
+        except Exception as exc:
+            logger.debug("hermes-progress-tail could not import BasePlatformAdapter: %s", exc)
+            return False
+    if getattr(adapter_cls, "_hermes_progress_tail_adapter_patched", False):
+        return True
+    set_handler = getattr(adapter_cls, "set_message_handler", None)
+    handle_message = getattr(adapter_cls, "handle_message", None)
+    if set_handler is None or handle_message is None:
+        logger.debug("hermes-progress-tail adapter monkeypatch disabled: handler API missing")
+        return False
+    _ADAPTER_ORIGINALS[adapter_cls] = {
+        "set_message_handler": set_handler,
+        "handle_message": handle_message,
+    }
+
+    def patched_set_message_handler(self, handler):
+        try:
+            self._hermes_progress_tail_message_handler = handler
+        except Exception:
+            logger.debug("hermes-progress-tail could not remember adapter handler", exc_info=True)
+        return set_handler(self, handler)
+
+    async def patched_handle_message(self, event):
+        if bool(getattr(event, "internal", False)):
+            try:
+                from ..runtime.plugin import register_context_from_adapter_event
+
+                register_context_from_adapter_event(self, event)
+            except Exception:
+                logger.debug(
+                    "hermes-progress-tail internal message context registration failed",
+                    exc_info=True,
+                )
+        return await handle_message(self, event)
+
+    adapter_cls.set_message_handler = patched_set_message_handler
+    adapter_cls.handle_message = patched_handle_message
+    adapter_cls._hermes_progress_tail_adapter_patched = True
+    return True
 
 
 def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None) -> bool:
@@ -398,9 +445,28 @@ def _extract_delegate_builder_args(args, kwargs) -> tuple[int, str, Any]:
 
 def uninstall_monkeypatches(agent_cls: type | None = None) -> bool:
     agent_ok = uninstall_agent_monkeypatches(agent_cls)
+    adapter_ok = uninstall_adapter_monkeypatches(agent_cls)
     delegate_ok = uninstall_delegate_monkeypatches()
     telegram_ok = uninstall_telegram_format_monkeypatch()
-    return agent_ok or delegate_ok or telegram_ok
+    return agent_ok or adapter_ok or delegate_ok or telegram_ok
+
+
+def uninstall_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
+    if adapter_cls is None:
+        try:
+            from gateway.platforms.base import BasePlatformAdapter as adapter_cls
+        except Exception:
+            return False
+    originals = _ADAPTER_ORIGINALS.pop(adapter_cls, None)
+    if not originals:
+        return False
+    adapter_cls.set_message_handler = originals["set_message_handler"]
+    adapter_cls.handle_message = originals["handle_message"]
+    try:
+        delattr(adapter_cls, "_hermes_progress_tail_adapter_patched")
+    except Exception:
+        adapter_cls._hermes_progress_tail_adapter_patched = False
+    return True
 
 
 def uninstall_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None) -> bool:

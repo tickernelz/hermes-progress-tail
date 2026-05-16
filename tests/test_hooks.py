@@ -41,6 +41,20 @@ class Adapter:
 
     def __init__(self):
         self.sent = []
+        self._message_handler = None
+        self._session_store = None
+        self.config = type("AdapterConfig", (), {"extra": {}})()
+
+    def set_message_handler(self, handler):
+        self._message_handler = handler
+
+    def set_session_store(self, session_store):
+        self._session_store = session_store
+
+    async def handle_message(self, event):
+        if self._message_handler is not None:
+            return await self._message_handler(event)
+        return None
 
     async def send(self, chat_id, content, metadata=None):
         self.sent.append((chat_id, content, metadata))
@@ -136,5 +150,50 @@ def test_post_llm_finalize_with_empty_session_id_uses_active_session(monkeypatch
         assert "first turn" in adapter.sent[0][1]
         assert "second turn" in adapter.sent[1][1]
         assert "first turn" not in adapter.sent[1][1]
+
+    asyncio.run(run())
+
+
+def test_internal_auto_resume_message_registers_progress_context(monkeypatch):
+    async def run():
+        adapter = Adapter()
+        adapter.set_session_store(SessionStore())
+
+        async def noop_handler(event):
+            return None
+
+        adapter.set_message_handler(noop_handler)
+        hermes_progress_tail.plugin._renderer = None
+        monkeypatch.setattr(
+            hermes_progress_tail.plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
+        )
+
+        from hermes_progress_tail.hooks.monkeypatches import (
+            install_monkeypatches,
+            uninstall_monkeypatches,
+        )
+
+        class InternalEvent(Event):
+            internal = True
+
+        # Hermes core auto-resumes restart-interrupted sessions by sending an
+        # internal synthetic MessageEvent. Core intentionally skips
+        # pre_gateway_dispatch for internal events, so the plugin must register
+        # its progress context from the adapter message-handler monkeypatch.
+        uninstall_monkeypatches(Adapter)
+        install_monkeypatches(Adapter)
+        try:
+            await adapter.handle_message(InternalEvent())  # type: ignore[attr-defined]
+        finally:
+            uninstall_monkeypatches(Adapter)
+        hermes_progress_tail._on_pre_tool_call(
+            "terminal", {"command": "resume tool"}, task_id="session-1"
+        )
+        await asyncio.sleep(0.05)
+
+        assert adapter.sent
+        assert "resume tool" in adapter.sent[0][1]
 
     asyncio.run(run())

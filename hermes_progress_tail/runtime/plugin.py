@@ -259,32 +259,23 @@ def _adapter_for(gateway: Any, source: Any):
     return adapters.get(platform) or adapters.get(platform_name(source))
 
 
-def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: Any):
-    renderer = _get_renderer()
-    source = getattr(event, "source", None)
-    if source is None:
-        return None
+def _register_context(
+    *,
+    renderer: ProgressRenderer,
+    source: Any,
+    adapter: Any,
+    session_id: str,
+    session_key: str,
+) -> None:
     platform = platform_name(source)
-    if not platform:
-        return None
     settings = resolve_platform_settings(renderer.settings, platform)
-    if not settings.enabled or settings.strategy == "off":
-        return None
-    entry = _get_session_entry(session_store, source)
-    session_id = str(getattr(entry, "session_id", "") or "")
-    if not session_id:
-        return None
-    adapter = _adapter_for(gateway, source)
-    if adapter is None:
-        logger.debug("hermes-progress-tail adapter not found for platform %s", platform)
-        return None
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
     ctx = SessionContext(
         session_id=session_id,
-        session_key=_session_key(entry, source, gateway),
+        session_key=session_key,
         platform=platform,
         chat_id=source_chat_id(source),
         thread_id=source_thread_id(source),
@@ -305,7 +296,63 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
         agent_label=renderer.settings.renderer.agent_label,
     )
     renderer.register_context(ctx)
+
+
+def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: Any):
+    renderer = _get_renderer()
+    source = getattr(event, "source", None)
+    if source is None:
+        return None
+    platform = platform_name(source)
+    if not platform:
+        return None
+    settings = resolve_platform_settings(renderer.settings, platform)
+    if not settings.enabled or settings.strategy == "off":
+        return None
+    entry = _get_session_entry(session_store, source)
+    session_id = str(getattr(entry, "session_id", "") or "")
+    if not session_id:
+        return None
+    adapter = _adapter_for(gateway, source)
+    if adapter is None:
+        logger.debug("hermes-progress-tail adapter not found for platform %s", platform)
+        return None
+    _register_context(
+        renderer=renderer,
+        source=source,
+        adapter=adapter,
+        session_id=session_id,
+        session_key=_session_key(entry, source, gateway),
+    )
     return None
+
+
+def register_context_from_adapter_event(adapter: Any, event: Any) -> None:
+    renderer = _get_renderer()
+    source = getattr(event, "source", None)
+    if source is None:
+        return
+    platform = platform_name(source)
+    if not platform:
+        return
+    settings = resolve_platform_settings(renderer.settings, platform)
+    if not settings.enabled or settings.strategy == "off":
+        return
+    session_store = getattr(adapter, "_session_store", None)
+    if session_store is None:
+        return
+    entry = _get_session_entry(session_store, source)
+    session_id = str(getattr(entry, "session_id", "") or "")
+    if not session_id:
+        return
+    _register_context(
+        renderer=renderer,
+        source=source,
+        adapter=adapter,
+        session_id=session_id,
+        session_key=_session_key(entry, source, getattr(adapter, "gateway", None) or adapter),
+    )
+    return
 
 
 def _schedule_render(
