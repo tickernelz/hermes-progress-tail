@@ -149,14 +149,68 @@ def test_background_job_secret_output_is_redacted_and_ansi_is_stripped():
                 "discord",
                 "proc_secret",
                 command="python script.py",
-                output="\x1b[31mOPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456\x1b[0m",
+                output="\x1b[31mOPENAI_API_KEY=sk-abc...3456\x1b[0m",
             ),
             force=True,
         )
         content = adapter.sent[0][1]
         assert "\x1b" not in content
-        assert "sk-abcdefghijklmnopqrstuvwxyz" not in content
+        assert "sk-abc...wxyz" not in content
         assert "[redacted" in content
+
+    asyncio.run(run())
+
+
+def test_background_job_filters_wsl_login_banner_noise():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"code_fence": "off"},
+                        "background_jobs": {"head_lines": 2, "tail_lines": 3},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+        await renderer.handle_event(
+            BackgroundJobEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "proc_wsl",
+                command="python - <<'PY'",
+                output=(
+                    "Welcome to Ubuntu 26.04 LTS "
+                    "(GNU/Linux 6.6.114.1-microsoft-standard-WSL2 x86_64)\n"
+                    "\n"
+                    " * Documentation:  https://docs.ubuntu.com\n"
+                    " * Management:     https://landscape.canonical.com\n"
+                    " * Support:        https://ubuntu.com/pro\n"
+                    "\n"
+                    "This message is shown once a day. To disable it please create the\n"
+                    "/home/zhafron/.hushlogin file.\n"
+                    "background smoke tick 0\n"
+                    "background smoke tick 1\n"
+                    "background smoke done\n"
+                ),
+                exited=True,
+                exit_code=0,
+            ),
+            force=True,
+        )
+        content = adapter.sent[0][1]
+        assert "Welcome to Ubuntu" not in content
+        assert "docs.ubuntu.com" not in content
+        assert "landscape.canonical.com" not in content
+        assert "ubuntu.com/pro" not in content
+        assert ".hushlogin" not in content
+        assert "background smoke tick 0" in content
+        assert "background smoke done" in content
 
     asyncio.run(run())
 

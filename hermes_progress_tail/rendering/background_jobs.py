@@ -157,21 +157,37 @@ def normalize_background_output(output: str) -> str:
 
 def useful_output_lines(output: str) -> list[str]:
     lines = []
+    skip_next_hushlogin_path = False
     for raw in output.splitlines():
         line = " ".join(raw.strip().split())
         if not line:
             continue
-        if any(
-            noise in line
-            for noise in (
-                "bash: cannot set terminal process group",
-                "bash: no job control in this shell",
-                "no job control in this shell",
-            )
-        ):
+        if skip_next_hushlogin_path:
+            skip_next_hushlogin_path = False
+            if ".hushlogin" in line:
+                continue
+        if _is_background_output_noise(line):
+            if line.startswith("This message is shown once a day"):
+                skip_next_hushlogin_path = True
             continue
         lines.append(line)
     return lines
+
+
+def _is_background_output_noise(line: str) -> bool:
+    if any(
+        noise in line
+        for noise in (
+            "bash: cannot set terminal process group",
+            "bash: no job control in this shell",
+            "no job control in this shell",
+            "Welcome to Ubuntu",
+            "Strictly confined Kubernetes makes edge and IoT secure",
+            "This message is shown once a day",
+        )
+    ):
+        return True
+    return bool(re.match(r"^\* (Documentation|Management|Support):\s+https?://", line))
 
 
 def prune_background_jobs(
