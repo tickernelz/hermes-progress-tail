@@ -108,6 +108,7 @@ class SessionContext:
     assistant_pending_chars: int = 0
     last_assistant_chars: int = 0
     last_assistant_at: float = 0.0
+    assistant_transient: bool = False
     reasoning_text: str = ""
     reasoning_pending_chars: int = 0
     last_reasoning_source: str = ""
@@ -211,6 +212,7 @@ class AssistantEvent:
     platform: str
     text: str
     already_streamed: bool = False
+    transient: bool = False
     created_at: float = field(default_factory=time.time)
     kind: Literal["assistant"] = "assistant"
 

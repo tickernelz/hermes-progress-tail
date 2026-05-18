@@ -31,7 +31,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.45"
+VERSION = "0.1.46"
 _ASSISTANT_CAPTURE: dict[str, Any] = {
     "status": "never",
     "session_id": "",
@@ -671,10 +671,19 @@ def on_compression_status_from_agent(agent: Any, text: str) -> bool:
             ctx.session_id,
             ctx.session_key,
             ctx.platform,
-            "Compacting context — summarizing earlier conversation",
+            _compression_status_tail_text(clean),
             already_streamed=False,
+            transient=True,
         ),
     )
+
+
+def _compression_status_tail_text(text: str) -> str:
+    value = str(text or "").strip()
+    lower = value.lower()
+    if "preflight compression" in lower:
+        return "Preflight compression — preparing compact context"
+    return "Compacting context — summarizing earlier conversation"
 
 
 def on_assistant_progress_from_agent(

@@ -27,6 +27,7 @@ def reset_turn(ctx: SessionContext) -> None:
     ctx.assistant_pending_chars = 0
     ctx.last_assistant_chars = 0
     ctx.last_assistant_at = 0.0
+    ctx.assistant_transient = False
     ctx.reasoning_text = ""
     ctx.reasoning_pending_chars = 0
     ctx.last_reasoning_source = ""

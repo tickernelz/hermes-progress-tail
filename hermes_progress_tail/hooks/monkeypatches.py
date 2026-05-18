@@ -200,7 +200,12 @@ def install_compression_status_monkeypatch(agent_cls: type | None = None) -> boo
 
 def _looks_like_compression_status(text: Any) -> bool:
     value = str(text or "").lower()
-    return "compacting context" in value or "compacting" in value and "context" in value
+    return (
+        "compacting context" in value
+        or "preflight compression" in value
+        or "compacting" in value
+        and "context" in value
+    )
 
 
 def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None) -> bool:

@@ -76,6 +76,7 @@ class ProgressRenderer:
                 ctx.assistant_pending_chars = existing.assistant_pending_chars
                 ctx.last_assistant_chars = existing.last_assistant_chars
                 ctx.last_assistant_at = existing.last_assistant_at
+                ctx.assistant_transient = existing.assistant_transient
                 ctx.reasoning_text = existing.reasoning_text
                 ctx.reasoning_pending_chars = existing.reasoning_pending_chars
                 ctx.last_reasoning_source = existing.last_reasoning_source
@@ -157,6 +158,8 @@ class ProgressRenderer:
                     return
             if isinstance(event, ToolEvent) and not ctx.tools_enabled:
                 return
+            if not isinstance(event, AssistantEvent):
+                self._clear_transient_assistant(ctx)
             if isinstance(event, AssistantEvent) and not ctx.assistant_enabled:
                 return
             if isinstance(event, DelegateEvent) and not ctx.delegates_enabled:
@@ -292,6 +295,11 @@ class ProgressRenderer:
             return 0
         previous = ctx.assistant_latest_text
         replace_latest = bool(previous and (text.startswith(previous) or previous.startswith(text)))
+        if ctx.assistant_transient and not event.transient:
+            ctx.assistant_lines.clear()
+            previous = ""
+            replace_latest = False
+            ctx.assistant_transient = False
         if replace_latest and ctx.assistant_lines:
             ctx.assistant_lines[-1] = AssistantLine(text=text, created_at=event.created_at)
         else:
@@ -306,7 +314,18 @@ class ProgressRenderer:
         ctx.assistant_latest_text = text
         ctx.last_assistant_chars = len(text)
         ctx.last_assistant_at = event.created_at
+        ctx.assistant_transient = bool(event.transient)
         return ctx.assistant_pending_chars
+
+    def _clear_transient_assistant(self, ctx: SessionContext) -> None:
+        if not ctx.assistant_transient:
+            return
+        ctx.assistant_lines.clear()
+        ctx.assistant_latest_text = ""
+        ctx.assistant_pending_chars = 0
+        ctx.last_assistant_chars = 0
+        ctx.last_assistant_at = 0.0
+        ctx.assistant_transient = False
 
     def _append_reasoning(self, ctx: SessionContext, event: ReasoningEvent) -> int:
         if not event.text:

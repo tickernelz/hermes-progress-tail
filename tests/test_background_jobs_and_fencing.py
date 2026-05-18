@@ -10,7 +10,7 @@ from hermes_progress_tail.monkeypatches import (
     uninstall_process_notification_monkeypatch,
 )
 from hermes_progress_tail.renderer import ProgressRenderer
-from hermes_progress_tail.state import BackgroundJobEvent, SessionContext, ToolEvent
+from hermes_progress_tail.state import AssistantEvent, BackgroundJobEvent, SessionContext, ToolEvent
 
 
 class Result:
@@ -306,6 +306,77 @@ def test_compression_status_is_suppressed_when_progress_tail_captures_it(monkeyp
     assert captured == [
         "🗜️ Compacting context — summarizing earlier conversation so I can continue..."
     ]
+
+
+def test_preflight_compression_status_is_suppressed_when_progress_tail_captures_it(monkeypatch):
+    import hermes_progress_tail.plugin as plugin
+
+    captured = []
+    monkeypatch.setattr(
+        plugin,
+        "on_compression_status_from_agent",
+        lambda agent, text: captured.append(text) or True,
+    )
+
+    class FakeAgent:
+        def _emit_status(self, text):
+            return f"native:{text}"
+
+    install_compression_status_monkeypatch(FakeAgent)
+
+    try:
+        agent = FakeAgent()
+        result = agent._emit_status(
+            "📦 Preflight compression: ~204,662 tokens >= 204,000 threshold. This may take a moment."
+        )
+    finally:
+        uninstall_compression_status_monkeypatch(FakeAgent)
+
+    assert result is None
+    assert captured == [
+        "📦 Preflight compression: ~204,662 tokens >= 204,000 threshold. This may take a moment."
+    ]
+
+
+def test_compression_status_clears_when_real_progress_resumes():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "renderer": {"mode": "focused"},
+                        "tools": {"timestamp": False},
+                        "assistant": {"min_update_chars": 1},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            AssistantEvent(
+                ctx.session_id,
+                ctx.session_key,
+                ctx.platform,
+                "📦 Preflight compression: ~204,662 tokens >= 204,000 threshold. This may take a moment.",
+                transient=True,
+            ),
+            force=True,
+        )
+        assert "Preflight compression" in adapter.sent[-1][1]
+
+        await renderer.handle_event(
+            ToolEvent(ctx.session_id, ctx.session_key, ctx.platform, "→ terminal: pytest -q"),
+            force=True,
+        )
+
+        latest = adapter.edits[-1][2] if adapter.edits else adapter.sent[-1][1]
+        assert "Preflight compression" not in latest
+        assert "terminal: pytest -q" in latest
+
+    asyncio.run(run())
 
 
 def test_compression_status_falls_back_to_native_when_not_captured(monkeypatch):
