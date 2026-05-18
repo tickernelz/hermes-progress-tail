@@ -118,6 +118,49 @@ def test_pre_tool_call_formats_and_renders(monkeypatch):
     asyncio.run(run())
 
 
+def test_background_review_tool_calls_are_suppressed(monkeypatch):
+    async def run():
+        adapter = Adapter()
+        hermes_progress_tail.plugin._renderer = None
+        monkeypatch.setattr(
+            hermes_progress_tail.plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
+        )
+        hermes_progress_tail._on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
+
+        monkeypatch.setattr(
+            hermes_progress_tail.plugin.threading,
+            "current_thread",
+            lambda: type("Thread", (), {"name": "bg-review"})(),
+        )
+        hermes_progress_tail._on_pre_tool_call(
+            "skill_manage",
+            {"action": "patch", "name": "hmx-development-version-control"},
+            task_id="session-1",
+            session_id="session-1",
+            tool_call_id="bg-skill",
+        )
+        hermes_progress_tail._on_post_tool_call(
+            "skill_manage",
+            {"action": "patch", "name": "hmx-development-version-control"},
+            result='{"success": true}',
+            task_id="session-1",
+            session_id="session-1",
+            tool_call_id="bg-skill",
+        )
+        await asyncio.sleep(0.05)
+
+        assert adapter.sent == []
+        renderer = hermes_progress_tail._get_renderer()
+        ctx = renderer.find_context("session-1")
+        assert list(ctx.tool_lines) == []
+        assert ctx.tool_started_count == 0
+        assert ctx.tool_completed_count == 0
+
+    asyncio.run(run())
+
+
 def test_post_llm_finalize_with_empty_session_id_uses_active_session(monkeypatch):
     async def run():
         adapter = Adapter()

@@ -6,7 +6,7 @@ from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.delegate_renderer import DelegateProgressRenderer
 from hermes_progress_tail.formatter import extract_todo_items, format_tool_line
 from hermes_progress_tail.renderer import ProgressRenderer
-from hermes_progress_tail.rendering.focused import semantic_activity
+from hermes_progress_tail.rendering.focused import focused_tools, semantic_activity
 from hermes_progress_tail.state import (
     AssistantEvent,
     BackgroundJobEvent,
@@ -104,6 +104,179 @@ def make_ctx(adapter, *, strategy="live_tail", timestamp=False, platform="discor
         strategy,
         timestamp=timestamp,
     )
+
+
+def test_focused_now_ignores_stale_tool_tail_when_no_tools_running():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"mode": "focused", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "skill_manage: patch hmx-development-version-control · running",
+                tool_call_id="bg-review-skill",
+                tool_name="skill_manage",
+            ),
+            force=True,
+        )
+        ctx.tool_started_count = 20
+        ctx.tool_completed_count = 25
+        ctx.tool_failed_count = 0
+
+        await renderer._render_live(ctx, force=True, ignore_backoff=True)
+        content = adapter.edits[-1][2]
+
+        assert "**State** 20 tools · 25 done · 0 running" in content
+        assert "**Now** skill_manage: patch hmx-development-version-control" not in content
+        assert "**Now** working" in content
+
+    asyncio.run(run())
+
+
+def test_focused_tools_respect_emoji_style_for_all_known_tool_icons():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False, "lines": 20},
+                        "renderer": {"mode": "focused", "style": "emoji"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        ctx.resize(20)
+        renderer.register_context(ctx)
+
+        tool_lines = [
+            ("skill_view", "📚 skill_view: hermes-agent"),
+            ("todo", "📋 todo: 1 in progress"),
+            ("terminal", "💻 terminal: pytest -q"),
+            ("search_files", '🔎 search_files: "pattern"'),
+            ("read_file", "📖 read_file: src/app.py:1+20"),
+            ("write_file", "✍️ write_file: src/app.py"),
+            ("patch", "🔧 patch: src/app.py replace"),
+            ("delegate_task", "🧑‍💻 delegate_task: inspect renderer"),
+            ("execute_code", "🐍 execute_code: print('ok') · 1 lines"),
+            ("multi_tool_use.parallel", "🧰 parallel: 2 tools"),
+            ("skill_manage", "⚙️ skill_manage: patch hermes-agent"),
+        ]
+        for index, (tool_name, line) in enumerate(tool_lines):
+            await renderer.handle_event(
+                ToolEvent(
+                    "s1",
+                    "k1",
+                    "telegram",
+                    f"✅ {line} · done · 0.{index}s",
+                    tool_call_id=f"call-{index}",
+                    tool_name=tool_name,
+                    replace_existing=False,
+                ),
+                force=True,
+            )
+
+        content = adapter.edits[-1][2]
+        for _, line in tool_lines:
+            assert line in content
+        assert "✓ skill_manage: patch hermes-agent" not in content
+
+    asyncio.run(run())
+
+
+def test_focused_tools_collapses_read_file_bursts_in_emoji_style():
+    async def run():
+        settings = load_settings(
+            {
+                "progress_tail": {
+                    "tools": {"timestamp": False, "lines": 20},
+                    "renderer": {"mode": "focused", "style": "emoji"},
+                }
+            }
+        )
+        ctx = make_ctx(EditableAdapter(), platform="telegram")
+        ctx.resize(20)
+        ctx.tool_lines.extend(
+            [
+                "✅ 📖 read_file: src/one.py:1+20 · done · 0.1s",
+                "✅ 📖 read_file: src/two.py:1+20 · done · 0.1s",
+                "✅ 📖 read_file: src/three.py:1+20 · done · 0.1s",
+                "💻 terminal: pytest -q · running",
+            ]
+        )
+
+        tools = focused_tools(ctx, settings=settings)
+
+        assert tools == "✓ read_file: 3 files · one.py, two.py, three.py\n→ 💻 terminal: pytest -q"
+
+    asyncio.run(run())
+
+
+def test_focused_tools_respect_plain_style_for_all_known_tool_icons():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False, "lines": 20},
+                        "renderer": {"mode": "focused", "style": "plain"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        ctx.resize(20)
+        renderer.register_context(ctx)
+
+        raw_lines = [
+            "✅ 📚 skill_view: hermes-agent · done · 0.1s",
+            "✅ 📋 todo: 1 in progress · done · 0.1s",
+            "✅ 💻 terminal: pytest -q · done · 0.1s",
+            '✅ 🔎 search_files: "pattern" · done · 0.1s',
+            "✅ 📖 read_file: src/app.py:1+20 · done · 0.1s",
+            "✅ ✍️ write_file: src/app.py · done · 0.1s",
+            "✅ 🔧 patch: src/app.py replace · done · 0.1s",
+            "✅ 🧑‍💻 delegate_task: inspect renderer · done · 0.1s",
+            "✅ 🐍 execute_code: print('ok') · 1 lines · done · 0.1s",
+            "✅ 🧰 parallel: 2 tools · done · 0.1s",
+            "✅ ⚙️ skill_manage: patch hermes-agent · done · 0.1s",
+        ]
+        for index, line in enumerate(raw_lines):
+            await renderer.handle_event(
+                ToolEvent(
+                    "s1",
+                    "k1",
+                    "telegram",
+                    line,
+                    tool_call_id=f"call-{index}",
+                    tool_name="tool",
+                    replace_existing=False,
+                ),
+                force=True,
+            )
+
+        content = adapter.edits[-1][2]
+        for emoji in ("📚", "📋", "💻", "🔎", "📖", "✍️", "🔧", "🧑‍💻", "🐍", "🧰", "⚙️"):
+            assert emoji not in content
+        assert "→ skill_manage: patch hermes-agent" in content
+
+    asyncio.run(run())
 
 
 def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():

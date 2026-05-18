@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import logging
 import time
 from pathlib import Path
@@ -523,6 +524,11 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
         job.poll_task = task
 
 
+def _is_background_review_thread() -> bool:
+    thread_name = str(getattr(threading.current_thread(), "name", "") or "").lower()
+    return thread_name == "bg-review" or thread_name.startswith("bg-review:")
+
+
 def _on_pre_tool_call(
     tool_name: str,
     args: dict | None = None,
@@ -532,6 +538,8 @@ def _on_pre_tool_call(
     preview: str | None = None,
     **_: Any,
 ):
+    if _is_background_review_thread():
+        return None
     renderer = _get_renderer()
     ctx = _context_for(renderer, session_id or task_id, task_id)
     if ctx is None:
@@ -572,6 +580,8 @@ def _on_post_tool_call(
     duration_ms: int | None = None,
     **_: Any,
 ):
+    if _is_background_review_thread():
+        return None
     renderer = _get_renderer()
     ctx = _context_for(renderer, session_id or task_id, task_id)
     if ctx is None or not ctx.tools_enabled:

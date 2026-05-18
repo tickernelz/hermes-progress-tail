@@ -20,6 +20,19 @@ _FORMATTED_LIVE_EDIT_PLATFORMS = frozenset(
         "dingtalk",
     }
 )
+TOOL_ICON_PREFIXES = (
+    "📚 ",
+    "📋 ",
+    "💻 ",
+    "🔎 ",
+    "📖 ",
+    "✍️ ",
+    "🔧 ",
+    "🧑‍💻 ",
+    "🐍 ",
+    "🧰 ",
+    "⚙️ ",
+)
 
 
 def compose_focused_content(renderer, ctx: SessionContext) -> str:
@@ -134,7 +147,7 @@ def focused_block(title: str, body: str, *, platform: str = "") -> str:
 
 
 def focused_now(ctx: SessionContext) -> str:
-    activity = latest_activity(ctx)
+    activity = latest_activity(ctx, active_only=True)
     return semantic_activity(activity) if activity else "working"
 
 
@@ -194,8 +207,8 @@ def short_filename(path: str) -> str:
     return cleaned.rstrip("/").rsplit("/", 1)[-1]
 
 
-def latest_activity(ctx: SessionContext) -> str:
-    if ctx.tool_lines:
+def latest_activity(ctx: SessionContext, *, active_only: bool = False) -> str:
+    if ctx.tool_lines and (not active_only or active_tool_count(ctx) > 0):
         return normalize_tool_line(ctx.tool_lines[-1])
     for branch_key in reversed(ctx.delegate_order):
         branch = ctx.delegate_branches.get(branch_key)
@@ -210,6 +223,13 @@ def latest_activity(ctx: SessionContext) -> str:
     if ctx.reasoning_text:
         return "reasoning"
     return "working"
+
+
+def active_tool_count(ctx: SessionContext) -> int:
+    total_tools = ctx.tool_started_count or len(ctx.tool_lines)
+    if not ctx.tool_started_count:
+        return 1 if ctx.tool_lines else 0
+    return max(0, total_tools - ctx.tool_completed_count - ctx.tool_failed_count)
 
 
 def focused_state(ctx: SessionContext) -> str:
@@ -269,9 +289,10 @@ def focused_tools(ctx: SessionContext, *, settings: Settings) -> str:
         return ""
     visible = list(ctx.tool_lines)[-settings.tools.lines :]
     rows = []
+    keep_tool_icon = settings.renderer.style == "emoji"
     for index, raw in enumerate(visible):
         marker = "→" if index == len(visible) - 1 else tool_done_marker(raw)
-        rows.append((marker, normalize_tool_line(raw), raw))
+        rows.append((marker, normalize_tool_line(raw, keep_tool_icon=keep_tool_icon), raw))
     return "\n".join(collapse_tool_rows(rows))
 
 
@@ -301,9 +322,17 @@ def collapse_tool_rows(rows: list[tuple[str, str, str]]) -> list[str]:
 
 
 def is_collapsible_read_file(line: str, raw: str) -> bool:
-    text = str(line or "")
+    text = strip_tool_icon(str(line or ""))
     raw_text = str(raw or "").lower()
     return text.startswith("read_file:") and "failed" not in raw_text
+
+
+def strip_tool_icon(text: str) -> str:
+    cleaned = str(text or "").lstrip()
+    for prefix in TOOL_ICON_PREFIXES:
+        if cleaned.startswith(prefix):
+            return cleaned[len(prefix) :]
+    return cleaned
 
 
 def format_read_file_burst(rows: list[tuple[str, str, str]]) -> str:
@@ -340,25 +369,18 @@ def extract_change_path(line: str) -> str:
     return cleaned.split()[0] if cleaned.split() else ""
 
 
-def normalize_tool_line(raw: str) -> str:
+def normalize_tool_line(raw: str, *, keep_tool_icon: bool = False) -> str:
     text = str(raw or "").strip()
     text = re.sub(r"^\[[^\]]+\]\s*", "", text)
-    for prefix in (
-        "✅ ",
-        "❌ ",
-        "🔎 ",
-        "📖 ",
-        "✍️ ",
-        "🔧 ",
-        "💻 ",
-        "📋 ",
-        "🧑‍💻 ",
-        "🐍 ",
-        "🧰 ",
-    ):
+    for prefix in ("✅ ", "❌ "):
         if text.startswith(prefix):
             text = text[len(prefix) :]
             break
+    if not keep_tool_icon:
+        for prefix in TOOL_ICON_PREFIXES:
+            if text.startswith(prefix):
+                text = text[len(prefix) :]
+                break
     text = text.replace(" · running", "").replace(" · done", "").replace(" · failed", "")
     return text.strip()
 
