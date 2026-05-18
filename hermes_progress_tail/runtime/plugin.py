@@ -31,7 +31,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.1.44"
+VERSION = "0.1.45"
 _ASSISTANT_CAPTURE: dict[str, Any] = {
     "status": "never",
     "session_id": "",
@@ -650,6 +650,30 @@ def on_reasoning_delta_from_agent(
         return
     _schedule_render(
         ctx, ReasoningEvent(ctx.session_id, ctx.session_key, ctx.platform, text, source=source)
+    )
+
+
+def on_compression_status_from_agent(agent: Any, text: str) -> bool:
+    clean = str(text or "").strip()
+    if not clean:
+        return False
+    renderer = _get_renderer()
+    session_id = _agent_session_id(agent)
+    session_key = _agent_session_key(agent)
+    ctx = _context_for(renderer, session_id, session_key)
+    if ctx is None:
+        return False
+    if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
+        return False
+    return _schedule_render(
+        ctx,
+        AssistantEvent(
+            ctx.session_id,
+            ctx.session_key,
+            ctx.platform,
+            "Compacting context — summarizing earlier conversation",
+            already_streamed=False,
+        ),
     )
 
 

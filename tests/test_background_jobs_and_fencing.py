@@ -1,7 +1,14 @@
 import asyncio
 import time
+import types
 
 from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.monkeypatches import (
+    install_compression_status_monkeypatch,
+    install_process_notification_monkeypatch,
+    uninstall_compression_status_monkeypatch,
+    uninstall_process_notification_monkeypatch,
+)
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import BackgroundJobEvent, SessionContext, ToolEvent
 
@@ -213,6 +220,112 @@ def test_background_job_filters_wsl_login_banner_noise():
         assert "background smoke done" in content
 
     asyncio.run(run())
+
+
+def test_process_completion_notifications_are_suppressed_when_progress_tail_owns_them():
+    calls = []
+
+    module = types.SimpleNamespace(
+        format_process_notification=lambda evt: calls.append(evt) or "native notification",
+        _hermes_progress_tail_process_notification_patched=False,
+    )
+
+    install_process_notification_monkeypatch(module)
+
+    try:
+        text = module.format_process_notification(
+            {
+                "type": "completion",
+                "session_id": "proc_bg",
+                "command": "pytest -q",
+                "exit_code": 0,
+                "output": "312 passed",
+            }
+        )
+    finally:
+        uninstall_process_notification_monkeypatch(module)
+
+    assert text is None
+    assert calls == []
+
+
+def test_process_failure_notifications_are_compacted_not_dumped():
+    module = types.SimpleNamespace(
+        format_process_notification=lambda evt: "native full output",
+        _hermes_progress_tail_process_notification_patched=False,
+    )
+
+    install_process_notification_monkeypatch(module)
+
+    try:
+        text = module.format_process_notification(
+            {
+                "type": "completion",
+                "session_id": "proc_fail",
+                "command": "pytest -q",
+                "exit_code": 1,
+                "output": "line one\nline two\nline three\nline four",
+            }
+        )
+    finally:
+        uninstall_process_notification_monkeypatch(module)
+
+    assert text is not None
+    assert "proc_fail" in text
+    assert "exit 1" in text
+    assert "line four" in text
+    assert "line one" not in text
+    assert "native full output" not in text
+
+
+def test_compression_status_is_suppressed_when_progress_tail_captures_it(monkeypatch):
+    import hermes_progress_tail.plugin as plugin
+
+    captured = []
+    monkeypatch.setattr(
+        plugin,
+        "on_compression_status_from_agent",
+        lambda agent, text: captured.append(text) or True,
+    )
+
+    class FakeAgent:
+        def _emit_status(self, text):
+            return f"native:{text}"
+
+    install_compression_status_monkeypatch(FakeAgent)
+
+    try:
+        agent = FakeAgent()
+        result = agent._emit_status(
+            "🗜️ Compacting context — summarizing earlier conversation so I can continue..."
+        )
+    finally:
+        uninstall_compression_status_monkeypatch(FakeAgent)
+
+    assert result is None
+    assert captured == [
+        "🗜️ Compacting context — summarizing earlier conversation so I can continue..."
+    ]
+
+
+def test_compression_status_falls_back_to_native_when_not_captured(monkeypatch):
+    import hermes_progress_tail.plugin as plugin
+
+    monkeypatch.setattr(plugin, "on_compression_status_from_agent", lambda agent, text: False)
+
+    class FakeAgent:
+        def _emit_status(self, text):
+            return f"native:{text}"
+
+    install_compression_status_monkeypatch(FakeAgent)
+
+    try:
+        agent = FakeAgent()
+        result = agent._emit_status("🗜️ Compacting context — summarizing earlier conversation")
+    finally:
+        uninstall_compression_status_monkeypatch(FakeAgent)
+
+    assert result == "native:🗜️ Compacting context — summarizing earlier conversation"
 
 
 def test_code_fence_auto_wraps_discord_but_not_telegram_or_webhook():

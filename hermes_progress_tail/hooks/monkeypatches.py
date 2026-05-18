@@ -10,10 +10,14 @@ _ORIGINALS: dict[type, dict[str, Any]] = {}
 _ADAPTER_ORIGINALS: dict[type, dict[str, Any]] = {}
 _DELEGATE_ORIGINALS: dict[int, tuple[Any, Any]] = {}
 _TELEGRAM_ORIGINALS: dict[type, Any] = {}
+_PROCESS_NOTIFICATION_ORIGINALS: dict[int, tuple[Any, Any]] = {}
+_COMPRESSION_STATUS_ORIGINALS: dict[type, Any] = {}
 _NOOP_MARKER = "_hermes_progress_tail_noop"
 _PATCH_MARKER = "_hermes_progress_tail_patched"
 _DELEGATE_PATCH_MARKER = "_hermes_progress_tail_delegate_patched"
 _TELEGRAM_PATCH_MARKER = "_hermes_progress_tail_telegram_format_patched"
+_PROCESS_NOTIFICATION_PATCH_MARKER = "_hermes_progress_tail_process_notification_patched"
+_COMPRESSION_STATUS_PATCH_MARKER = "_hermes_progress_tail_compression_status_patched"
 
 
 def _noop_reasoning_callback(_text: str) -> None:
@@ -28,7 +32,9 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     adapter_ok = install_adapter_monkeypatches(agent_cls)
     delegate_ok = install_delegate_monkeypatches()
     telegram_ok = install_telegram_format_monkeypatch()
-    return agent_ok or adapter_ok or delegate_ok or telegram_ok
+    process_ok = install_process_notification_monkeypatch()
+    compression_ok = install_compression_status_monkeypatch(agent_cls)
+    return any((agent_ok, adapter_ok, delegate_ok, telegram_ok, process_ok, compression_ok))
 
 
 def install_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
@@ -74,6 +80,127 @@ def install_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
     adapter_cls.handle_message = patched_handle_message
     adapter_cls._hermes_progress_tail_adapter_patched = True
     return True
+
+
+def install_process_notification_monkeypatch(process_module: Any | None = None) -> bool:
+    if process_module is None:
+        try:
+            from tools import process_registry as process_module
+        except Exception as exc:
+            logger.debug("hermes-progress-tail could not import process_registry: %s", exc)
+            return False
+    if getattr(process_module, _PROCESS_NOTIFICATION_PATCH_MARKER, False):
+        return True
+    original = getattr(process_module, "format_process_notification", None)
+    if original is None:
+        logger.debug(
+            "hermes-progress-tail process notification monkeypatch disabled: formatter missing"
+        )
+        return False
+    _PROCESS_NOTIFICATION_ORIGINALS[id(process_module)] = (process_module, original)
+
+    @wraps(original)
+    def patched_format_process_notification(evt: dict):
+        if _should_suppress_native_process_notification(evt):
+            return None
+        compact = _compact_process_failure_notification(evt)
+        if compact is not None:
+            return compact
+        return original(evt)
+
+    process_module.format_process_notification = patched_format_process_notification
+    setattr(process_module, _PROCESS_NOTIFICATION_PATCH_MARKER, True)
+    return True
+
+
+def _should_suppress_native_process_notification(evt: Any) -> bool:
+    if not isinstance(evt, dict):
+        return False
+    event_type = str(evt.get("type") or "")
+    if event_type in {
+        "watch_match",
+        "watch_disabled",
+        "watch_overflow_tripped",
+        "watch_overflow_released",
+    }:
+        return True
+    if event_type != "completion":
+        return False
+    try:
+        exit_code = int(evt.get("exit_code") or 0)
+    except (TypeError, ValueError):
+        exit_code = 0
+    return exit_code == 0
+
+
+def _compact_process_failure_notification(evt: Any) -> str | None:
+    if not isinstance(evt, dict) or evt.get("type") != "completion":
+        return None
+    try:
+        exit_code = int(evt.get("exit_code") or 0)
+    except (TypeError, ValueError):
+        return None
+    if exit_code == 0:
+        return None
+    process_id = str(evt.get("session_id") or "process")
+    command = " ".join(str(evt.get("command") or "").split())
+    output = _process_output_tail(str(evt.get("output") or ""))
+    header = f"[Background process {process_id} failed with exit {exit_code}"
+    if command:
+        header += f": {command}"
+    header += "]"
+    if output:
+        return f"{header}\nOutput tail:\n{output}"
+    return header
+
+
+def _process_output_tail(output: str, *, max_lines: int = 3, max_chars: int = 800) -> str:
+    lines = [line.rstrip() for line in output.splitlines() if line.strip()]
+    tail = "\n".join(lines[-max_lines:])
+    if len(tail) > max_chars:
+        return tail[-max_chars:]
+    return tail
+
+
+def install_compression_status_monkeypatch(agent_cls: type | None = None) -> bool:
+    if agent_cls is None:
+        try:
+            from run_agent import AIAgent as agent_cls
+        except Exception as exc:
+            logger.debug("hermes-progress-tail could not import AIAgent for compression: %s", exc)
+            return False
+    if getattr(agent_cls, _COMPRESSION_STATUS_PATCH_MARKER, False):
+        return True
+    emit_status = getattr(agent_cls, "_emit_status", None)
+    if emit_status is None:
+        logger.debug("hermes-progress-tail compression status monkeypatch disabled: API missing")
+        return False
+    _COMPRESSION_STATUS_ORIGINALS[agent_cls] = emit_status
+
+    @wraps(emit_status)
+    def patched_emit_status(self, text, *args, **kwargs):
+        if _looks_like_compression_status(text):
+            handled = False
+            try:
+                from ..runtime.plugin import on_compression_status_from_agent
+
+                handled = on_compression_status_from_agent(self, str(text or ""))
+            except Exception:
+                logger.debug(
+                    "hermes-progress-tail compression status capture failed", exc_info=True
+                )
+            if handled:
+                return None
+        return emit_status(self, text, *args, **kwargs)
+
+    agent_cls._emit_status = patched_emit_status
+    setattr(agent_cls, _COMPRESSION_STATUS_PATCH_MARKER, True)
+    return True
+
+
+def _looks_like_compression_status(text: Any) -> bool:
+    value = str(text or "").lower()
+    return "compacting context" in value or "compacting" in value and "context" in value
 
 
 def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None) -> bool:
@@ -448,7 +575,9 @@ def uninstall_monkeypatches(agent_cls: type | None = None) -> bool:
     adapter_ok = uninstall_adapter_monkeypatches(agent_cls)
     delegate_ok = uninstall_delegate_monkeypatches()
     telegram_ok = uninstall_telegram_format_monkeypatch()
-    return agent_ok or adapter_ok or delegate_ok or telegram_ok
+    process_ok = uninstall_process_notification_monkeypatch()
+    compression_ok = uninstall_compression_status_monkeypatch(agent_cls)
+    return any((agent_ok, adapter_ok, delegate_ok, telegram_ok, process_ok, compression_ok))
 
 
 def uninstall_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
@@ -483,6 +612,41 @@ def uninstall_telegram_format_monkeypatch(telegram_adapter_cls: type | None = No
         delattr(telegram_adapter_cls, _TELEGRAM_PATCH_MARKER)
     except Exception:
         setattr(telegram_adapter_cls, _TELEGRAM_PATCH_MARKER, False)
+    return True
+
+
+def uninstall_process_notification_monkeypatch(process_module: Any | None = None) -> bool:
+    if process_module is None:
+        try:
+            from tools import process_registry as process_module
+        except Exception:
+            return False
+    entry = _PROCESS_NOTIFICATION_ORIGINALS.pop(id(process_module), None)
+    if entry is None:
+        return False
+    _, original = entry
+    process_module.format_process_notification = original
+    try:
+        delattr(process_module, _PROCESS_NOTIFICATION_PATCH_MARKER)
+    except Exception:
+        setattr(process_module, _PROCESS_NOTIFICATION_PATCH_MARKER, False)
+    return True
+
+
+def uninstall_compression_status_monkeypatch(agent_cls: type | None = None) -> bool:
+    if agent_cls is None:
+        try:
+            from run_agent import AIAgent as agent_cls
+        except Exception:
+            return False
+    original = _COMPRESSION_STATUS_ORIGINALS.pop(agent_cls, None)
+    if original is None:
+        return False
+    agent_cls._emit_status = original
+    try:
+        delattr(agent_cls, _COMPRESSION_STATUS_PATCH_MARKER)
+    except Exception:
+        setattr(agent_cls, _COMPRESSION_STATUS_PATCH_MARKER, False)
     return True
 
 
