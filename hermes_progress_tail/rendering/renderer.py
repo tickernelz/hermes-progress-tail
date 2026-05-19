@@ -120,6 +120,33 @@ class ProgressRenderer:
             return self.sessions.get(self.session_keys[session_key])
         return None
 
+    def migrate_context(
+        self, old_session_id: str, new_session_id: str, session_key: str = ""
+    ) -> bool:
+        old_session_id = str(old_session_id or "")
+        new_session_id = str(new_session_id or "")
+        session_key = str(session_key or "")
+        if not old_session_id or not new_session_id or old_session_id == new_session_id:
+            return False
+        ctx = self.sessions.pop(old_session_id, None)
+        if ctx is None:
+            ctx = self.find_context("", session_key)
+            if ctx is None:
+                return False
+            self.sessions.pop(ctx.session_id, None)
+        if ctx.session_key:
+            self.session_keys.pop(ctx.session_key, None)
+        ctx.session_id = new_session_id
+        if session_key:
+            ctx.session_key = session_key
+        self._cancel_delete(ctx)
+        ctx.progress_state = "active"
+        ctx.finalized_at = 0.0
+        self.sessions[new_session_id] = ctx
+        if ctx.session_key:
+            self.session_keys[ctx.session_key] = new_session_id
+        return True
+
     def purge(self, session_id: str = "", platform: str = "") -> None:
         if session_id:
             ctx = self.sessions.pop(session_id, None)

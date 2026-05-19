@@ -346,12 +346,16 @@ def register_context_from_adapter_event(adapter: Any, event: Any) -> None:
 def _schedule_render(
     ctx: SessionContext,
     event: ToolEvent | ReasoningEvent | AssistantEvent | DelegateEvent | BackgroundJobEvent,
+    *,
+    force: bool = False,
 ) -> bool:
     renderer = _get_renderer()
     if ctx.loop is None:
         return False
     try:
-        future = asyncio.run_coroutine_threadsafe(renderer.handle_event(event), ctx.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            renderer.handle_event(event, force=force), ctx.loop
+        )
 
         def _consume_done(fut):
             try:
@@ -673,6 +677,58 @@ def _compression_status_tail_text(text: str) -> str:
     return "Compacting context — summarizing earlier conversation"
 
 
+def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> bool:
+    renderer = _get_renderer()
+    old_session_id = str(data.get("old_session_id") or "")
+    new_session_id = str(data.get("new_session_id") or _agent_session_id(agent) or old_session_id)
+    session_key = _agent_session_key(agent)
+    if old_session_id and new_session_id and old_session_id != new_session_id:
+        renderer.migrate_context(old_session_id, new_session_id, session_key=session_key)
+    ctx = _context_for(renderer, new_session_id or old_session_id, session_key)
+    if ctx is None or not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
+        return False
+    if phase == "started":
+        text = "Compacting context — summarizing earlier conversation"
+    elif phase == "completed":
+        text = _compression_lifecycle_completed_text(data)
+    elif phase == "failed":
+        text = "Context compaction failed — continuing unchanged"
+    else:
+        return False
+    return _schedule_render(
+        ctx,
+        AssistantEvent(
+            ctx.session_id,
+            ctx.session_key,
+            ctx.platform,
+            text,
+            already_streamed=False,
+            transient=True,
+        ),
+        force=True,
+    )
+
+
+def _compression_lifecycle_completed_text(data: dict[str, Any]) -> str:
+    before_count = _int_kw(data.get("before_count"), 0)
+    after_count = _int_kw(data.get("after_count"), 0)
+    before_tokens = _int_kw(data.get("before_tokens"), 0)
+    after_tokens = _int_kw(data.get("after_tokens"), 0)
+    if before_count and after_count and after_count < before_count:
+        text = f"Context compacted · {before_count} → {after_count} messages"
+    else:
+        text = "Context compaction checked"
+    if before_tokens and after_tokens:
+        text += f" · {_compact_count(before_tokens)} → {_compact_count(after_tokens)} tokens"
+    return text
+
+
+def _compact_count(value: int) -> str:
+    if value >= 1000:
+        return f"{round(value / 1000):.0f}k"
+    return str(value)
+
+
 def on_assistant_progress_from_agent(
     agent: Any, text: str, *, already_streamed: bool = False
 ) -> bool:
@@ -773,11 +829,16 @@ def _float_kw(value: Any, default: float) -> float:
         return default
 
 
-def _finalize_target_context(renderer: ProgressRenderer, session_id: str = "", platform: str = ""):
-    ctx = renderer.find_context(session_id)
+def _finalize_target_context(
+    renderer: ProgressRenderer,
+    session_id: str = "",
+    platform: str = "",
+    session_key: str = "",
+):
+    ctx = renderer.find_context(session_id, session_key)
     if ctx is not None:
         return ctx
-    if session_id:
+    if session_id and not session_key:
         return None
     active = [
         candidate
@@ -787,9 +848,11 @@ def _finalize_target_context(renderer: ProgressRenderer, session_id: str = "", p
     return active[0] if len(active) == 1 else None
 
 
-def _schedule_finalize(session_id: str = "", platform: str = "", *, purge: bool = False) -> None:
+def _schedule_finalize(
+    session_id: str = "", platform: str = "", session_key: str = "", *, purge: bool = False
+) -> None:
     renderer = _get_renderer()
-    ctx = _finalize_target_context(renderer, session_id, platform)
+    ctx = _finalize_target_context(renderer, session_id, platform, session_key)
     if ctx is None or ctx.loop is None:
         if purge:
             renderer.purge(session_id=session_id, platform=platform)
@@ -818,7 +881,7 @@ def _on_post_llm_call(session_id: str = "", agent: Any = None, **_: Any):
             _reset_inline_reasoning_state(agent)
         except Exception:
             logger.debug("hermes-progress-tail inline think reset failed", exc_info=True)
-    _schedule_finalize(session_id=session_id)
+    _schedule_finalize(session_id=session_id, session_key=_agent_session_key(agent))
     return None
 
 
@@ -842,7 +905,9 @@ def _on_session_finalize(session_id: str = "", platform: str = "", agent: Any = 
             _reset_inline_reasoning_state(agent)
         except Exception:
             logger.debug("hermes-progress-tail inline think reset failed", exc_info=True)
-    _schedule_finalize(session_id=session_id, platform=platform, purge=True)
+    _schedule_finalize(
+        session_id=session_id, platform=platform, session_key=_agent_session_key(agent), purge=True
+    )
     return None
 
 
