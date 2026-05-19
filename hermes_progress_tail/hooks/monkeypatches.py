@@ -51,7 +51,12 @@ def format_progress_tail_telegram_markdown(content: str, formatter: Any) -> str:
         title = _escape_telegram_mdv2(match.group(1).strip())
         return stash(f"*__{title}__*")
 
+    def bold_italic_repl(match):
+        body = _escape_telegram_mdv2(match.group(1).strip())
+        return stash(f"*_{body}_*")
+
     text = _replace_outside_code(text, r"\*\*__([^\n*_][^\n]*?)__\*\*", title_repl)
+    text = _replace_outside_code(text, r"\*\*\*([^\n*][^\n]*?)\*\*\*", bold_italic_repl)
     formatted = formatter(text)
     for key, value in placeholders.items():
         formatted = formatted.replace(_escape_telegram_mdv2(key), value).replace(key, value)

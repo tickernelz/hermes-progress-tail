@@ -61,7 +61,7 @@ def test_telegram_format_monkeypatch_renders_focused_titles_and_italic_body(monk
         adapter.edit_message(
             "123",
             "456",
-            "**__Reasoning__**\n*Reviewing repository analysis*\n\n**__Tools__**\n✓ tool",
+            "**__Reasoning__**\n***Considering optimization response***\n*Reviewing repository analysis*\n\n**__Tools__**\n✓ tool",
         )
     )
 
@@ -69,7 +69,7 @@ def test_telegram_format_monkeypatch_renders_focused_titles_and_italic_body(monk
     adapter._bot.edit_message_text.assert_awaited_once_with(
         chat_id=123,
         message_id=456,
-        text="*__Reasoning__*\n_Reviewing repository analysis_\n\n*__Tools__*\n✓ tool",
+        text="*__Reasoning__*\n*_Considering optimization response_*\n_Reviewing repository analysis_\n\n*__Tools__*\n✓ tool",
         parse_mode="MarkdownV2",
     )
     uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
