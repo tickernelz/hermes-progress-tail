@@ -47,7 +47,6 @@ def make_ctx(adapter, *, session_id="s1", session_key="k1", platform="telegram")
         asyncio.get_running_loop(),
         "live_tail",
         timestamp=False,
-        code_fence="off",
     )
 
 
@@ -57,7 +56,6 @@ def make_renderer(config=None):
             {
                 "progress_tail": {
                     "tools": {"timestamp": False},
-                    "renderer": {"code_fence": "off"},
                     **(config or {}),
                 }
             }

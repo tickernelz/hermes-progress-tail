@@ -39,7 +39,7 @@ class EditableAdapter:
         return Result(True, message_id)
 
 
-def make_ctx(adapter, *, platform="discord", strategy="live_tail", code_fence="off"):
+def make_ctx(adapter, *, platform="discord", strategy="live_tail"):
     return SessionContext(
         "s1",
         "k1",
@@ -50,7 +50,6 @@ def make_ctx(adapter, *, platform="discord", strategy="live_tail", code_fence="o
         asyncio.get_running_loop(),
         strategy,
         timestamp=False,
-        code_fence=code_fence,
     )
 
 
@@ -62,7 +61,6 @@ def test_background_job_renders_head_tail_completion_and_survives_finalize():
                 {
                     "progress_tail": {
                         "tools": {"timestamp": False},
-                        "renderer": {"code_fence": "off"},
                         "background_jobs": {
                             "head_lines": 1,
                             "tail_lines": 2,
@@ -142,7 +140,6 @@ def test_background_job_secret_output_is_redacted_and_ansi_is_stripped():
                 {
                     "progress_tail": {
                         "tools": {"timestamp": False},
-                        "renderer": {"code_fence": "off"},
                     }
                 }
             )
@@ -176,7 +173,6 @@ def test_background_job_filters_wsl_login_banner_noise():
                 {
                     "progress_tail": {
                         "tools": {"timestamp": False},
-                        "renderer": {"code_fence": "off"},
                         "background_jobs": {"head_lines": 2, "tail_lines": 3},
                     }
                 }
@@ -399,95 +395,33 @@ def test_compression_status_falls_back_to_native_when_not_captured(monkeypatch):
     assert result == "native:🗜️ Compacting context — summarizing earlier conversation"
 
 
-def test_code_fence_auto_wraps_discord_but_not_telegram_or_webhook():
+def test_progress_messages_never_add_code_fences():
     async def run():
-        discord_adapter = EditableAdapter()
+        for platform in ("discord", "telegram", "webhook"):
+            renderer = ProgressRenderer(
+                load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+            )
+            adapter = EditableAdapter()
+            ctx = make_ctx(adapter, platform=platform)
+            renderer.register_context(ctx)
+            await renderer.handle_event(
+                ToolEvent("s1", "k1", platform, "prefix ``` stays literal"), force=True
+            )
+            content = adapter.sent[0][1]
+            assert not content.startswith("```")
+            assert not content.endswith("\n```")
+            assert "``` stays literal" in content
+
+    asyncio.run(run())
+
+
+def test_telegram_progress_still_respects_message_limit_without_code_fence():
+    async def run():
+        adapter = EditableAdapter()
         renderer = ProgressRenderer(
             load_settings({"progress_tail": {"tools": {"timestamp": False}}})
         )
-        discord_ctx = make_ctx(discord_adapter, platform="discord", code_fence="auto")
-        renderer.register_context(discord_ctx)
-        await renderer.handle_event(ToolEvent("s1", "k1", "discord", "tool one"), force=True)
-        assert discord_adapter.sent[0][1].startswith("```\n")
-        assert discord_adapter.sent[0][1].endswith("\n```")
-
-        telegram_adapter = EditableAdapter()
-        telegram_ctx = SessionContext(
-            "s3",
-            "k3",
-            "telegram",
-            "chat",
-            None,
-            telegram_adapter,
-            asyncio.get_running_loop(),
-            "live_tail",
-            timestamp=False,
-            code_fence="auto",
-        )
-        renderer.register_context(telegram_ctx)
-        await renderer.handle_event(ToolEvent("s3", "k3", "telegram", "tool three"), force=True)
-        assert not telegram_adapter.sent[0][1].startswith("```")
-
-        webhook_adapter = EditableAdapter()
-        webhook_ctx = SessionContext(
-            "s2",
-            "k2",
-            "webhook",
-            "chat",
-            None,
-            webhook_adapter,
-            asyncio.get_running_loop(),
-            "live_tail",
-            timestamp=False,
-            code_fence="auto",
-        )
-        renderer.register_context(webhook_ctx)
-        await renderer.handle_event(ToolEvent("s2", "k2", "webhook", "tool two"), force=True)
-        assert not webhook_adapter.sent[0][1].startswith("```")
-
-    asyncio.run(run())
-
-
-def test_code_fence_escapes_internal_fences_for_supported_platforms():
-    async def run():
-        adapter = EditableAdapter()
-        renderer = ProgressRenderer(
-            load_settings(
-                {
-                    "progress_tail": {
-                        "tools": {"timestamp": False},
-                        "renderer": {"code_fence": "auto"},
-                    }
-                }
-            )
-        )
-        ctx = make_ctx(adapter, platform="discord", code_fence="auto")
-        renderer.register_context(ctx)
-        await renderer.handle_event(
-            ToolEvent("s1", "k1", "discord", "prefix ``` unsafe"), force=True
-        )
-        content = adapter.sent[0][1]
-        assert content.startswith("```\n")
-        assert content.endswith("\n```")
-        assert "`\u200b`` unsafe" in content
-
-    asyncio.run(run())
-
-
-def test_telegram_code_fence_on_is_ignored_and_respects_message_limit():
-    async def run():
-        adapter = EditableAdapter()
-        renderer = ProgressRenderer(
-            load_settings(
-                {
-                    "progress_tail": {
-                        "tools": {"timestamp": False},
-                        "renderer": {"code_fence": "auto"},
-                    }
-                }
-            )
-        )
-        ctx = make_ctx(adapter, platform="telegram", code_fence="on")
+        ctx = make_ctx(adapter, platform="telegram")
         renderer.register_context(ctx)
         huge = "prefix ``` unsafe\n" + ("x" * 5000)
         await renderer.handle_event(ToolEvent("s1", "k1", "telegram", huge), force=True)

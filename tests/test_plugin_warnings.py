@@ -38,7 +38,7 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
         "ttl=180s head=2 tail=3 update=3s suppress_native_notify=True suppress_watch=True"
     ) in status
     assert "renderer=mode:sectioned strategy:auto style:emoji density:normal" in status
-    assert "code_fence:auto" in status
+    assert "code_fence" not in status
     assert "agent_label:-" in status
     assert "display.show_reasoning=True" in status
 
@@ -115,24 +115,6 @@ def test_doctor_reports_display_warning_and_session_errors(monkeypatch):
     assert "downgraded=edit not supported" in doctor
 
 
-def test_doctor_warns_when_telegram_code_fence_is_forced_on(monkeypatch):
-    plugin._renderer = None
-    config = {
-        "display": {"tool_progress": "off", "show_reasoning": False},
-        "agent": {"gateway_notify_interval": 0},
-        "progress_tail": {
-            "enabled": True,
-            "renderer": {"code_fence": "on"},
-        },
-    }
-    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
-    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
-
-    doctor = plugin._command("doctor")
-
-    assert "warning: Telegram progress code_fence=on is unsupported" in doctor
-
-
 def test_doctor_reports_unknown_and_retired_config_keys(monkeypatch):
     plugin._renderer = None
     config = {
@@ -141,9 +123,10 @@ def test_doctor_reports_unknown_and_retired_config_keys(monkeypatch):
         "progress_tail": {
             "enabled": True,
             "tools": {"enabled": True, "typo_lines": 4},
+            "renderer": {"code_fence": "on"},
             "background_jobs": {"default_notify_on_complete": False},
             "finalization": {"delete_on_success": True},
-            "platforms": {"telegram": {"bogus": "value"}},
+            "platforms": {"telegram": {"bogus": "value", "code_fence": "on"}},
         },
     }
     monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
@@ -157,7 +140,9 @@ def test_doctor_reports_unknown_and_retired_config_keys(monkeypatch):
         in doctor
     )
     assert "warning: unknown config key progress_tail.tools.typo_lines" in doctor
+    assert "warning: unknown config key progress_tail.renderer.code_fence" in doctor
     assert "warning: unknown config key progress_tail.platforms.telegram.bogus" in doctor
+    assert "warning: unknown config key progress_tail.platforms.telegram.code_fence" in doctor
 
 
 def test_doctor_warns_when_background_job_native_notifications_are_not_suppressed(monkeypatch):

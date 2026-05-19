@@ -18,7 +18,7 @@ from ..models.state import (
     SessionContext,
     ToolEvent,
 )
-from ..settings.config import CODE_FENCE_DEFAULTS, Settings
+from ..settings.config import Settings
 from .background_jobs import (
     apply_background_job_event,
     background_jobs_section,
@@ -733,14 +733,7 @@ class ProgressRenderer:
             ctx.disabled = True
 
     def _prepare_message(self, ctx: SessionContext, content: str) -> str:
-        fence = self._should_code_fence(ctx)
-        limit = self._message_limit(ctx)
-        overhead = self._code_fence_overhead() if fence else 0
-        body_limit = max(0, limit - overhead) if limit > 0 else 0
-        content = self._fit_message(content, body_limit)
-        if fence:
-            content = self._code_fence(content)
-        return self._fit_message(content, limit)
+        return self._fit_message(content, self._message_limit(ctx))
 
     @staticmethod
     def _fit_message(content: str, limit: int) -> str:
@@ -753,23 +746,6 @@ class ProgressRenderer:
         head_budget = min(180, max(0, budget // 4))
         tail_budget = max(0, budget - head_budget)
         return content[:head_budget].rstrip() + marker + content[-tail_budget:].lstrip()
-
-    def _should_code_fence(self, ctx: SessionContext) -> bool:
-        ctx_mode = str(getattr(ctx, "code_fence", "") or "").lower()
-        mode = ctx_mode or self.settings.renderer.code_fence
-        if mode == "off":
-            return False
-        if mode == "on":
-            return ctx.platform in CODE_FENCE_DEFAULTS
-        return ctx.platform in CODE_FENCE_DEFAULTS
-
-    def _code_fence(self, content: str) -> str:
-        lang = self.settings.renderer.code_fence_language.strip()
-        safe = content.replace("```", "`\u200b``")
-        return f"```{lang}\n{safe}\n```"
-
-    def _code_fence_overhead(self) -> int:
-        return len(f"```{self.settings.renderer.code_fence_language.strip()}\n\n```")
 
     @staticmethod
     def _message_limit(ctx: SessionContext) -> int:

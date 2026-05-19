@@ -54,10 +54,7 @@ def test_readme_documents_background_job_defaults_without_finalization_config():
     assert "mode: focused # focused|sectioned" in readme
     assert "mode: focused # focused|sectioned|compact" not in readme
     assert "density: verbose # compact|normal|verbose|debug" in readme
-    assert (
-        "code_fence: auto # auto|on|off; auto fences Discord/Slack/Mattermost, not Telegram"
-        in readme
-    )
+    assert "code_fence" not in readme
 
 
 def test_readme_documents_assistant_platforms_and_config_doctor_warnings():
@@ -66,7 +63,6 @@ def test_readme_documents_assistant_platforms_and_config_doctor_warnings():
     assert "assistant:" in readme
     assert "min_update_chars: 40" in readme
     assert "platforms:" in readme
-    assert "telegram:" in readme
     assert "discord:" in readme
     assert "tools_enabled" in readme
     assert "background_jobs_enabled" in readme

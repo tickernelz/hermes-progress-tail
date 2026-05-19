@@ -27,6 +27,17 @@ def _noop_reasoning_callback(_text: str) -> None:
 setattr(_noop_reasoning_callback, _NOOP_MARKER, True)
 
 
+def _telegram_edit_target_lost(error_text: str) -> bool:
+    text = str(error_text or "").lower()
+    return (
+        "message to edit not found" in text
+        or "message not found" in text
+        or "message_id_invalid" in text
+        or "unknown message" in text
+        or ("message_id" in text and "not found" in text)
+    )
+
+
 def install_monkeypatches(agent_cls: type | None = None) -> bool:
     agent_ok = install_agent_monkeypatches(agent_cls)
     adapter_ok = install_adapter_monkeypatches(agent_cls)
@@ -252,8 +263,22 @@ def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None
             )
             return SendResult(success=True, message_id=message_id)
         except Exception as fmt_err:
-            if "not modified" in str(fmt_err).lower():
+            err_text = str(fmt_err)
+            err_lower = err_text.lower()
+            if "not modified" in err_lower:
                 return SendResult(success=True, message_id=message_id)
+            if _telegram_edit_target_lost(err_lower):
+                logger.debug(
+                    "hermes-progress-tail Telegram live edit target disappeared; "
+                    "requesting fresh progress message",
+                    exc_info=True,
+                )
+                return SendResult(
+                    success=False,
+                    message_id=message_id,
+                    error=f"message_lost: {err_text}",
+                    retryable=False,
+                )
             logger.debug(
                 "hermes-progress-tail Telegram formatted live edit failed; falling back plain",
                 exc_info=True,

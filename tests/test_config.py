@@ -29,7 +29,8 @@ def test_load_settings_defaults():
         load_settings({"progress_tail": {"renderer": {"density": "verbose"}}}).renderer.density
         == "verbose"
     )
-    assert settings.renderer.code_fence == "auto"
+    assert not hasattr(settings.renderer, "code_fence")
+    assert not hasattr(settings.renderer, "code_fence_language")
     assert settings.background_jobs.enabled is True
     assert settings.background_jobs.suppress_native_notify is True
     assert settings.background_jobs.max_jobs == 4
@@ -55,7 +56,6 @@ def test_resolve_platform_override():
                         "lines": 2,
                         "delegates": False,
                         "background_jobs": False,
-                        "code_fence": "off",
                     }
                 },
             }
@@ -71,7 +71,7 @@ def test_resolve_platform_override():
     assert platform.timestamp is False
     assert platform.delegates_enabled is False
     assert platform.background_jobs_enabled is False
-    assert platform.code_fence == "off"
+    assert not hasattr(platform, "code_fence")
     assert settings.delegates.max_delegates == 2
     assert settings.delegates.lines_per_delegate == 1
 

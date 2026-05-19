@@ -160,8 +160,6 @@ progress_tail:
     style: emoji # emoji|plain
     density: verbose # compact|normal|verbose|debug
     agent_label: "" # optional label for focused HUD header, e.g. Akbar
-    code_fence: auto # auto|on|off; auto fences Discord/Slack/Mattermost, not Telegram
-    code_fence_language: ""
 
   no_edit:
     interval_seconds: 30
@@ -170,8 +168,6 @@ progress_tail:
     max_snapshots_per_turn: 5
 
   platforms:
-    telegram:
-      code_fence: off
     discord:
       strategy: live_tail
       tools_enabled: true
@@ -181,7 +177,7 @@ progress_tail:
       background_jobs_enabled: true
 ```
 
-`platforms.<name>` overrides support `enabled`, `strategy`, line/preview/edit timing fields, `show_completed`, feature toggles (`tools_enabled`, `assistant_enabled`, `reasoning_enabled`, `delegates_enabled`, `background_jobs_enabled`), timestamps, and `code_fence`.
+`platforms.<name>` overrides support `enabled`, `strategy`, line/preview/edit timing fields, `show_completed`, feature toggles (`tools_enabled`, `assistant_enabled`, `reasoning_enabled`, `delegates_enabled`, `background_jobs_enabled`), and timestamps.
 
 Turn lifecycle is internal: completed progress bubbles stay visible, but new user turns get new progress bubbles after the prior final answer. If a background job is still visible, its progress bubble can keep updating.
 
@@ -222,5 +218,3 @@ git diff --check
 ## Notes
 
 Reasoning and delegate progress use guarded plugin-local monkeypatches around Hermes `AIAgent` / `delegate_task` internals. Hermes source files are not modified. If upstream internals change, the plugin should fail closed and `/progresstail status` should show the issue.
-
-Telegram progress bubbles intentionally do not use code fences by default. Hermes Telegram sends may render Markdown on the first message, but live edits are plain text in current Hermes gateway behavior; fenced progress would show literal triple backticks after the first edit. Use `progress_tail.platforms.telegram.code_fence: off` or leave `code_fence: auto`.

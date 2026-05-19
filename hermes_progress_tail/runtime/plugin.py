@@ -184,18 +184,6 @@ def _core_notifier_conflict_warning() -> str:
     )
 
 
-def _telegram_code_fence_warning() -> str:
-    return (
-        "warning: Telegram progress code_fence=on is unsupported for live edits; "
-        "Hermes Telegram edits are plain text, so triple backticks become visible. "
-        "Use code_fence=auto/off for Telegram."
-    )
-
-
-def _telegram_code_fence_conflict(settings: Any) -> bool:
-    return resolve_platform_settings(settings, "telegram").code_fence == "on"
-
-
 def _background_job_config_warnings(settings: Any) -> list[str]:
     background = settings.background_jobs
     if not background.enabled:
@@ -293,7 +281,6 @@ def _register_context(
         background_jobs_enabled=settings.background_jobs_enabled,
         timestamp=settings.timestamp,
         timestamp_format=settings.timestamp_format,
-        code_fence=settings.code_fence,
         agent_label=renderer.settings.renderer.agent_label,
     )
     renderer.register_context(ctx)
@@ -927,7 +914,7 @@ def _command(raw_args: str = "") -> str:
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
             f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} thinking={settings.delegates.thinking}",
             f"background_jobs={'enabled' if settings.background_jobs.enabled else 'disabled'} list_running={settings.background_jobs.list_running} show_completed={settings.background_jobs.show_completed} max={settings.background_jobs.max_jobs} ttl={settings.background_jobs.completed_ttl_seconds}s head={settings.background_jobs.head_lines} tail={settings.background_jobs.tail_lines} update={settings.background_jobs.update_interval_seconds}s suppress_native_notify={settings.background_jobs.suppress_native_notify} suppress_watch={settings.background_jobs.suppress_watch_notifications}",
-            f"renderer=mode:{settings.renderer.mode} strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval} code_fence:{settings.renderer.code_fence} code_fence_language:{settings.renderer.code_fence_language or '-'} agent_label:{settings.renderer.agent_label or '-'}",
+            f"renderer=mode:{settings.renderer.mode} strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval} agent_label:{settings.renderer.agent_label or '-'}",
             f"display.tool_progress={display.get('tool_progress', '<unset>')}",
             f"display.show_reasoning={display.get('show_reasoning', '<unset>')}",
             f"monkeypatch={monkeypatch_active}",
@@ -942,8 +929,6 @@ def _command(raw_args: str = "") -> str:
                 lines.append(_reasoning_conflict_warning())
             if _core_notifier_conflict(runtime_config):
                 lines.append(_core_notifier_conflict_warning())
-            if _telegram_code_fence_conflict(settings):
-                lines.append(_telegram_code_fence_warning())
             lines.extend(_background_job_config_warnings(settings))
             for key in find_retired_config_keys(runtime_config):
                 lines.append(

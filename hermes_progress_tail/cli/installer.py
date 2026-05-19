@@ -84,8 +84,6 @@ DEFAULT_CONFIG = {
         "style": "emoji",
         "density": "verbose",
         "agent_label": "",
-        "code_fence": "auto",
-        "code_fence_language": "",
     },
     "no_edit": {
         "interval_seconds": 30,
@@ -257,8 +255,6 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
                 "style": "emoji",
                 "density": "verbose",
                 "agent_label": "",
-                "code_fence": "auto",
-                "code_fence_language": "",
             },
             "no_edit": legacy.get("no_edit", DEFAULT_CONFIG["no_edit"]).copy()
             if isinstance(legacy.get("no_edit"), dict)
@@ -831,8 +827,6 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
         "edit_interval": _prompt_float("Minimum seconds between live edits", 1.5, input_stream),
         "stale_ttl_seconds": _prompt_int("Stale session TTL seconds", 900, input_stream),
         "redact_secrets": _confirm("Redact common secrets before rendering", True, input_stream),
-        "code_fence": "auto",
-        "code_fence_language": "",
     }
 
     print("\nNo-edit platform snapshots")

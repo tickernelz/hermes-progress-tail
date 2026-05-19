@@ -4,9 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 VALID_STRATEGIES = {"auto", "live_tail", "snapshot", "summary_only", "off"}
-VALID_CODE_FENCE = {"auto", "on", "off"}
 BATCH_DEFAULT_OFF = {"email", "sms", "webhook", "homeassistant"}
-CODE_FENCE_DEFAULTS = {"discord", "slack", "mattermost"}
 RETIRED_CONFIG_KEYS = {
     "progress_tail.finalization",
     "progress_tail.background_jobs.default_notify_on_complete",
@@ -71,8 +69,6 @@ PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
         "mode": None,
         "style": None,
         "density": None,
-        "code_fence": None,
-        "code_fence_language": None,
         "agent_label": None,
     },
     "no_edit": {
@@ -105,7 +101,6 @@ PLATFORM_CONFIG_CONTRACT = {
     "background_jobs_enabled",
     "timestamp",
     "timestamp_format",
-    "code_fence",
 }
 SNAPSHOT_DEFAULTS = {
     "slack",
@@ -212,8 +207,6 @@ class RendererSettings:
     mode: str = "sectioned"
     style: Literal["emoji", "plain"] = "emoji"
     density: Literal["compact", "normal", "verbose", "debug"] = "normal"
-    code_fence: Literal["auto", "on", "off"] = "auto"
-    code_fence_language: str = ""
     agent_label: str = ""
 
 
@@ -242,7 +235,6 @@ class PlatformSettings:
     background_jobs_enabled: bool = True
     timestamp: bool = True
     timestamp_format: str = "%H:%M"
-    code_fence: Literal["auto", "on", "off"] = "auto"
 
 
 @dataclass(frozen=True)
@@ -436,11 +428,6 @@ def _delegate_thinking(value: Any, default: str = "off") -> Literal["off", "summ
     return "summary" if val == "summary" else "off"
 
 
-def _code_fence(value: Any, default: str = "auto") -> Literal["auto", "on", "off"]:
-    val = str(value or default).strip().lower()
-    return val if val in VALID_CODE_FENCE else "auto"
-
-
 def load_settings(config: dict[str, Any] | None) -> Settings:
     section = _as_dict(config)
     legacy_defaults = section.get("defaults") if isinstance(section.get("defaults"), dict) else {}
@@ -528,8 +515,6 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         mode=renderer_mode,
         style=_style(renderer_raw.get("style"), "emoji"),
         density=renderer_density,
-        code_fence=_code_fence(renderer_raw.get("code_fence"), "auto"),
-        code_fence_language=str(renderer_raw.get("code_fence_language") or ""),
         agent_label=str(renderer_raw.get("agent_label") or "").strip(),
     )
     no_edit = NoEditSettings(
@@ -576,7 +561,6 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         background_jobs_enabled=settings.background_jobs.enabled,
         timestamp=settings.tools.timestamp,
         timestamp_format=settings.tools.timestamp_format,
-        code_fence=settings.renderer.code_fence,
     )
     raw = (settings.platforms or {}).get(platform, {})
     if not isinstance(raw, dict):
@@ -607,5 +591,4 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         ),
         timestamp=_bool(raw.get("timestamp"), base.timestamp),
         timestamp_format=str(raw.get("timestamp_format") or base.timestamp_format),
-        code_fence=_code_fence(raw.get("code_fence"), base.code_fence),
     )
