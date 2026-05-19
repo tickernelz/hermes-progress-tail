@@ -125,7 +125,7 @@ def test_focused_header_values_strip_markdown_without_flattening_sections():
         content = adapter.sent[0][1]
         assert "**Why** Considering project planning" in content
         assert "**Why** **Considering project planning**" not in content
-        assert "**__Reasoning__**\n_**Considering project planning**_" in content
+        assert "**__Reasoning__**\n***Considering project planning***" in content
 
     asyncio.run(run())
 

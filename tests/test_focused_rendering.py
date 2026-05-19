@@ -83,8 +83,8 @@ def test_focused_section_titles_are_bold_underlined_and_progress_reasoning_bodie
         content = adapter.edits[-1][2]
         assert "**__Reasoning__**" in content
         assert "**__Tools__**" in content
-        assert "_**Planning editing capabilities**_" in content
-        assert "_I need to inspect delete behavior._" in content
+        assert "***Planning editing capabilities***" in content
+        assert "*I need to inspect delete behavior.*" in content
         assert "_→ 📖 read_file: renderer.py_" not in content
 
     asyncio.run(run())

@@ -24,7 +24,11 @@ class FakeTelegramAdapter:
         self.original_calls = []
 
     def format_message(self, content):
-        return str(content).replace("**bold**", "*bold*")
+        return (
+            str(content)
+            .replace("**bold**", "*bold*")
+            .replace("*Reviewing repository analysis*", "_Reviewing repository analysis_")
+        )
 
     async def edit_message(self, chat_id, message_id, content, *, finalize=False):
         self.original_calls.append((chat_id, message_id, content, finalize))
@@ -35,6 +39,40 @@ class FakeTelegramAdapter:
             chat_id=int(chat_id), message_id=int(message_id), text=content
         )
         return SendResult(True, message_id=message_id)
+
+
+def test_telegram_format_monkeypatch_renders_focused_titles_and_italic_body(monkeypatch):
+    parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.telegram",
+        SimpleNamespace(ParseMode=parse_mode),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=SendResult, utf16_len=len),
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+    assert install_telegram_format_monkeypatch(FakeTelegramAdapter) is True
+    adapter = FakeTelegramAdapter()
+
+    result = asyncio.run(
+        adapter.edit_message(
+            "123",
+            "456",
+            "**__Reasoning__**\n*Reviewing repository analysis*\n\n**__Tools__**\n✓ tool",
+        )
+    )
+
+    assert result.success is True
+    adapter._bot.edit_message_text.assert_awaited_once_with(
+        chat_id=123,
+        message_id=456,
+        text="*__Reasoning__*\n_Reviewing repository analysis_\n\n*__Tools__*\n✓ tool",
+        parse_mode="MarkdownV2",
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
 
 
 def test_telegram_format_monkeypatch_formats_non_final_edits(monkeypatch):

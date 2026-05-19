@@ -38,6 +38,42 @@ def _telegram_edit_target_lost(error_text: str) -> bool:
     )
 
 
+def format_progress_tail_telegram_markdown(content: str, formatter: Any) -> str:
+    text = str(content or "")
+    placeholders: dict[str, str] = {}
+
+    def stash(value: str) -> str:
+        key = f"\x00HPT{len(placeholders)}\x00"
+        placeholders[key] = value
+        return key
+
+    def title_repl(match):
+        title = _escape_telegram_mdv2(match.group(1).strip())
+        return stash(f"*__{title}__*")
+
+    text = _replace_outside_code(text, r"\*\*__([^\n*_][^\n]*?)__\*\*", title_repl)
+    formatted = formatter(text)
+    for key, value in placeholders.items():
+        formatted = formatted.replace(_escape_telegram_mdv2(key), value).replace(key, value)
+    return formatted
+
+
+def _replace_outside_code(text: str, pattern: str, repl: Any) -> str:
+    import re
+
+    parts = re.split(r"(```[\s\S]*?```|`[^`]*`)", str(text or ""))
+    for index, part in enumerate(parts):
+        if part.startswith("`"):
+            continue
+        parts[index] = re.sub(pattern, repl, part)
+    return "".join(parts)
+
+
+def _escape_telegram_mdv2(text: str) -> str:
+    specials = r"\\_*[]()~`>#+-=|{}.!"
+    return "".join("\\" + char if char in specials else char for char in str(text or ""))
+
+
 def install_monkeypatches(agent_cls: type | None = None) -> bool:
     agent_ok = install_agent_monkeypatches(agent_cls)
     adapter_ok = install_adapter_monkeypatches(agent_cls)
@@ -254,7 +290,7 @@ def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None
         except Exception:
             return await original(self, chat_id, message_id, content, finalize=finalize)
         try:
-            formatted = self.format_message(content)
+            formatted = format_progress_tail_telegram_markdown(content, self.format_message)
             await self._bot.edit_message_text(
                 chat_id=int(chat_id),
                 message_id=int(message_id),

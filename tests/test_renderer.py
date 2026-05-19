@@ -405,8 +405,8 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
         assert "**Now** patching formatter.py" in content
         assert "**Why** Gue cek formatter path dulu, jangan sampai strip code/path." in content
         assert "**State** 3 tools · 2 done · 1 running · 2 queued" in content
-        assert "**__Progress__**\n_Gue cek formatter path dulu" in content
-        assert "**__Reasoning__**\n_**Planning task execution**_" in content
+        assert "**__Progress__**\n*Gue cek formatter path dulu" in content
+        assert "**__Reasoning__**\n***Planning task execution***" in content
         assert "**Planning task execution**" in content
         assert "**__Plan__**\n✓ inspect adapter contract" in content
         assert "→ implement plain-live sanitizer" in content

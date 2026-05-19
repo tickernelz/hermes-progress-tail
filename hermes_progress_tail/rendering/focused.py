@@ -132,7 +132,7 @@ def markdown_italic_body(text: str, *, platform: str = "") -> str:
     parts = []
     for line in value.splitlines():
         stripped = line.strip()
-        parts.append(f"_{stripped}_" if stripped else "")
+        parts.append(f"*{stripped}*" if stripped else "")
     return "\n".join(parts)
 
 
