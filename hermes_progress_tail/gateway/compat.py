@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 
@@ -27,3 +28,28 @@ def source_thread_id(source: Any) -> str | None:
 
 def source_chat_id(source: Any) -> str:
     return str(getattr(source, "chat_id", "") or "")
+
+
+async def delete_message(adapter: Any, chat_id: str, message_id: str) -> bool:
+    delete = getattr(adapter, "delete_message", None)
+    if callable(delete):
+        result = delete(chat_id, message_id)
+        if inspect.isawaitable(result):
+            result = await result
+        return bool(getattr(result, "success", result if result is not None else True))
+    bot = getattr(adapter, "_bot", None)
+    bot_delete = getattr(bot, "delete_message", None)
+    if callable(bot_delete):
+        result = bot_delete(chat_id=chat_id, message_id=_coerce_numeric_id(message_id))
+        if inspect.isawaitable(result):
+            result = await result
+        return bool(getattr(result, "success", result if result is not None else True))
+    return False
+
+
+def _coerce_numeric_id(value: str) -> str | int:
+    text = str(value or "")
+    try:
+        return int(text)
+    except ValueError:
+        return text

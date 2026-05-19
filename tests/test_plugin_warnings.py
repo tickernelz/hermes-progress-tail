@@ -210,6 +210,6 @@ def test_demo_commands_return_sample_progress(monkeypatch):
     demo = plugin._command("demo failed")
 
     assert "**Hermes is working**" in demo
-    assert "**Tools**" in demo
+    assert "**__Tools__**" in demo
     assert "× terminal: pytest tests/test_renderer.py -q · 2.1s" in demo
     assert "git diff --check" in demo

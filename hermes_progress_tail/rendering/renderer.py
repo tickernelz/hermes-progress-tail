@@ -6,7 +6,7 @@ import re
 import time
 from typing import Any
 
-from ..gateway.compat import adapter_supports_edit
+from ..gateway.compat import adapter_supports_edit, delete_message
 from ..models.state import (
     AssistantEvent,
     AssistantLine,
@@ -281,6 +281,7 @@ class ProgressRenderer:
             self._reset_turn(ctx)
             ctx.message_id = progress_message_id
             await self._finalize_progress_message(ctx)
+            self._schedule_auto_delete(ctx, success=success)
             if ctx.progress_state == "background_active" and self._content(ctx):
                 if ctx.strategy == "live_tail":
                     await self._render_live(ctx, force=True, ignore_backoff=True)
@@ -688,6 +689,52 @@ class ProgressRenderer:
         if task is not None and not task.done():
             task.cancel()
         ctx.delayed_flush_task = None
+
+    @staticmethod
+    def _cancel_delete(ctx: SessionContext) -> None:
+        task = ctx.delete_task
+        if task is not None and not task.done():
+            task.cancel()
+        ctx.delete_task = None
+
+    def _schedule_auto_delete(self, ctx: SessionContext, *, success: bool) -> None:
+        cleanup = self.settings.cleanup
+        if not cleanup.auto_delete or not ctx.message_id or ctx.loop is None:
+            return
+        if success and not cleanup.delete_on_success:
+            return
+        if not success and not cleanup.delete_on_failure:
+            return
+        if ctx.progress_state == "background_active" and not cleanup.delete_background_active:
+            return
+        self._cancel_delete(ctx)
+        generation = ctx.generation
+        message_id = str(ctx.message_id)
+        delay = max(0, cleanup.delay_seconds)
+
+        async def _delete_later() -> None:
+            try:
+                await asyncio.sleep(delay)
+                if ctx.generation != generation or ctx.message_id != message_id:
+                    return
+                try:
+                    deleted = await delete_message(ctx.adapter, ctx.chat_id, message_id)
+                except Exception as exc:
+                    logger.debug("hermes-progress-tail delete failed: %s", exc)
+                    ctx.last_error = str(exc)
+                    return
+                if deleted:
+                    ctx.message_id = None
+                    ctx.can_edit = False
+                    ctx.progress_state = "deleted"
+            except asyncio.CancelledError:
+                raise
+            finally:
+                if ctx.delete_task is task:
+                    ctx.delete_task = None
+
+        task = ctx.loop.create_task(_delete_later())
+        ctx.delete_task = task
 
     async def _render_snapshot(
         self, ctx: SessionContext, force: bool = False, final: bool = False

@@ -75,6 +75,13 @@ DEFAULT_CONFIG = {
         "suppress_native_notify": True,
         "suppress_watch_notifications": True,
     },
+    "cleanup": {
+        "auto_delete": True,
+        "delay_seconds": 5,
+        "delete_on_success": True,
+        "delete_on_failure": False,
+        "delete_background_active": False,
+    },
     "renderer": {
         "strategy": "auto",
         "edit_interval": 1.5,

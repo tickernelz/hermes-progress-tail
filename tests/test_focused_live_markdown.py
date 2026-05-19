@@ -75,7 +75,7 @@ def test_focused_live_markdown_platforms_emit_structural_markdown():
         assert content.startswith("**Hermes is working**\n────────────────")
         assert "**Now** running tests" in content
         assert "**State** 1 tools · 0 done · 1 running" in content
-        assert "**Tools**\n→ terminal: pytest" in content
+        assert "**__Tools__**\n→ terminal: pytest" in content
 
     for platform in ("telegram", "discord", "slack", "mattermost", "matrix", "feishu", "dingtalk"):
         asyncio.run(run(platform))
@@ -125,7 +125,7 @@ def test_focused_header_values_strip_markdown_without_flattening_sections():
         content = adapter.sent[0][1]
         assert "**Why** Considering project planning" in content
         assert "**Why** **Considering project planning**" not in content
-        assert "**Reasoning**\n**Considering project planning**" in content
+        assert "**__Reasoning__**\n_**Considering project planning**_" in content
 
     asyncio.run(run())
 

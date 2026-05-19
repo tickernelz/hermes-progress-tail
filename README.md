@@ -151,6 +151,13 @@ progress_tail:
     suppress_native_notify: true
     suppress_watch_notifications: true
 
+  cleanup:
+    auto_delete: true
+    delay_seconds: 5
+    delete_on_success: true
+    delete_on_failure: false
+    delete_background_active: false
+
   renderer:
     strategy: auto
     edit_interval: 1.5

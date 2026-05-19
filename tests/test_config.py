@@ -34,7 +34,34 @@ def test_load_settings_defaults():
     assert settings.background_jobs.enabled is True
     assert settings.background_jobs.suppress_native_notify is True
     assert settings.background_jobs.max_jobs == 4
+    assert settings.cleanup.auto_delete is True
+    assert settings.cleanup.delay_seconds == 5
+    assert settings.cleanup.delete_on_success is True
+    assert settings.cleanup.delete_on_failure is False
+    assert settings.cleanup.delete_background_active is False
     assert not hasattr(settings, "finalization")
+
+
+def test_load_settings_accepts_cleanup_config():
+    settings = load_settings(
+        {
+            "progress_tail": {
+                "cleanup": {
+                    "auto_delete": True,
+                    "delay_seconds": 2,
+                    "delete_on_success": False,
+                    "delete_on_failure": True,
+                    "delete_background_active": True,
+                }
+            }
+        }
+    )
+
+    assert settings.cleanup.auto_delete is True
+    assert settings.cleanup.delay_seconds == 2
+    assert settings.cleanup.delete_on_success is False
+    assert settings.cleanup.delete_on_failure is True
+    assert settings.cleanup.delete_background_active is True
 
 
 def test_load_settings_accepts_renderer_agent_label():

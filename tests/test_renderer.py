@@ -405,15 +405,15 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
         assert "**Now** patching formatter.py" in content
         assert "**Why** Gue cek formatter path dulu, jangan sampai strip code/path." in content
         assert "**State** 3 tools · 2 done · 1 running · 2 queued" in content
-        assert "**Progress**\nGue cek formatter path dulu" in content
-        assert "**Reasoning**\n**Planning task execution**" in content
+        assert "**__Progress__**\n_Gue cek formatter path dulu" in content
+        assert "**__Reasoning__**\n_**Planning task execution**_" in content
         assert "**Planning task execution**" in content
-        assert "**Plan**\n✓ inspect adapter contract" in content
+        assert "**__Plan__**\n✓ inspect adapter contract" in content
         assert "→ implement plain-live sanitizer" in content
         assert "… 2 queued" in content
-        assert "**Delegates**\n" in content
-        assert "**Background**\n" in content
-        assert "**Tools**\n✓ read_file · telegram.py:3108" in content
+        assert "**__Delegates__**\n" in content
+        assert "**__Background__**\n" in content
+        assert "**__Tools__**\n✓ read_file · telegram.py:3108" in content
         assert "→ patch · rendering/formatter.py" in content
         assert "Changes\n" not in content
         assert "~ ~/" not in content
@@ -457,7 +457,7 @@ def test_focused_header_shows_semantic_now_for_execute_code():
 
         content = adapter.sent[0][1]
         assert "**Now** running Python script: root = Path('…') … print(root)" in content
-        assert "**Tools**\n→ execute_code: root = Path('…') … print(root) · 4 lines" in content
+        assert "**__Tools__**\n→ execute_code: root = Path('…') … print(root) · 4 lines" in content
 
     asyncio.run(run())
 
@@ -494,7 +494,8 @@ def test_focused_tools_collapses_completed_read_file_burst():
 
         content = adapter.sent[0][1]
         assert (
-            "**Tools**\n✓ read_file: 3 files · focused.py, test_renderer.py, README.md" in content
+            "**__Tools__**\n✓ read_file: 3 files · focused.py, test_renderer.py, README.md"
+            in content
         )
         assert "→ terminal: python -m pytest tests/test_renderer.py -q" in content
         assert "read_file: hermes_progress_tail/rendering/focused.py" not in content

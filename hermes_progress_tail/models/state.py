@@ -121,6 +121,7 @@ class SessionContext:
     edit_failure_count: int = 0
     edit_recovery_sends: int = 0
     delayed_flush_task: Any = None
+    delete_task: Any = None
     fallback_send_count: int = 0
     new_events_since_snapshot: int = 0
     snapshots_sent: int = 0

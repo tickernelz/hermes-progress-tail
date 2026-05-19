@@ -12,10 +12,10 @@ def test_demo_command_returns_focused_markdown_sample(monkeypatch):
     assert demo.startswith("**Hermes is working**\n────────────────")
     assert "**Now** running git diff --check" in demo
     assert "**State** 5 tools · 4 done · 1 running · 2 queued" in demo
-    assert "**Plan**\n✓ Inspect renderer" in demo
-    assert "**Delegates**" in demo
+    assert "**__Plan__**\n✓ Inspect renderer" in demo
+    assert "**__Delegates__**" in demo
     assert "├ 4 tools · read_file, search_files, terminal, read_file" in demo
-    assert "**Tools**\n✓ search_files: focused_block · 0.1s" in demo
+    assert "**__Tools__**\n✓ search_files: focused_block · 0.1s" in demo
     assert "tool:" not in demo
     assert "[22:41]" not in demo
 
@@ -41,4 +41,4 @@ def test_demo_failed_marks_failed_tool(monkeypatch):
     demo = plugin._command("demo failed")
 
     assert "× terminal: pytest tests/test_renderer.py -q · 2.1s" in demo
-    assert "**Tools**" in demo
+    assert "**__Tools__**" in demo

@@ -1,0 +1,109 @@
+import asyncio
+
+from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.renderer import ProgressRenderer
+from hermes_progress_tail.state import ReasoningEvent, SessionContext, ToolEvent
+
+
+class Result:
+    def __init__(self, success=True, message_id=None, error=""):
+        self.success = success
+        self.message_id = message_id
+        self.error = error
+
+
+class EditableAdapter:
+    name = "editable"
+
+    def __init__(self):
+        self.sent = []
+        self.edits = []
+        self.next_id = 1
+
+    async def send(self, chat_id, content, metadata=None):
+        message_id = f"m{self.next_id}"
+        self.next_id += 1
+        self.sent.append((chat_id, content, metadata))
+        return Result(True, message_id)
+
+    async def edit_message(self, chat_id, message_id, content):
+        self.edits.append((chat_id, message_id, content))
+        return Result(True, message_id)
+
+
+def make_renderer():
+    return ProgressRenderer(
+        load_settings(
+            {
+                "progress_tail": {
+                    "renderer": {"mode": "focused"},
+                    "tools": {"timestamp": False},
+                    "assistant": {"min_update_chars": 1},
+                    "reasoning": {"min_update_chars": 1},
+                }
+            }
+        )
+    )
+
+
+def make_ctx(adapter, *, platform="telegram"):
+    return SessionContext(
+        "s1",
+        "k1",
+        platform,
+        "chat",
+        None,
+        adapter,
+        asyncio.get_running_loop(),
+        "live_tail",
+        timestamp=False,
+    )
+
+
+def test_focused_section_titles_are_bold_underlined_and_progress_reasoning_bodies_are_italic():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ReasoningEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "**Planning editing capabilities**\nI need to inspect delete behavior.",
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True
+        )
+
+        content = adapter.edits[-1][2]
+        assert "**__Reasoning__**" in content
+        assert "**__Tools__**" in content
+        assert "_**Planning editing capabilities**_" in content
+        assert "_I need to inspect delete behavior._" in content
+        assert "_→ 📖 read_file: renderer.py_" not in content
+
+    asyncio.run(run())
+
+
+def test_focused_plain_platform_keeps_plain_titles_and_body():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        ctx = make_ctx(adapter, platform="cli")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ReasoningEvent("s1", "k1", "cli", "**Thinking**\nplain body"), force=True
+        )
+
+        content = adapter.sent[-1][1]
+        assert "Reasoning\nThinking\nplain body" in content
+        assert "**__Reasoning__**" not in content
+        assert "_Thinking_" not in content
+
+    asyncio.run(run())

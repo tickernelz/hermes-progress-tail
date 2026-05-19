@@ -61,6 +61,13 @@ PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
         "suppress_native_notify": None,
         "suppress_watch_notifications": None,
     },
+    "cleanup": {
+        "auto_delete": None,
+        "delay_seconds": None,
+        "delete_on_success": None,
+        "delete_on_failure": None,
+        "delete_background_active": None,
+    },
     "renderer": {
         "strategy": None,
         "edit_interval": None,
@@ -189,6 +196,15 @@ class BackgroundJobSettings:
 
 
 @dataclass(frozen=True)
+class CleanupSettings:
+    auto_delete: bool = True
+    delay_seconds: int = 5
+    delete_on_success: bool = True
+    delete_on_failure: bool = False
+    delete_background_active: bool = False
+
+
+@dataclass(frozen=True)
 class LegacyDefaultSettings:
     lines: int = 3
     preview_length: int = 120
@@ -247,6 +263,7 @@ class Settings:
     assistant: AssistantSettings = AssistantSettings()
     reasoning: ReasoningSettings = ReasoningSettings()
     background_jobs: BackgroundJobSettings = BackgroundJobSettings()
+    cleanup: CleanupSettings = CleanupSettings()
     renderer: RendererSettings = RendererSettings()
     no_edit: NoEditSettings = NoEditSettings()
     platforms: dict[str, dict[str, Any]] | None = None
@@ -444,6 +461,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     background_raw = (
         section.get("background_jobs") if isinstance(section.get("background_jobs"), dict) else {}
     )
+    cleanup_raw = section.get("cleanup") if isinstance(section.get("cleanup"), dict) else {}
     tools = ToolSettings(
         enabled=_bool(tools_raw.get("enabled"), True),
         lines=_int(tools_raw.get("lines"), 3),
@@ -506,6 +524,13 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         ),
         default_notify_on_complete=_bool(background_raw.get("default_notify_on_complete"), False),
     )
+    cleanup = CleanupSettings(
+        auto_delete=_bool(cleanup_raw.get("auto_delete"), True),
+        delay_seconds=_int(cleanup_raw.get("delay_seconds"), 5, min_value=0),
+        delete_on_success=_bool(cleanup_raw.get("delete_on_success"), True),
+        delete_on_failure=_bool(cleanup_raw.get("delete_on_failure"), False),
+        delete_background_active=_bool(cleanup_raw.get("delete_background_active"), False),
+    )
     renderer_mode, renderer_density = _renderer_mode_and_density(renderer_raw)
     renderer = RendererSettings(
         strategy=_strategy(renderer_raw.get("strategy"), "auto"),
@@ -533,6 +558,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         assistant=assistant,
         reasoning=reasoning,
         background_jobs=background_jobs,
+        cleanup=cleanup,
         renderer=renderer,
         no_edit=no_edit,
         platforms=platforms,

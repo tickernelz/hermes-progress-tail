@@ -118,6 +118,24 @@ def markdown_bold(text: str, *, platform: str = "") -> str:
     return f"**{value}**" if supports_live_markdown(platform) else value
 
 
+def markdown_bold_underline(text: str, *, platform: str = "") -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    return f"**__{value}__**" if supports_live_markdown(platform) else value
+
+
+def markdown_italic_body(text: str, *, platform: str = "") -> str:
+    value = str(text or "").strip()
+    if not value or not supports_live_markdown(platform):
+        return value
+    parts = []
+    for line in value.splitlines():
+        stripped = line.strip()
+        parts.append(f"_{stripped}_" if stripped else "")
+    return "\n".join(parts)
+
+
 def focused_header_row(label: str, value: str, *, platform: str = "") -> str:
     if supports_live_markdown(platform):
         return f"{markdown_bold(label, platform=platform)} {value}"
@@ -143,7 +161,9 @@ def focused_block(title: str, body: str, *, platform: str = "") -> str:
     body = str(body or "").strip()
     if not body:
         return ""
-    return f"{markdown_bold(title, platform=platform)}\n{body}"
+    if title in {"Progress", "Reasoning"}:
+        body = markdown_italic_body(body, platform=platform)
+    return f"{markdown_bold_underline(title, platform=platform)}\n{body}"
 
 
 def focused_now(ctx: SessionContext) -> str:

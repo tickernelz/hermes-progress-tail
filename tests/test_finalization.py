@@ -20,6 +20,7 @@ class EditableAdapter:
         self.edits = []
         self.deleted = []
         self.next_id = 1
+        self.delete_event = None
 
     async def send(self, chat_id, content, metadata=None):
         message_id = f"m{self.next_id}"
@@ -33,6 +34,8 @@ class EditableAdapter:
 
     async def delete_message(self, chat_id, message_id):
         self.deleted.append((chat_id, message_id))
+        if self.delete_event is not None:
+            self.delete_event.set()
         return True
 
 
@@ -63,7 +66,7 @@ def make_renderer(config=None):
     )
 
 
-def test_finalize_keeps_completed_progress_bubble_visible():
+def test_finalize_keeps_completed_progress_bubble_visible_until_cleanup_delay():
     async def run():
         adapter = EditableAdapter()
         renderer = make_renderer()
@@ -230,5 +233,63 @@ def test_reasoning_after_finalize_starts_fresh_bubble():
         assert adapter.sent[0][1] == "▰ 💭 Reasoning\nold thought"
         assert adapter.sent[1][1] == "▰ 💭 Reasoning\nnew thought"
         assert next_ctx.message_id == "m2"
+
+    asyncio.run(run())
+
+
+def test_finalize_auto_deletes_completed_progress_bubble_by_default():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer({"cleanup": {"delay_seconds": 1}})
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "tool one"), force=True)
+        await renderer.finalize(session_id="s1", success=True)
+        assert adapter.deleted == []
+
+        await asyncio.sleep(0)
+        assert adapter.deleted == []
+
+        await asyncio.sleep(1.01)
+        assert adapter.deleted == [("chat", "m1")]
+        assert ctx.message_id is None
+        assert ctx.progress_state == "deleted"
+
+    asyncio.run(run())
+
+
+def test_finalize_purge_keeps_auto_delete_task_alive():
+    async def run():
+        adapter = EditableAdapter()
+        adapter.delete_event = asyncio.Event()
+        renderer = make_renderer({"cleanup": {"delay_seconds": 1}})
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "tool one"), force=True)
+        await renderer.finalize(session_id="s1", success=True, purge=True)
+
+        assert renderer.find_context("s1") is None
+        await asyncio.wait_for(adapter.delete_event.wait(), timeout=1.2)
+        assert adapter.deleted == [("chat", "m1")]
+
+    asyncio.run(run())
+
+
+def test_finalize_does_not_auto_delete_failure_by_default():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer({"cleanup": {"auto_delete": True, "delay_seconds": 1}})
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "tool one"), force=True)
+        await renderer.finalize(session_id="s1", success=False)
+        await asyncio.sleep(1.01)
+
+        assert adapter.deleted == []
+        assert ctx.message_id == "m1"
+        assert ctx.progress_state == "finalized"
 
     asyncio.run(run())
