@@ -84,6 +84,8 @@ class SessionContext:
     preview_length: int = 120
     edit_interval: float = 1.5
     generation: int = 0
+    owner_thread_id: int = 0
+    owner_thread_name: str = ""
     message_id: str | None = None
     can_edit: bool = True
     disabled: bool = False

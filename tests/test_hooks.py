@@ -161,6 +161,67 @@ def test_background_review_tool_calls_are_suppressed(monkeypatch):
     asyncio.run(run())
 
 
+def test_foreground_tool_hooks_work_from_worker_thread(monkeypatch):
+    async def run():
+        adapter = Adapter()
+        hermes_progress_tail.plugin._renderer = None
+        monkeypatch.setattr(
+            hermes_progress_tail.plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
+        )
+        hermes_progress_tail._on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
+
+        monkeypatch.setattr(
+            hermes_progress_tail.plugin.threading,
+            "current_thread",
+            lambda: type("Thread", (), {"name": "Thread-6 (_call)"})(),
+        )
+        hermes_progress_tail._on_pre_tool_call(
+            "terminal",
+            {"command": "worker thread tool"},
+            task_id="key-1",
+            session_id="session-1",
+            tool_call_id="fg-terminal",
+        )
+        await asyncio.sleep(0.05)
+
+        assert adapter.sent
+        assert "worker thread tool" in adapter.sent[0][1]
+
+    asyncio.run(run())
+
+
+def test_background_review_finalize_does_not_finalize_foreground_context(monkeypatch):
+    async def run():
+        adapter = Adapter()
+        hermes_progress_tail.plugin._renderer = None
+        monkeypatch.setattr(
+            hermes_progress_tail.plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
+        )
+        hermes_progress_tail._on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
+        hermes_progress_tail._on_pre_tool_call(
+            "terminal", {"command": "foreground"}, task_id="key-1", session_id="session-1"
+        )
+        await asyncio.sleep(0.05)
+
+        monkeypatch.setattr(
+            hermes_progress_tail.plugin.threading,
+            "current_thread",
+            lambda: type("Thread", (), {"name": "bg-review:123"})(),
+        )
+        hermes_progress_tail._on_post_llm_call(session_id="session-1")
+        await asyncio.sleep(0.05)
+
+        renderer = hermes_progress_tail._get_renderer()
+        ctx = renderer.find_context("session-1")
+        assert ctx.progress_state == "active"
+
+    asyncio.run(run())
+
+
 def test_post_llm_finalize_with_empty_session_id_uses_active_session(monkeypatch):
     async def run():
         adapter = Adapter()

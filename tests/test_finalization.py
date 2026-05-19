@@ -195,6 +195,80 @@ def test_finalize_keeps_background_job_bubble_active_but_new_turn_still_gets_new
     asyncio.run(run())
 
 
+def test_stale_background_finalize_does_not_hide_new_foreground_progress():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        bg_ctx = make_ctx(adapter)
+        renderer.register_context(bg_ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "bg-review tool"), force=True)
+        fg_ctx = make_ctx(adapter)
+        renderer.register_context(fg_ctx)
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "foreground tool"), force=True
+        )
+        await renderer.finalize(session_id="s1", generation=bg_ctx.generation, success=True)
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "foreground second tool"), force=True
+        )
+
+        assert fg_ctx.progress_state == "active"
+        assert len(adapter.sent) == 1
+        assert adapter.edits[-1] == (
+            "chat",
+            "m1",
+            "▰ 🧰 Tools\nbg-review tool\nforeground tool\nforeground second tool",
+        )
+        assert renderer.sessions["s1"].generation > bg_ctx.generation
+
+    asyncio.run(run())
+
+
+def test_stale_generation_finalize_does_not_purge_replaced_context_after_lock_wait():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        old_ctx = make_ctx(adapter)
+        renderer.register_context(old_ctx)
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "old turn"), force=True)
+
+        await old_ctx.lock.acquire()
+        finalize_task = asyncio.create_task(
+            renderer.finalize(session_id="s1", generation=old_ctx.generation, purge=True)
+        )
+        await asyncio.sleep(0)
+        new_ctx = make_ctx(adapter)
+        renderer.register_context(new_ctx)
+        old_ctx.lock.release()
+        await finalize_task
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "new turn"), force=True)
+
+        assert renderer.sessions["s1"] is new_ctx
+        assert new_ctx.progress_state == "active"
+        assert "new turn" in adapter.edits[-1][2]
+
+    asyncio.run(run())
+
+
+def test_current_generation_finalize_still_finishes_active_context():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "foreground tool"), force=True
+        )
+        await renderer.finalize(session_id="s1", generation=ctx.generation, success=True)
+
+        assert ctx.progress_state == "finalized"
+        assert ctx.message_id == "m1"
+
+    asyncio.run(run())
+
+
 def test_config_ignores_removed_finalization_section():
     settings = load_settings(
         {

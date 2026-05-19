@@ -6,7 +6,7 @@ from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.delegate_renderer import DelegateProgressRenderer
 from hermes_progress_tail.formatter import extract_todo_items, format_tool_line
 from hermes_progress_tail.renderer import ProgressRenderer
-from hermes_progress_tail.rendering.focused import focused_tools, semantic_activity
+from hermes_progress_tail.rendering.focused import focused_now, focused_tools, semantic_activity
 from hermes_progress_tail.state import (
     AssistantEvent,
     BackgroundJobEvent,
@@ -147,6 +147,179 @@ def test_focused_now_ignores_stale_tool_tail_when_no_tools_running():
     asyncio.run(run())
 
 
+def test_focused_now_does_not_use_completed_delegate_when_no_activity_running():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"mode": "focused", "style": "emoji"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "subagent-1",
+                goal="Read-only review release-only bump diff",
+                event_type="subagent.start",
+                status="running",
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "subagent-1",
+                goal="Read-only review release-only bump diff",
+                event_type="subagent.complete",
+                status="completed",
+                summary="PASS",
+            ),
+            force=True,
+        )
+        ctx.tool_started_count = 13
+        ctx.tool_completed_count = 12
+        ctx.tool_failed_count = 1
+        await renderer._render_live(ctx, force=True, ignore_backoff=True)
+
+        content = adapter.edits[-1][2]
+        assert "**State** 13 tools · 12 done · 1 failed · 0 running" in content
+        assert "**Now** delegate · Read-only review release-only bump diff" not in content
+        assert "**Now** working" in content
+        assert focused_now(ctx) == "working"
+
+    asyncio.run(run())
+
+
+def test_focused_now_uses_active_delegate_before_any_tool_starts():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"mode": "focused", "style": "emoji"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "subagent-1",
+                goal="Read-only review release-only bump diff",
+                event_type="subagent.start",
+                status="running",
+            ),
+            force=True,
+        )
+
+        assert focused_now(ctx) == "delegate · Read-only review release-only bump diff"
+        assert "**Now** delegate · Read-only review release-only bump diff" in adapter.sent[0][1]
+
+    asyncio.run(run())
+
+
+def test_focused_tools_do_not_mark_completed_latest_tool_as_running():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"mode": "focused", "style": "emoji"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "💻 terminal: HPT_INTERACTIVE=0 install.sh · running",
+                tool_call_id="install",
+                tool_name="terminal",
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "✅ 💻 terminal: HPT_INTERACTIVE=0 install.sh · 20 lines · done",
+                tool_call_id="install",
+                tool_name="terminal",
+                replace_existing=True,
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert "**State** 1 tools · 1 done · 0 running" in content
+        assert "**Now** running HPT_INTERACTIVE=0 install.sh" not in content
+        assert "**Now** working" in content
+        tools = focused_tools(ctx, settings=renderer.settings)
+        assert "✓ 💻 terminal: HPT_INTERACTIVE=0 install.sh" in tools
+        assert "→ 💻 terminal: HPT_INTERACTIVE=0 install.sh" not in tools
+
+    asyncio.run(run())
+
+
+def test_focused_tools_mark_latest_active_tool_as_running():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"mode": "focused", "style": "emoji"},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+        await renderer.handle_event(
+            ToolEvent(
+                "s1",
+                "k1",
+                "telegram",
+                "💻 terminal: python -m pytest -q · running",
+                tool_call_id="pytest",
+                tool_name="terminal",
+            ),
+            force=True,
+        )
+
+        assert focused_now(ctx) == "running tests"
+        assert "→ 💻 terminal: python -m pytest -q" in focused_tools(
+            ctx, settings=renderer.settings
+        )
+
+    asyncio.run(run())
+
+
 def test_focused_tools_respect_emoji_style_for_all_known_tool_icons():
     async def run():
         adapter = EditableAdapter()
@@ -274,7 +447,8 @@ def test_focused_tools_respect_plain_style_for_all_known_tool_icons():
         content = adapter.edits[-1][2]
         for emoji in ("📚", "📋", "💻", "🔎", "📖", "✍️", "🔧", "🧑‍💻", "🐍", "🧰", "⚙️"):
             assert emoji not in content
-        assert "→ skill_manage: patch hermes-agent" in content
+        assert "✓ skill_manage: patch hermes-agent" in content
+        assert "→ skill_manage: patch hermes-agent" not in content
 
     asyncio.run(run())
 

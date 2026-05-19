@@ -89,7 +89,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     process_ok = install_process_notification_monkeypatch()
     compression_ok = install_compression_status_monkeypatch(agent_cls)
     compression_lifecycle_ok = install_compression_lifecycle_monkeypatch(agent_cls)
-    return any(
+    installed = any(
         (
             agent_ok,
             adapter_ok,
@@ -100,6 +100,20 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
             compression_lifecycle_ok,
         )
     )
+    logger.info(
+        "hermes-progress-tail monkeypatches installed: agent=%s adapter=%s delegate=%s "
+        "telegram_format=%s process_notifications=%s compression_status=%s "
+        "compression_lifecycle=%s any=%s",
+        agent_ok,
+        adapter_ok,
+        delegate_ok,
+        telegram_ok,
+        process_ok,
+        compression_ok,
+        compression_lifecycle_ok,
+        installed,
+    )
+    return installed
 
 
 def install_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:

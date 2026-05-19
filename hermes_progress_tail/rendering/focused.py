@@ -232,17 +232,25 @@ def latest_activity(ctx: SessionContext, *, active_only: bool = False) -> str:
         return normalize_tool_line(ctx.tool_lines[-1])
     for branch_key in reversed(ctx.delegate_order):
         branch = ctx.delegate_branches.get(branch_key)
-        if branch:
+        if branch and (not active_only or _delegate_is_active(branch.status)):
             return f"delegate · {branch.goal or branch.subagent_id}"
     if ctx.background_order:
         job = ctx.background_jobs.get(ctx.background_order[-1])
-        if job:
+        if job and (not active_only or _background_job_is_active(job.status)):
             return f"background · {job.command or job.process_id}"
-    if ctx.assistant_latest_text:
+    if not active_only and ctx.assistant_latest_text:
         return "assistant progress"
-    if ctx.reasoning_text:
+    if not active_only and ctx.reasoning_text:
         return "reasoning"
     return "working"
+
+
+def _delegate_is_active(status: str) -> bool:
+    return str(status or "").strip().lower() in {"", "pending", "queued", "running"}
+
+
+def _background_job_is_active(status: str) -> bool:
+    return str(status or "").strip().lower() in {"", "pending", "queued", "running", "active"}
 
 
 def active_tool_count(ctx: SessionContext) -> int:
@@ -310,8 +318,11 @@ def focused_tools(ctx: SessionContext, *, settings: Settings) -> str:
     visible = list(ctx.tool_lines)[-settings.tools.lines :]
     rows = []
     keep_tool_icon = settings.renderer.style == "emoji"
+    running_tools = active_tool_count(ctx)
     for index, raw in enumerate(visible):
-        marker = "→" if index == len(visible) - 1 else tool_done_marker(raw)
+        marker = focused_tool_marker(
+            raw, is_latest=index == len(visible) - 1, running_tools=running_tools
+        )
         rows.append((marker, normalize_tool_line(raw, keep_tool_icon=keep_tool_icon), raw))
     return "\n".join(collapse_tool_rows(rows))
 
@@ -372,11 +383,22 @@ def read_file_display_name(line: str) -> str:
     return short_filename(body)
 
 
+def focused_tool_marker(raw: str, *, is_latest: bool, running_tools: int) -> str:
+    marker = tool_done_marker(raw)
+    if marker in {"✓", "×"}:
+        return marker
+    return "→" if is_latest and running_tools > 0 else "✓"
+
+
 def tool_done_marker(raw: str) -> str:
     text = str(raw or "")
-    if "failed" in text.lower() or text.lstrip().startswith("❌"):
+    lowered = text.lower()
+    stripped = text.lstrip()
+    if "failed" in lowered or stripped.startswith("❌"):
         return "×"
-    return "✓"
+    if " done" in lowered or stripped.startswith("✅"):
+        return "✓"
+    return ""
 
 
 def extract_change_path(line: str) -> str:

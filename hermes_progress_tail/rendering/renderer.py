@@ -86,6 +86,7 @@ class ProgressRenderer:
             ctx.background_order = existing.background_order
             ctx.progress_state = "active"
             ctx.finalized_at = 0.0
+            ctx.generation = existing.generation + 1
             ctx.total_events = existing.total_events if reuse_progress else 0
             ctx.snapshots_sent = existing.snapshots_sent if reuse_progress else 0
             ctx.last_error = existing.last_error
@@ -285,11 +286,18 @@ class ProgressRenderer:
         purge: bool = False,
         *,
         success: bool = True,
+        generation: int | None = None,
     ) -> None:
         ctx = self.find_context(session_id, session_key)
         if ctx is None:
             return
+        if generation is not None and ctx.generation != generation:
+            return
         async with ctx.lock:
+            if generation is not None and (
+                self.sessions.get(ctx.session_id) is not ctx or ctx.generation != generation
+            ):
+                return
             if ctx.disabled:
                 self._cancel_delayed_flush(ctx)
                 return
@@ -314,7 +322,7 @@ class ProgressRenderer:
                     await self._render_live(ctx, force=True, ignore_backoff=True)
                 elif ctx.strategy == "snapshot" and self.settings.no_edit.final_summary:
                     await self._render_snapshot(ctx, force=True, final=True)
-        if purge:
+        if purge and (generation is None or self.sessions.get(ctx.session_id) is ctx):
             self.purge(session_id=ctx.session_id)
 
     def _append_assistant(self, ctx: SessionContext, event: AssistantEvent) -> int:

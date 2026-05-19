@@ -255,6 +255,7 @@ def _register_context(
     adapter: Any,
     session_id: str,
     session_key: str,
+    origin: str = "gateway",
 ) -> None:
     platform = platform_name(source)
     settings = resolve_platform_settings(renderer.settings, platform)
@@ -282,8 +283,23 @@ def _register_context(
         timestamp=settings.timestamp,
         timestamp_format=settings.timestamp_format,
         agent_label=renderer.settings.renderer.agent_label,
+        owner_thread_id=0,
+        owner_thread_name="",
     )
     renderer.register_context(ctx)
+    logger.info(
+        "hermes-progress-tail context registered: origin=%s platform=%s session_id=%s "
+        "session_key_present=%s strategy=%s tools=%s assistant=%s reasoning=%s delegates=%s",
+        origin,
+        platform,
+        session_id,
+        bool(session_key),
+        settings.strategy,
+        settings.tools_enabled,
+        settings.assistant_enabled,
+        settings.reasoning_enabled,
+        settings.delegates_enabled,
+    )
 
 
 def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: Any):
@@ -339,6 +355,7 @@ def register_context_from_adapter_event(adapter: Any, event: Any) -> None:
         adapter=adapter,
         session_id=session_id,
         session_key=_session_key(entry, source, getattr(adapter, "gateway", None) or adapter),
+        origin="adapter_internal",
     )
     return
 
@@ -351,8 +368,21 @@ def _schedule_render(
 ) -> bool:
     renderer = _get_renderer()
     if ctx.loop is None:
+        logger.debug(
+            "hermes-progress-tail render skipped: no event loop for session_id=%s session_key_present=%s event=%s",
+            ctx.session_id,
+            bool(ctx.session_key),
+            type(event).__name__,
+        )
         return False
     try:
+        logger.debug(
+            "hermes-progress-tail schedule render: event=%s session_id=%s session_key_present=%s force=%s",
+            type(event).__name__,
+            ctx.session_id,
+            bool(ctx.session_key),
+            force,
+        )
         future = asyncio.run_coroutine_threadsafe(
             renderer.handle_event(event, force=force), ctx.loop
         )
@@ -516,8 +546,45 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
 
 
 def _is_background_review_thread() -> bool:
-    thread_name = str(getattr(threading.current_thread(), "name", "") or "").lower()
+    thread_name = threading.current_thread().name
     return thread_name == "bg-review" or thread_name.startswith("bg-review:")
+
+
+def _is_context_owner_thread(ctx: SessionContext) -> bool:
+    owner_thread_id = int(getattr(ctx, "owner_thread_id", 0) or 0)
+    return not owner_thread_id or owner_thread_id == threading.get_ident()
+
+
+def _context_for_non_background_thread(
+    renderer: ProgressRenderer, session_id: str = "", session_key: str = ""
+) -> SessionContext | None:
+    if _is_background_review_thread():
+        logger.debug(
+            "hermes-progress-tail ignored background-review event: thread=%s session_id=%s "
+            "session_key_present=%s",
+            threading.current_thread().name,
+            session_id,
+            bool(session_key),
+        )
+        return None
+    ctx = _context_for(renderer, session_id, session_key)
+    if ctx is None:
+        logger.debug(
+            "hermes-progress-tail context lookup missed: thread=%s session_id=%s session_key_present=%s",
+            threading.current_thread().name,
+            session_id,
+            bool(session_key),
+        )
+    return ctx
+
+
+def _context_owned_by_current_thread(
+    renderer: ProgressRenderer, session_id: str = "", session_key: str = ""
+) -> SessionContext | None:
+    ctx = _context_for(renderer, session_id, session_key)
+    if ctx is None:
+        return None
+    return ctx if _is_context_owner_thread(ctx) else None
 
 
 def _on_pre_tool_call(
@@ -529,14 +596,24 @@ def _on_pre_tool_call(
     preview: str | None = None,
     **_: Any,
 ):
-    if _is_background_review_thread():
-        return None
     renderer = _get_renderer()
-    ctx = _context_for(renderer, session_id or task_id, task_id)
+    ctx = _context_for_non_background_thread(renderer, session_id or task_id, task_id)
     if ctx is None:
         return None
     if not ctx.tools_enabled:
+        logger.debug(
+            "hermes-progress-tail ignored tool event because tools disabled: tool=%s", tool_name
+        )
         return None
+    logger.debug(
+        "hermes-progress-tail pre_tool_call: tool=%s session_id=%s session_key_present=%s "
+        "thread=%s tool_call_id=%s",
+        tool_name,
+        ctx.session_id,
+        bool(ctx.session_key),
+        threading.current_thread().name,
+        tool_call_id,
+    )
     line = format_tool_line(
         tool_name,
         args or {},
@@ -571,12 +648,27 @@ def _on_post_tool_call(
     duration_ms: int | None = None,
     **_: Any,
 ):
-    if _is_background_review_thread():
-        return None
     renderer = _get_renderer()
-    ctx = _context_for(renderer, session_id or task_id, task_id)
-    if ctx is None or not ctx.tools_enabled:
+    ctx = _context_for_non_background_thread(renderer, session_id or task_id, task_id)
+    if ctx is None:
         return None
+    if not ctx.tools_enabled:
+        logger.debug(
+            "hermes-progress-tail ignored post-tool event because tools disabled: tool=%s",
+            tool_name,
+        )
+        return None
+    logger.debug(
+        "hermes-progress-tail post_tool_call: tool=%s session_id=%s session_key_present=%s "
+        "thread=%s status=%s duration_ms=%s tool_call_id=%s",
+        tool_name,
+        ctx.session_id,
+        bool(ctx.session_key),
+        threading.current_thread().name,
+        _compact_result_status(result),
+        duration_ms,
+        tool_call_id,
+    )
     result_obj = _json_obj(result)
     if tool_name == "terminal" and _terminal_background_requested(args):
         process_id = str(result_obj.get("session_id") or "")
@@ -636,7 +728,7 @@ def on_reasoning_delta_from_agent(
     renderer = _get_renderer()
     session_id = _agent_session_id(agent)
     session_key = _agent_session_key(agent)
-    ctx = _context_for(renderer, session_id, session_key)
+    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None or not ctx.reasoning_enabled:
         return
     _schedule_render(
@@ -651,7 +743,7 @@ def on_compression_status_from_agent(agent: Any, text: str) -> bool:
     renderer = _get_renderer()
     session_id = _agent_session_id(agent)
     session_key = _agent_session_key(agent)
-    ctx = _context_for(renderer, session_id, session_key)
+    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None:
         return False
     if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
@@ -683,8 +775,12 @@ def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> 
     new_session_id = str(data.get("new_session_id") or _agent_session_id(agent) or old_session_id)
     session_key = _agent_session_key(agent)
     if old_session_id and new_session_id and old_session_id != new_session_id:
-        renderer.migrate_context(old_session_id, new_session_id, session_key=session_key)
-    ctx = _context_for(renderer, new_session_id or old_session_id, session_key)
+        candidate = _context_for(renderer, old_session_id, session_key)
+        if candidate is not None:
+            renderer.migrate_context(old_session_id, new_session_id, session_key=session_key)
+    ctx = _context_for_non_background_thread(
+        renderer, new_session_id or old_session_id, session_key
+    )
     if ctx is None or not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
         return False
     if phase == "started":
@@ -739,7 +835,7 @@ def on_assistant_progress_from_agent(
     renderer = _get_renderer()
     session_id = _agent_session_id(agent)
     session_key = _agent_session_key(agent)
-    ctx = _context_for(renderer, session_id, session_key)
+    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None:
         _record_assistant_capture(
             "no_context",
@@ -790,7 +886,7 @@ def on_delegate_progress_from_agent(
     renderer = _get_renderer()
     session_id = _agent_session_id(parent_agent)
     session_key = _agent_session_key(parent_agent)
-    ctx = renderer.find_context(session_id, session_key)
+    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None or not ctx.delegates_enabled:
         return
     subagent_id = str(kwargs.get("subagent_id") or f"task-{kwargs.get('task_index', 0)}")
@@ -835,6 +931,8 @@ def _finalize_target_context(
     platform: str = "",
     session_key: str = "",
 ):
+    if _is_background_review_thread():
+        return None
     ctx = renderer.find_context(session_id, session_key)
     if ctx is not None:
         return ctx
@@ -854,12 +952,12 @@ def _schedule_finalize(
     renderer = _get_renderer()
     ctx = _finalize_target_context(renderer, session_id, platform, session_key)
     if ctx is None or ctx.loop is None:
-        if purge:
-            renderer.purge(session_id=session_id, platform=platform)
         return
+    generation = ctx.generation
     try:
         future = asyncio.run_coroutine_threadsafe(
-            renderer.finalize(session_id=ctx.session_id, purge=purge), ctx.loop
+            renderer.finalize(session_id=ctx.session_id, purge=purge, generation=generation),
+            ctx.loop,
         )
 
         def _consume_done(fut):
@@ -1153,13 +1251,31 @@ def _demo_command(*, plain: bool = False, failed: bool = False) -> str:
 
 def register(ctx):
     runtime_config = _load_runtime_config()
+    settings = load_settings(runtime_config)
+    logger.info(
+        "hermes-progress-tail plugin loaded: version=%s enabled=%s mode=%s density=%s style=%s "
+        "strategy=%s tools=%s assistant=%s reasoning=%s delegates=%s background_jobs=%s cleanup_auto_delete=%s",
+        VERSION,
+        settings.enabled,
+        settings.renderer.mode,
+        settings.renderer.density,
+        settings.renderer.style,
+        settings.renderer.strategy,
+        settings.tools.enabled,
+        settings.assistant.enabled,
+        settings.reasoning.enabled,
+        settings.delegates.enabled,
+        settings.background_jobs.enabled,
+        settings.cleanup.auto_delete,
+    )
     if _builtin_interim_conflict(runtime_config):
         logger.warning(_interim_conflict_warning())
     if _builtin_reasoning_conflict(runtime_config):
         logger.warning(_reasoning_conflict_warning())
     if _core_notifier_conflict(runtime_config):
         logger.warning(_core_notifier_conflict_warning())
-    install_monkeypatches()
+    monkeypatch_ok = install_monkeypatches()
+    logger.info("hermes-progress-tail plugin hooks registered: monkeypatches=%s", monkeypatch_ok)
     ctx.register_hook("pre_gateway_dispatch", _on_pre_gateway_dispatch)
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_hook("post_tool_call", _on_post_tool_call)
