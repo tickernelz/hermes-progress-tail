@@ -66,7 +66,8 @@ def test_delegate_section_simplifies_tool_labels_and_paths():
     assert "tool:" not in section
     assert "~/.hermes/plugins/hermes-progress-tail/hermes_progress_tail" not in section
     assert "/home/zhafron/.hermes/plugins/hermes-progress-tail" not in section
-    assert "└ result:" in section
+    assert "└ result\n" in section
+    assert "  Sudah saya lakukan smoke check" in section
 
 
 def test_delegate_section_collapses_completed_tool_burst_when_result_exists():
@@ -102,13 +103,13 @@ def test_delegate_section_collapses_completed_tool_burst_when_result_exists():
     assert "read_file: /repo/a.py" not in section
     assert 'search_files "format"' not in section
     assert "terminal: pytest -q" not in section
-    assert "└ result: ✓ done: smoke check passed" in section
+    assert "└ result\n  smoke check passed" in section
 
 
-def test_delegate_completed_result_middle_truncates_long_summary():
+def test_delegate_completed_result_renders_as_structured_block_with_line_budget():
     renderer = make_renderer(
         renderer={"style": "emoji", "mode": "focused"},
-        delegates={"lines_per_delegate": 5, "max_line_chars": 120},
+        delegates={"lines_per_delegate": 5, "max_line_chars": 84},
     )
     ctx = make_ctx()
     branch = DelegateBranch(
@@ -127,11 +128,15 @@ def test_delegate_completed_result_middle_truncates_long_summary():
         ),
         completion_line="✓ done: short fallback",
         completion_summary=(
-            "✓ done: PASS start verdict. "
-            + "front filler detail " * 40
-            + "UNIQUE_MIDDLE_SENTINEL "
-            + "tail filler detail " * 40
-            + "Final caveat stays visible."
+            "✓ done: ## PASS start verdict\n"
+            "- front line 1 with /home/zhafron/Works/HMX/hmx-002-Fundamental-New/hmx/module/basic/base/models/base_import_res_log.py\n"
+            "- front line 2 with 37583aab4759e71cf9a93a15fa7ab4ffeed123\n"
+            "- front line 3 with readable context\n"
+            "- front line 4 with readable context\n"
+            "- front line 5 with readable context\n"
+            "- UNIQUE_MIDDLE_SENTINEL should be hidden\n"
+            "### Final caveat\n"
+            "Final caveat stays visible."
         ),
     )
     ctx.delegate_branches["sa-1"] = branch
@@ -139,10 +144,15 @@ def test_delegate_completed_result_middle_truncates_long_summary():
 
     section = renderer.section(ctx)
 
-    assert "PASS start verdict" in section
-    assert "Final caveat stays visible" in section
+    assert "└ result\n" in section
+    assert "└ result:" not in section
+    assert "  PASS start verdict:" in section
+    assert "  - front line 1 with" in section
+    assert "base_import_res_log.py" in section
+    assert "37583aab47…" in section
+    assert "  Final caveat:" in section
+    assert "  Final caveat stays visible." in section
     assert "short fallback" not in section
-    assert "…" in section
     assert "UNIQUE_MIDDLE_SENTINEL" not in section
     assert "read_file: /repo/a.py" not in section
     assert "terminal: pytest -q" not in section
@@ -221,7 +231,7 @@ def test_delegate_completion_event_preserves_full_focused_result_until_render():
     assert "Final recommendation stays visible" in branch.completion_summary
     assert "Done — I traced the O2M inline-edit command path" in section
     assert "Final recommendation stays visible" in section
-    assert "Detailed frontend command construction notes" in section
+    assert "…" in section
     assert "396s" in section
 
 

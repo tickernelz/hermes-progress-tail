@@ -372,9 +372,14 @@ class DelegateProgressRenderer:
                     lines.append(f"{detail_connector}{detail}")
             if branch.completion_line:
                 connector = self._delegate_connector(len(delegate_lines), total)
-                lines.append(
-                    f"{connector} result: {self._simplify_completion_line(self._completion_result_text(branch), branch=branch)}"
-                )
+                result_text = self._completion_result_text(branch)
+                if self._delegate_result_only(branch):
+                    lines.append(f"{connector} result")
+                    lines.extend(self._completion_result_lines(result_text))
+                else:
+                    lines.append(
+                        f"{connector} result: {self._simplify_completion_line(result_text, branch=branch)}"
+                    )
         hidden = len(ctx.delegate_order) - len(visible_keys)
         if hidden > 0:
             lines.append(f"+{hidden} older delegate{'s' if hidden != 1 else ''}")
@@ -387,6 +392,84 @@ class DelegateProgressRenderer:
         if self._delegate_result_only(branch):
             return branch.completion_summary or branch.completion_line
         return branch.completion_line
+
+    def _completion_result_lines(self, text: str) -> list[str]:
+        prepared = self._prepare_completion_block_text(text)
+        raw_lines = [line for line in prepared.splitlines() if line.strip()]
+        max_lines = self._completed_result_line_limit()
+        raw_lines = self._middle_truncate_lines(raw_lines, max_lines)
+        line_limit = self._completed_result_line_char_limit()
+        return [f"  {middle_truncate_text(line.strip(), line_limit)}" for line in raw_lines]
+
+    def _prepare_completion_block_text(self, text: str) -> str:
+        value = self._simplify_known_plugin_paths(str(text or ""))
+        value = re.sub(
+            r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail\b",
+            "hermes-progress-tail",
+            value,
+        )
+        value = re.sub(r"```[\w-]*\n?", "", value).replace("```", "")
+        value = re.sub(r"^(?:✓\s*)?(?:done|failed):\s*", "", value, flags=re.I)
+        value = re.sub(r"\b([0-9a-f]{10})([0-9a-f]{8,})\b", r"\1…", value, flags=re.I)
+        value = re.sub(
+            r"(?<!\S)(#{1,6})\s+(.+)", lambda m: m.group(2).strip().rstrip(":") + ":", value
+        )
+        value = re.sub(r"(?m)^\s*[-*+]\s+", "- ", value)
+        value = re.sub(r"(?m)^\s*(\d+)\.\s+", r"\1. ", value)
+        value = self._split_inline_markdown_sections(value)
+        value = self._simplify_long_paths(value)
+        value = re.sub(r"[ \t]+", " ", value)
+        value = re.sub(r"\n{3,}", "\n\n", value)
+        return value.strip()
+
+    @staticmethod
+    def _split_inline_markdown_sections(text: str) -> str:
+        value = re.sub(r"\s+(#{1,6}\s+)", r"\n\1", text)
+        value = re.sub(r"\s+(-\s+)", r"\n\1", value)
+        value = re.sub(r"\s+(\d+\.\s+)", r"\n\1", value)
+        return value
+
+    @staticmethod
+    def _simplify_long_paths(text: str) -> str:
+        def repl(match: re.Match[str]) -> str:
+            raw = match.group(0).rstrip(".,;:)")
+            suffix = match.group(0)[len(raw) :]
+            parts = [part for part in raw.replace("\\", "/").split("/") if part]
+            if len(parts) <= 3:
+                return raw + suffix
+            return "/".join(parts[-3:]) + suffix
+
+        return re.sub(r"(?:~|/[A-Za-z0-9_.-]+|/[hH]ome/[^\s`'\")]+)[^\s`'\")]*", repl, text)
+
+    def _completed_result_line_limit(self) -> int:
+        density = self.settings.renderer.density
+        if density == "compact":
+            return 3
+        if density == "verbose":
+            return 8
+        if density == "debug":
+            return 12
+        return 6
+
+    def _completed_result_line_char_limit(self) -> int:
+        density = self.settings.renderer.density
+        if density == "compact":
+            return max(72, self.settings.delegates.max_line_chars)
+        if density == "verbose":
+            return max(140, self.settings.delegates.max_line_chars)
+        if density == "debug":
+            return max(220, self.settings.delegates.max_line_chars * 2)
+        return max(120, self.settings.delegates.max_line_chars)
+
+    @staticmethod
+    def _middle_truncate_lines(lines: list[str], limit: int) -> list[str]:
+        if limit <= 0 or len(lines) <= limit:
+            return lines
+        if limit <= 2:
+            return lines[:limit]
+        head_count = max(1, limit - 3)
+        tail_count = max(1, limit - head_count - 1)
+        return [*lines[:head_count], "…", *lines[-tail_count:]]
 
     def _simplify_completion_line(self, text: str, *, branch: DelegateBranch | None = None) -> str:
         value = self._simplify_known_plugin_paths(text)
