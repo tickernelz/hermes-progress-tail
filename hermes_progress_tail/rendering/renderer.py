@@ -664,9 +664,7 @@ class ProgressRenderer:
             result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
         except Exception as exc:
             logger.debug("hermes-progress-tail send failed: %s", exc)
-            ctx.last_error = str(exc)
-            ctx.disabled = True
-            return
+            result = _Result(False, None, str(exc))
         if getattr(result, "success", False):
             ctx.message_id = getattr(result, "message_id", None) or ctx.message_id
             ctx.can_edit = True
@@ -680,7 +678,19 @@ class ProgressRenderer:
             ctx.reasoning_pending_chars = 0
             ctx.last_render_at = time.monotonic()
         else:
-            ctx.last_error = str(getattr(result, "error", "send failed") or "send failed")
+            error = str(getattr(result, "error", "send failed") or "send failed")
+            ctx.last_error = error
+            kind = self._classify_edit_error(error)
+            if kind in {"rate_limited", "transient", "unknown_transient"}:
+                if ctx.edit_state == kind:
+                    ctx.edit_failure_count += 1
+                else:
+                    ctx.edit_failure_count = 1
+                delay = self._edit_backoff_seconds(error, kind, ctx.edit_failure_count)
+                ctx.edit_state = kind
+                ctx.edit_backoff_until = time.monotonic() + delay
+                self._schedule_delayed_live_flush(ctx, delay)
+                return
             ctx.disabled = True
 
     async def _downgrade_to_snapshot(self, ctx: SessionContext, error: str, state: str) -> None:
@@ -858,6 +868,8 @@ class ProgressRenderer:
             )
         ):
             return "unsupported"
+        if any(part in msg for part in ("forbidden", "blocked by the user", "unauthorized")):
+            return "permanent"
         if (
             "message to edit not found" in msg
             or "message_id_invalid" in msg
@@ -883,6 +895,11 @@ class ProgressRenderer:
                 "temporary",
                 "reset by peer",
                 "server disconnected",
+                "bad gateway",
+                "gateway timeout",
+                "502",
+                "503",
+                "504",
             )
         ):
             return "transient"

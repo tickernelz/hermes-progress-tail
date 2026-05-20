@@ -77,6 +77,30 @@ class SequenceEditAdapter(EditableAdapter):
         return True
 
 
+class SequenceSendAdapter(EditableAdapter):
+    def __init__(self, errors):
+        super().__init__()
+        self.errors = list(errors)
+
+    async def send(self, chat_id, content, metadata=None):
+        self.sent.append((chat_id, content, metadata))
+        if self.errors:
+            return Result(False, None, self.errors.pop(0))
+        message_id = f"m{self.next_id}"
+        self.next_id += 1
+        return Result(True, message_id)
+
+
+class ExceptionSendAdapter(SequenceSendAdapter):
+    async def send(self, chat_id, content, metadata=None):
+        self.sent.append((chat_id, content, metadata))
+        if self.errors:
+            raise RuntimeError(self.errors.pop(0))
+        message_id = f"m{self.next_id}"
+        self.next_id += 1
+        return Result(True, message_id)
+
+
 def test_semantic_activity_classifies_common_tool_intents():
     cases = {
         "terminal: python -m pytest tests/test_formatter.py -q": "running tests",
@@ -1273,6 +1297,104 @@ def test_edit_timeout_failure_backs_off_without_sending_new_message():
         assert adapter.edits[-1][2] == "▰ 🧰 Tools\none\ntwo\nthree"
 
     asyncio.run(run())
+
+
+def test_initial_send_bad_gateway_backs_off_without_disabling_context():
+    async def run():
+        adapter = SequenceSendAdapter(["Bad Gateway"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "one"), force=True)
+
+        assert ctx.disabled is False
+        assert ctx.message_id is None
+        assert ctx.edit_state == "transient"
+        assert ctx.edit_backoff_until > 0
+        assert len(adapter.sent) == 1
+
+        ctx.edit_backoff_until = 0
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "two"), force=True)
+
+        assert ctx.disabled is False
+        assert ctx.message_id == "m1"
+        assert len(adapter.sent) == 2
+        assert adapter.sent[-1][1] == "▰ 🧰 Tools\none\ntwo"
+
+    asyncio.run(run())
+
+
+def test_initial_send_exception_bad_gateway_backs_off_without_disabling_context():
+    async def run():
+        adapter = ExceptionSendAdapter(["Bad Gateway"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "one"), force=True)
+
+        assert ctx.disabled is False
+        assert ctx.message_id is None
+        assert ctx.edit_state == "transient"
+        assert ctx.edit_backoff_until > 0
+        assert len(adapter.sent) == 1
+
+        ctx.edit_backoff_until = 0
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "two"), force=True)
+
+        assert ctx.disabled is False
+        assert ctx.message_id == "m1"
+        assert len(adapter.sent) == 2
+        assert adapter.sent[-1][1] == "▰ 🧰 Tools\none\ntwo"
+
+    asyncio.run(run())
+
+
+def test_initial_send_flood_control_uses_backoff_without_disabling_context():
+    async def run():
+        adapter = SequenceSendAdapter(["flood_control:5"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "one"), force=True)
+
+        assert ctx.disabled is False
+        assert ctx.edit_state == "rate_limited"
+        assert ctx.edit_backoff_until > time.monotonic()
+        assert ctx.edit_backoff_until - time.monotonic() <= 5.5
+
+    asyncio.run(run())
+
+
+def test_permanent_initial_send_failure_still_disables_context():
+    async def run():
+        adapter = SequenceSendAdapter(["forbidden: bot was blocked by the user"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "one"), force=True)
+
+        assert ctx.disabled is True
+        assert ctx.last_error == "forbidden: bot was blocked by the user"
+
+    asyncio.run(run())
+
+
+def test_bad_gateway_is_classified_as_transient_edit_error():
+    assert ProgressRenderer._classify_edit_error("Bad Gateway") == "transient"
+    assert ProgressRenderer._classify_edit_error("502 Bad Gateway") == "transient"
+    assert ProgressRenderer._classify_edit_error("Gateway Timeout 504") == "transient"
 
 
 def test_edit_message_lost_recovers_with_exactly_one_new_progress_bubble():
