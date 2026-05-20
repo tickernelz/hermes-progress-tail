@@ -10,6 +10,7 @@ _ORIGINALS: dict[type, dict[str, Any]] = {}
 _ADAPTER_ORIGINALS: dict[type, dict[str, Any]] = {}
 _DELEGATE_ORIGINALS: dict[int, tuple[Any, Any]] = {}
 _TELEGRAM_ORIGINALS: dict[type, Any] = {}
+_TELEGRAM_TOPIC_RECOVERY_ORIGINALS: dict[type, Any] = {}
 _PROCESS_NOTIFICATION_ORIGINALS: dict[int, tuple[Any, Any]] = {}
 _COMPRESSION_STATUS_ORIGINALS: dict[type, Any] = {}
 _COMPRESSION_LIFECYCLE_ORIGINALS: dict[type, Any] = {}
@@ -17,6 +18,7 @@ _NOOP_MARKER = "_hermes_progress_tail_noop"
 _PATCH_MARKER = "_hermes_progress_tail_patched"
 _DELEGATE_PATCH_MARKER = "_hermes_progress_tail_delegate_patched"
 _TELEGRAM_PATCH_MARKER = "_hermes_progress_tail_telegram_format_patched"
+_TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER = "_hermes_progress_tail_telegram_topic_recovery_patched"
 _PROCESS_NOTIFICATION_PATCH_MARKER = "_hermes_progress_tail_process_notification_patched"
 _COMPRESSION_STATUS_PATCH_MARKER = "_hermes_progress_tail_compression_status_patched"
 _COMPRESSION_LIFECYCLE_PATCH_MARKER = "_hermes_progress_tail_compression_lifecycle_patched"
@@ -86,6 +88,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     adapter_ok = install_adapter_monkeypatches(agent_cls)
     delegate_ok = install_delegate_monkeypatches()
     telegram_ok = install_telegram_format_monkeypatch()
+    telegram_topic_ok = install_telegram_topic_recovery_monkeypatch()
     process_ok = install_process_notification_monkeypatch()
     compression_ok = install_compression_status_monkeypatch(agent_cls)
     compression_lifecycle_ok = install_compression_lifecycle_monkeypatch(agent_cls)
@@ -95,6 +98,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
             adapter_ok,
             delegate_ok,
             telegram_ok,
+            telegram_topic_ok,
             process_ok,
             compression_ok,
             compression_lifecycle_ok,
@@ -102,12 +106,13 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     )
     logger.info(
         "hermes-progress-tail monkeypatches installed: agent=%s adapter=%s delegate=%s "
-        "telegram_format=%s process_notifications=%s compression_status=%s "
-        "compression_lifecycle=%s any=%s",
+        "telegram_format=%s telegram_topic_recovery=%s process_notifications=%s "
+        "compression_status=%s compression_lifecycle=%s any=%s",
         agent_ok,
         adapter_ok,
         delegate_ok,
         telegram_ok,
+        telegram_topic_ok,
         process_ok,
         compression_ok,
         compression_lifecycle_ok,
@@ -159,6 +164,57 @@ def install_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
     adapter_cls.handle_message = patched_handle_message
     adapter_cls._hermes_progress_tail_adapter_patched = True
     return True
+
+
+def install_telegram_topic_recovery_monkeypatch(gateway_runner_cls: type | None = None) -> bool:
+    runner_cls = gateway_runner_cls
+    if runner_cls is None:
+        try:
+            from gateway.run import GatewayRunner
+
+            runner_cls = GatewayRunner
+        except Exception as exc:
+            logger.debug(
+                "hermes-progress-tail could not import GatewayRunner for Telegram topic recovery: %s",
+                exc,
+            )
+            return False
+    if getattr(runner_cls, _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER, False):
+        return True
+    original = getattr(runner_cls, "_recover_telegram_topic_thread_id", None)
+    if original is None:
+        logger.debug(
+            "hermes-progress-tail Telegram topic recovery monkeypatch disabled: API missing"
+        )
+        return False
+    _TELEGRAM_TOPIC_RECOVERY_ORIGINALS[runner_cls] = original
+
+    @wraps(original)
+    def patched_recover_telegram_topic_thread_id(self, source):
+        if _should_preserve_telegram_topic_thread(self, source):
+            logger.debug(
+                "hermes-progress-tail preserving concrete Telegram topic thread_id=%s",
+                getattr(source, "thread_id", None),
+            )
+            return None
+        return original(self, source)
+
+    runner_cls._recover_telegram_topic_thread_id = patched_recover_telegram_topic_thread_id
+    setattr(runner_cls, _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER, True)
+    return True
+
+
+def _should_preserve_telegram_topic_thread(gateway: Any, source: Any) -> bool:
+    if str(getattr(source, "chat_type", "") or "") != "dm":
+        return False
+    platform = getattr(source, "platform", "")
+    platform_value = getattr(platform, "value", platform)
+    if str(platform_value or "").lower() != "telegram":
+        return False
+    inbound = str(getattr(source, "thread_id", "") or "")
+    general_ids = getattr(gateway, "_TELEGRAM_GENERAL_TOPIC_IDS", frozenset({"", "1"}))
+    general_ids = {str(item) for item in general_ids}
+    return bool(inbound) and inbound not in general_ids
 
 
 def install_process_notification_monkeypatch(process_module: Any | None = None) -> bool:
@@ -760,6 +816,7 @@ def uninstall_monkeypatches(agent_cls: type | None = None) -> bool:
     adapter_ok = uninstall_adapter_monkeypatches(agent_cls)
     delegate_ok = uninstall_delegate_monkeypatches()
     telegram_ok = uninstall_telegram_format_monkeypatch()
+    telegram_topic_ok = uninstall_telegram_topic_recovery_monkeypatch()
     process_ok = uninstall_process_notification_monkeypatch()
     compression_ok = uninstall_compression_status_monkeypatch(agent_cls)
     compression_lifecycle_ok = uninstall_compression_lifecycle_monkeypatch(agent_cls)
@@ -769,6 +826,7 @@ def uninstall_monkeypatches(agent_cls: type | None = None) -> bool:
             adapter_ok,
             delegate_ok,
             telegram_ok,
+            telegram_topic_ok,
             process_ok,
             compression_ok,
             compression_lifecycle_ok,
@@ -808,6 +866,26 @@ def uninstall_telegram_format_monkeypatch(telegram_adapter_cls: type | None = No
         delattr(telegram_adapter_cls, _TELEGRAM_PATCH_MARKER)
     except Exception:
         setattr(telegram_adapter_cls, _TELEGRAM_PATCH_MARKER, False)
+    return True
+
+
+def uninstall_telegram_topic_recovery_monkeypatch(gateway_runner_cls: type | None = None) -> bool:
+    runner_cls = gateway_runner_cls
+    if runner_cls is None:
+        try:
+            from gateway.run import GatewayRunner
+
+            runner_cls = GatewayRunner
+        except Exception:
+            return False
+    original = _TELEGRAM_TOPIC_RECOVERY_ORIGINALS.pop(runner_cls, None)
+    if original is None:
+        return False
+    runner_cls._recover_telegram_topic_thread_id = original
+    try:
+        delattr(runner_cls, _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER)
+    except Exception:
+        setattr(runner_cls, _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER, False)
     return True
 
 
