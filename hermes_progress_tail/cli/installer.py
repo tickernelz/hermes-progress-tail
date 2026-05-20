@@ -34,6 +34,7 @@ DEFAULT_CONFIG = {
         "show_model": False,
         "show_tool_count": True,
         "show_completion": True,
+        "completed_ttl_seconds": 5,
         "thinking": "off",
     },
     "todo": {

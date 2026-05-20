@@ -110,6 +110,7 @@ progress_tail:
     show_model: false
     show_tool_count: true
     show_completion: true
+    completed_ttl_seconds: 5
     thinking: off
 
   todo:

@@ -1106,7 +1106,7 @@ def _command(raw_args: str = "") -> str:
             f"assistant_capture={_ASSISTANT_CAPTURE.get('status', 'never')} already_streamed={_ASSISTANT_CAPTURE.get('already_streamed', False)} session={_ASSISTANT_CAPTURE.get('session_id') or '-'} key_present={_ASSISTANT_CAPTURE.get('session_key_present', False)} at={capture_when}",
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
-            f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} thinking={settings.delegates.thinking}",
+            f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} ttl={settings.delegates.completed_ttl_seconds}s thinking={settings.delegates.thinking}",
             f"background_jobs={'enabled' if settings.background_jobs.enabled else 'disabled'} list_running={settings.background_jobs.list_running} show_completed={settings.background_jobs.show_completed} max={settings.background_jobs.max_jobs} ttl={settings.background_jobs.completed_ttl_seconds}s head={settings.background_jobs.head_lines} tail={settings.background_jobs.tail_lines} update={settings.background_jobs.update_interval_seconds}s suppress_native_notify={settings.background_jobs.suppress_native_notify} suppress_watch={settings.background_jobs.suppress_watch_notifications}",
             f"renderer=mode:{settings.renderer.mode} strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval} agent_label:{settings.renderer.agent_label or '-'}",
             f"display.tool_progress={display.get('tool_progress', '<unset>')}",
@@ -1262,7 +1262,7 @@ def _demo_command(*, plain: bool = False, failed: bool = False) -> str:
             status="completed",
             duration_seconds=12,
             summary="demo smoke check passed",
-            created_at=8,
+            created_at=time.time(),
         ),
     )
     ctx.tool_lines.extend(

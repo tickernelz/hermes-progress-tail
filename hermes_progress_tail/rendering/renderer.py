@@ -237,7 +237,7 @@ class ProgressRenderer:
                     if fingerprint:
                         ctx.active_tool_fingerprints[fingerprint] = line
             elif isinstance(event, DelegateEvent):
-                self.delegate_renderer.apply_event(ctx, event)
+                self._apply_delegate_event(ctx, event)
             elif isinstance(event, BackgroundJobEvent):
                 self._apply_background_job_event(ctx, event)
                 force = True
@@ -511,6 +511,51 @@ class ProgressRenderer:
             event,
             settings=self.settings.background_jobs,
             cancel_poll=self._cancel_background_poll,
+        )
+
+    def _apply_delegate_event(self, ctx: SessionContext, event: DelegateEvent) -> None:
+        self.delegate_renderer.apply_event(ctx, event)
+        if self._delegate_event_is_terminal(event):
+            key = event.subagent_id or f"task-{event.task_index}"
+            branch = ctx.delegate_branches.get(key)
+            if branch is not None:
+                self._schedule_delegate_cleanup(ctx, key, branch)
+
+    def _schedule_delegate_cleanup(
+        self, ctx: SessionContext, subagent_id: str, branch: Any
+    ) -> None:
+        if not subagent_id or ctx.loop is None:
+            return
+        if branch.cleanup_task is not None and not branch.cleanup_task.done():
+            return
+
+        async def _cleanup() -> None:
+            try:
+                await asyncio.sleep(self.settings.delegates.completed_ttl_seconds)
+                async with ctx.lock:
+                    current = ctx.delegate_branches.get(subagent_id)
+                    if current is not branch:
+                        return
+                    self.delegate_renderer.prune_completed(ctx)
+                    if ctx.strategy == "live_tail":
+                        await self._render_live(ctx, force=True)
+                    elif ctx.strategy == "snapshot":
+                        await self._render_snapshot(ctx, force=True)
+            except asyncio.CancelledError:
+                raise
+            finally:
+                if branch.cleanup_task is task:
+                    branch.cleanup_task = None
+
+        task = ctx.loop.create_task(_cleanup())
+        branch.cleanup_task = task
+
+    @staticmethod
+    def _delegate_event_is_terminal(event: DelegateEvent) -> bool:
+        return bool(
+            event.event_type in {"subagent.complete", "subagent.failed"}
+            or str(event.status or "").strip().lower()
+            in {"completed", "done", "success", "failed", "error", "cancelled", "killed"}
         )
 
     def _background_jobs_section(self, ctx: SessionContext) -> str:

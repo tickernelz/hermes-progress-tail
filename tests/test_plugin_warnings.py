@@ -33,6 +33,7 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
     assert "duration=True" in status
     assert "todo=sticky:True hide_tool_line:True" in status
     assert "patch=detail:smart preview_chars:48 max_files:3" in status
+    assert "delegates=enabled max=4 lines=2 ttl=5s thinking=off" in status
     assert (
         "background_jobs=enabled list_running=True show_completed=True max=4 "
         "ttl=5s head=2 tail=3 update=3s suppress_native_notify=True suppress_watch=True"

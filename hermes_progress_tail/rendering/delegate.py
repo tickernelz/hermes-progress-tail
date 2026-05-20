@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import re
+import time
 from contextlib import suppress
 from pathlib import Path, PureWindowsPath
 from typing import Any
@@ -65,6 +67,9 @@ class DelegateProgressRenderer:
 
     def apply_event(self, ctx: SessionContext, event: DelegateEvent) -> None:
         event_type = event.event_type
+        if event_type == "cleanup":
+            self.prune_completed(ctx, now=event.created_at)
+            return
         key = event.subagent_id or f"task-{event.task_index}"
         branch = ctx.delegate_branches.get(key)
         if branch is None:
@@ -81,7 +86,9 @@ class DelegateProgressRenderer:
             ctx.delegate_order.append(key)
         else:
             if event_type in {"subagent.spawn_requested", "subagent.start"} and branch.completed_at:
+                self.cancel_cleanup(branch)
                 branch.completion_line = ""
+                branch.completion_summary = ""
                 branch.lines.clear()
                 branch.completed_at = 0.0
                 branch.duration_seconds = 0.0
@@ -131,6 +138,38 @@ class DelegateProgressRenderer:
         line = self._format_delegate_progress_line(event)
         if line:
             branch.lines.append(line)
+
+    def prune_completed(self, ctx: SessionContext, *, now: float | None = None) -> None:
+        ttl = self.settings.delegates.completed_ttl_seconds
+        current = time.time() if now is None else now
+        for key in list(ctx.delegate_order):
+            branch = ctx.delegate_branches.get(key)
+            if branch is None:
+                with contextlib.suppress(ValueError):
+                    ctx.delegate_order.remove(key)
+                continue
+            if not self._delegate_is_terminal(branch):
+                continue
+            if branch.completed_at and current - branch.completed_at > ttl:
+                self.cancel_cleanup(branch)
+                ctx.delegate_branches.pop(key, None)
+                with contextlib.suppress(ValueError):
+                    ctx.delegate_order.remove(key)
+
+    @staticmethod
+    def cancel_cleanup(branch: DelegateBranch) -> None:
+        task = branch.cleanup_task
+        if task is not None and not task.done():
+            task.cancel()
+        branch.cleanup_task = None
+
+    @staticmethod
+    def _delegate_is_terminal(branch: DelegateBranch) -> bool:
+        return bool(
+            branch.completed_at
+            or str(branch.status or "").strip().lower()
+            in {"completed", "done", "success", "failed", "error", "cancelled", "killed"}
+        )
 
     def _format_delegate_progress_line(self, event: DelegateEvent) -> DelegateLine | None:
         if event.tool_name:
@@ -331,6 +370,9 @@ class DelegateProgressRenderer:
         return truncate_text(text, limit)
 
     def section(self, ctx: SessionContext) -> str:
+        if not ctx.delegate_branches:
+            return ""
+        self.prune_completed(ctx)
         if not ctx.delegate_branches:
             return ""
         settings = self.settings.delegates

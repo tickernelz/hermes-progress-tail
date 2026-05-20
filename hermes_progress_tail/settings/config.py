@@ -29,6 +29,7 @@ PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
         "show_model": None,
         "show_tool_count": None,
         "show_completion": None,
+        "completed_ttl_seconds": None,
         "thinking": None,
     },
     "todo": {
@@ -142,6 +143,7 @@ class DelegateSettings:
     show_model: bool = False
     show_tool_count: bool = True
     show_completion: bool = True
+    completed_ttl_seconds: int = 5
     thinking: Literal["off", "summary"] = "off"
 
 
@@ -480,6 +482,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         show_model=_bool(delegates_raw.get("show_model"), False),
         show_tool_count=_bool(delegates_raw.get("show_tool_count"), True),
         show_completion=_bool(delegates_raw.get("show_completion"), True),
+        completed_ttl_seconds=_int(delegates_raw.get("completed_ttl_seconds"), 5),
         thinking=_delegate_thinking(delegates_raw.get("thinking"), "off"),
     )
     todo = TodoSettings(
