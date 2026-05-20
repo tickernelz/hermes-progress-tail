@@ -107,6 +107,7 @@ class DelegateProgressRenderer:
             )
             branch.completed_at = event.created_at
             branch.duration_seconds = event.duration_seconds
+            branch.completion_summary = self._format_delegate_completion_summary(event)
             if event.summary and self.settings.delegates.show_completion:
                 branch.completion_line = self._format_delegate_completion_line(event)
             return
@@ -274,6 +275,17 @@ class DelegateProgressRenderer:
         summary = self._brief_completion_summary(event.summary)
         if not summary:
             return ""
+        return self._format_completion_text(
+            event, summary, limit=self.settings.delegates.max_line_chars
+        )
+
+    def _format_delegate_completion_summary(self, event: DelegateEvent) -> str:
+        summary = re.sub(r"\s+", " ", str(event.summary or "")).strip()
+        if not summary:
+            return ""
+        return self._format_completion_text(event, summary, limit=0)
+
+    def _format_completion_text(self, event: DelegateEvent, summary: str, *, limit: int = 0) -> str:
         label = (
             "failed"
             if event.event_type == "subagent.failed" or event.status == "failed"
@@ -287,7 +299,10 @@ class DelegateProgressRenderer:
             "hermes-progress-tail",
             summary,
         )
-        return self._delegate_line(f"{label}: {summary}", self.settings.delegates.max_line_chars)
+        text = f"{label}: {summary}"
+        if limit > 0:
+            return self._delegate_line(text, limit)
+        return text
 
     @staticmethod
     def _strip_tool_emoji(text: str) -> str:
@@ -301,6 +316,7 @@ class DelegateProgressRenderer:
         if raw.startswith("{") or raw.startswith("["):
             return re.sub(r"\s+", " ", raw)
         lines = [line.strip(" -•\t") for line in raw.splitlines() if line.strip()]
+        lines = [line for line in lines if line]
         if len(lines) >= 2 and lines[0].endswith(":"):
             value = f"{lines[0]} {lines[1]}"
         else:
@@ -331,7 +347,9 @@ class DelegateProgressRenderer:
             title = self._delegate_title(branch, inferred_task_count=inferred_task_count)
             if self.settings.renderer.density == "compact":
                 if self._delegate_result_only(branch):
-                    current = self._simplify_completion_line(branch.completion_line, branch=branch)
+                    current = self._simplify_completion_line(
+                        self._completion_result_text(branch), branch=branch
+                    )
                 else:
                     current = branch.completion_line or (
                         self._delegate_compact_line(branch.lines[-1])
@@ -355,7 +373,7 @@ class DelegateProgressRenderer:
             if branch.completion_line:
                 connector = self._delegate_connector(len(delegate_lines), total)
                 lines.append(
-                    f"{connector} result: {self._simplify_completion_line(branch.completion_line, branch=branch)}"
+                    f"{connector} result: {self._simplify_completion_line(self._completion_result_text(branch), branch=branch)}"
                 )
         hidden = len(ctx.delegate_order) - len(visible_keys)
         if hidden > 0:
@@ -364,6 +382,11 @@ class DelegateProgressRenderer:
             return ""
         header = "🔀 Delegates" if self.settings.renderer.style == "emoji" else "Delegates"
         return header + "\n" + "\n".join(lines)
+
+    def _completion_result_text(self, branch: DelegateBranch) -> str:
+        if self._delegate_result_only(branch):
+            return branch.completion_summary or branch.completion_line
+        return branch.completion_line
 
     def _simplify_completion_line(self, text: str, *, branch: DelegateBranch | None = None) -> str:
         value = self._simplify_known_plugin_paths(text)

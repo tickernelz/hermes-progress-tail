@@ -2,7 +2,7 @@ from collections import deque
 
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.rendering.delegate import DelegateProgressRenderer
-from hermes_progress_tail.state import DelegateBranch, DelegateLine, SessionContext
+from hermes_progress_tail.state import DelegateBranch, DelegateEvent, DelegateLine, SessionContext
 
 
 class Adapter:
@@ -125,7 +125,8 @@ def test_delegate_completed_result_middle_truncates_long_summary():
             ],
             maxlen=5,
         ),
-        completion_line=(
+        completion_line="✓ done: short fallback",
+        completion_summary=(
             "✓ done: PASS start verdict. "
             + "front filler detail " * 40
             + "UNIQUE_MIDDLE_SENTINEL "
@@ -140,6 +141,7 @@ def test_delegate_completed_result_middle_truncates_long_summary():
 
     assert "PASS start verdict" in section
     assert "Final caveat stays visible" in section
+    assert "short fallback" not in section
     assert "…" in section
     assert "UNIQUE_MIDDLE_SENTINEL" not in section
     assert "read_file: /repo/a.py" not in section
@@ -181,6 +183,46 @@ def test_delegate_completed_compact_result_middle_truncates_summary():
     assert "…" in section
     assert "UNIQUE_COMPACT_MIDDLE" not in section
     assert "read_file: /repo/a.py" not in section
+
+
+def test_delegate_completion_event_preserves_full_focused_result_until_render():
+    renderer = make_renderer(
+        renderer={"style": "emoji", "mode": "focused"},
+        delegates={"lines_per_delegate": 2, "max_line_chars": 90},
+    )
+    ctx = make_ctx()
+    long_summary = (
+        "Done — I traced the O2M inline-edit command path and did a read-only analysis. "
+        + "Detailed frontend command construction notes that should not be dropped early. " * 8
+        + "Final recommendation stays visible."
+    )
+
+    renderer.apply_event(
+        ctx,
+        DelegateEvent(
+            "s1",
+            "k1",
+            "telegram",
+            "sa-1",
+            task_index=0,
+            task_count=1,
+            goal="Analyze frontend command construction path",
+            event_type="subagent.complete",
+            status="completed",
+            duration_seconds=396,
+            summary=long_summary,
+        ),
+    )
+
+    branch = ctx.delegate_branches["sa-1"]
+    section = renderer.section(ctx)
+
+    assert "Detailed frontend command construction notes" in branch.completion_summary
+    assert "Final recommendation stays visible" in branch.completion_summary
+    assert "Done — I traced the O2M inline-edit command path" in section
+    assert "Final recommendation stays visible" in section
+    assert "Detailed frontend command construction notes" in section
+    assert "396s" in section
 
 
 def test_delegate_failed_result_keeps_recent_progress_context():

@@ -56,6 +56,7 @@ class DelegateBranch:
     duration_seconds: float = 0.0
     lines: deque[DelegateLine] = field(default_factory=lambda: deque(maxlen=2))
     completion_line: str = ""
+    completion_summary: str = ""
     lifecycle_started: bool = False
 
     def resize(self, lines_per_delegate: int) -> None:
