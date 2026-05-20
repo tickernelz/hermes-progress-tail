@@ -14,7 +14,8 @@ def test_demo_command_returns_focused_markdown_sample(monkeypatch):
     assert "**State** 5 tools · 4 done · 1 running · 2 queued" in demo
     assert "**__Plan__**\n✓ Inspect renderer" in demo
     assert "**__Delegates__**" in demo
-    assert "├ 4 tools · read_file, search_files, terminal, read_file" in demo
+    assert "└ result: ✓ done: demo smoke check passed" in demo
+    assert "4 tools · read_file, search_files, terminal, read_file" not in demo
     assert "**__Tools__**\n✓ search_files: focused_block · 0.1s" in demo
     assert "tool:" not in demo
     assert "[22:41]" not in demo

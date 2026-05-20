@@ -13,6 +13,21 @@ from ..utils.text import truncate_text
 from .formatter import format_tool_line
 
 
+def middle_truncate_text(text: str, limit: int) -> str:
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    if limit <= 0 or len(value) <= limit:
+        return value
+    if limit <= 12:
+        return truncate_text(value, limit)
+    separator = " … "
+    remaining = max(1, limit - len(separator))
+    head_len = max(1, int(remaining * 0.58))
+    tail_len = max(1, remaining - head_len)
+    head = value[:head_len].rstrip(" ,.;:-")
+    tail = value[-tail_len:].lstrip(" ,.;:-")
+    return f"{head}{separator}{tail}"
+
+
 def event_preview_args(event: DelegateEvent) -> dict[str, Any]:
     preview = str(event.preview or "").strip()
     args = dict(event.args) if isinstance(event.args, dict) else {}
@@ -315,16 +330,21 @@ class DelegateProgressRenderer:
         for branch in visible_branches:
             title = self._delegate_title(branch, inferred_task_count=inferred_task_count)
             if self.settings.renderer.density == "compact":
-                current = branch.completion_line or (
-                    self._delegate_compact_line(branch.lines[-1])
-                    if branch.lines
-                    else branch.status or "running"
-                )
+                if self._delegate_result_only(branch):
+                    current = self._simplify_completion_line(branch.completion_line, branch=branch)
+                else:
+                    current = branch.completion_line or (
+                        self._delegate_compact_line(branch.lines[-1])
+                        if branch.lines
+                        else branch.status or "running"
+                    )
                 lines.append(f"{title}: {current}")
                 continue
             lines.append(title)
             delegate_lines = self._delegate_display_lines(branch)
             has_result = bool(branch.completion_line)
+            if self._delegate_result_only(branch):
+                delegate_lines = []
             total = len(delegate_lines) + (1 if has_result else 0)
             for index, item in enumerate(delegate_lines):
                 connector = self._delegate_connector(index, total)
@@ -335,7 +355,7 @@ class DelegateProgressRenderer:
             if branch.completion_line:
                 connector = self._delegate_connector(len(delegate_lines), total)
                 lines.append(
-                    f"{connector} result: {self._simplify_completion_line(branch.completion_line)}"
+                    f"{connector} result: {self._simplify_completion_line(branch.completion_line, branch=branch)}"
                 )
         hidden = len(ctx.delegate_order) - len(visible_keys)
         if hidden > 0:
@@ -345,14 +365,32 @@ class DelegateProgressRenderer:
         header = "🔀 Delegates" if self.settings.renderer.style == "emoji" else "Delegates"
         return header + "\n" + "\n".join(lines)
 
-    def _simplify_completion_line(self, text: str) -> str:
+    def _simplify_completion_line(self, text: str, *, branch: DelegateBranch | None = None) -> str:
         value = self._simplify_known_plugin_paths(text)
         value = re.sub(
             r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail\b",
             "hermes-progress-tail",
             value,
         )
+        if branch is not None and self._delegate_result_only(branch):
+            value = middle_truncate_text(value, self._completed_result_limit())
         return value
+
+    def _delegate_result_only(self, branch: DelegateBranch) -> bool:
+        if str(self.settings.renderer.mode or "").strip().lower() != "focused":
+            return False
+        status = str(branch.status or "").strip().lower()
+        return bool(branch.completion_line) and status in {"completed", "done", "success"}
+
+    def _completed_result_limit(self) -> int:
+        density = self.settings.renderer.density
+        if density == "compact":
+            return max(120, self.settings.delegates.max_line_chars)
+        if density == "verbose":
+            return max(900, self.settings.delegates.max_line_chars * 5)
+        if density == "debug":
+            return max(1400, self.settings.delegates.max_line_chars * 8)
+        return max(600, self.settings.delegates.max_line_chars * 4)
 
     def _delegate_display_lines(self, branch: DelegateBranch) -> list[DelegateLine]:
         lines = list(branch.lines)
