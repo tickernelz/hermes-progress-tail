@@ -394,10 +394,16 @@ def _schedule_render(
                 logger.debug("hermes-progress-tail render failed: %s", exc)
 
         future.add_done_callback(_consume_done)
+        if isinstance(event, BackgroundJobEvent) and _background_job_event_is_terminal(event):
+            _schedule_background_job_cleanup(ctx, event.process_id)
         return True
     except Exception as exc:
         logger.debug("hermes-progress-tail schedule failed: %s", exc)
         return False
+
+
+def _background_job_event_is_terminal(event: BackgroundJobEvent) -> bool:
+    return bool(event.exited or event.event_type in {"completed", "killed", "lost"})
 
 
 def _compact_result_status(result: Any) -> str:
@@ -477,6 +483,27 @@ def _suppress_native_background_notify(process_id: str) -> None:
         logger.debug(
             "hermes-progress-tail failed to suppress native background notify", exc_info=True
         )
+
+
+def _schedule_background_job_cleanup(ctx: SessionContext, process_id: str) -> None:
+    if not process_id or ctx.loop is None or not _get_renderer().settings.background_jobs.enabled:
+        return
+
+    async def _cleanup() -> None:
+        await asyncio.sleep(_get_renderer().settings.background_jobs.completed_ttl_seconds)
+        _schedule_render(
+            ctx,
+            BackgroundJobEvent(
+                ctx.session_id,
+                ctx.session_key,
+                ctx.platform,
+                process_id,
+                event_type="cleanup",
+            ),
+            force=True,
+        )
+
+    ctx.loop.create_task(_cleanup())
 
 
 def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
@@ -681,13 +708,17 @@ def _on_post_tool_call(
                     ctx.session_key,
                     ctx.platform,
                     process_id,
-                    event_type="started",
+                    event_type="completed" if result_obj.get("exited") else "started",
                     command=str((args or {}).get("command") or ""),
                     cwd=str((args or {}).get("workdir") or ""),
                     pid=result_obj.get("pid"),
+                    output=str(result_obj.get("output") or ""),
+                    exited=bool(result_obj.get("exited", False)),
+                    exit_code=result_obj.get("exit_code"),
                 ),
             )
-            _schedule_background_job_poll(ctx, process_id)
+            if not result_obj.get("exited"):
+                _schedule_background_job_poll(ctx, process_id)
     if not renderer.settings.tools.show_completed:
         return None
     base = format_tool_line(

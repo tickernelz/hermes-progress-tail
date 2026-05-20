@@ -142,7 +142,7 @@ progress_tail:
     enabled: true
     list_running: true
     show_completed: true
-    completed_ttl_seconds: 180
+    completed_ttl_seconds: 5
     max_jobs: 4
     head_lines: 2
     tail_lines: 3

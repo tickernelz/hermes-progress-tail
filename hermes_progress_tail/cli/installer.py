@@ -66,7 +66,7 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "list_running": True,
         "show_completed": True,
-        "completed_ttl_seconds": 180,
+        "completed_ttl_seconds": 5,
         "max_jobs": 4,
         "head_lines": 2,
         "tail_lines": 3,

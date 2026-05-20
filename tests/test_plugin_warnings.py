@@ -35,7 +35,7 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
     assert "patch=detail:smart preview_chars:48 max_files:3" in status
     assert (
         "background_jobs=enabled list_running=True show_completed=True max=4 "
-        "ttl=180s head=2 tail=3 update=3s suppress_native_notify=True suppress_watch=True"
+        "ttl=5s head=2 tail=3 update=3s suppress_native_notify=True suppress_watch=True"
     ) in status
     assert "renderer=mode:sectioned strategy:auto style:emoji density:normal" in status
     assert "code_fence" not in status

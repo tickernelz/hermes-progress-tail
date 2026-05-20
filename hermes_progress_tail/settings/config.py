@@ -184,7 +184,7 @@ class BackgroundJobSettings:
     enabled: bool = True
     list_running: bool = True
     show_completed: bool = True
-    completed_ttl_seconds: int = 180
+    completed_ttl_seconds: int = 5
     max_jobs: int = 4
     head_lines: int = 2
     tail_lines: int = 3
@@ -512,7 +512,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         enabled=_bool(background_raw.get("enabled"), True),
         list_running=_bool(background_raw.get("list_running"), True),
         show_completed=_bool(background_raw.get("show_completed"), True),
-        completed_ttl_seconds=_int(background_raw.get("completed_ttl_seconds"), 180),
+        completed_ttl_seconds=_int(background_raw.get("completed_ttl_seconds"), 5),
         max_jobs=_int(background_raw.get("max_jobs"), 4),
         head_lines=_int(background_raw.get("head_lines"), 2),
         tail_lines=_int(background_raw.get("tail_lines"), 3),

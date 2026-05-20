@@ -34,6 +34,7 @@ def test_load_settings_defaults():
     assert settings.background_jobs.enabled is True
     assert settings.background_jobs.suppress_native_notify is True
     assert settings.background_jobs.max_jobs == 4
+    assert settings.background_jobs.completed_ttl_seconds == 5
     assert settings.cleanup.auto_delete is True
     assert settings.cleanup.delay_seconds == 5
     assert settings.cleanup.delete_on_success is True

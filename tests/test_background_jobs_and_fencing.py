@@ -10,6 +10,7 @@ from hermes_progress_tail.monkeypatches import (
     uninstall_process_notification_monkeypatch,
 )
 from hermes_progress_tail.renderer import ProgressRenderer
+from hermes_progress_tail.runtime import plugin
 from hermes_progress_tail.state import AssistantEvent, BackgroundJobEvent, SessionContext, ToolEvent
 
 
@@ -132,6 +133,68 @@ def test_background_job_renders_head_tail_completion_and_survives_finalize():
     asyncio.run(run())
 
 
+def test_completed_background_job_cleanup_uses_default_five_second_ttl():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        now = time.time()
+        await renderer.handle_event(
+            BackgroundJobEvent(
+                "s1",
+                "k1",
+                "discord",
+                "proc_done",
+                event_type="completed",
+                command="pytest -q",
+                output="2 passed",
+                exited=True,
+                exit_code=0,
+                created_at=now - 4,
+            ),
+            force=True,
+        )
+        assert "proc_done" in adapter.sent[-1][1]
+        assert "proc_done" in renderer.sessions["s1"].background_jobs
+
+        await renderer.handle_event(
+            BackgroundJobEvent(
+                "s1",
+                "k1",
+                "discord",
+                "proc_running",
+                event_type="started",
+                command="sleep 999",
+                created_at=now - 60,
+            ),
+            force=True,
+        )
+        assert "proc_done" in renderer.sessions["s1"].background_jobs
+        assert "proc_running" in renderer.sessions["s1"].background_jobs
+
+        await renderer.handle_event(
+            BackgroundJobEvent(
+                "s1",
+                "k1",
+                "discord",
+                "proc_cleanup_tick",
+                event_type="cleanup",
+                created_at=now + 2,
+            ),
+            force=True,
+        )
+        assert "proc_done" not in renderer.sessions["s1"].background_jobs
+        assert "proc_running" in renderer.sessions["s1"].background_jobs
+        assert "proc_done" not in adapter.edits[-1][2]
+        assert "proc_running" in adapter.edits[-1][2]
+
+    asyncio.run(run())
+
+
 def test_background_job_secret_output_is_redacted_and_ansi_is_stripped():
     async def run():
         adapter = EditableAdapter()
@@ -214,6 +277,167 @@ def test_background_job_filters_wsl_login_banner_noise():
         assert ".hushlogin" not in content
         assert "background smoke tick 0" in content
         assert "background smoke done" in content
+
+    asyncio.run(run())
+
+
+def test_terminal_background_events_schedule_terminal_cleanup(monkeypatch):
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        monkeypatch.setattr(plugin, "_renderer", renderer)
+        cleanup_calls = []
+        original_cleanup = plugin._schedule_background_job_cleanup
+
+        def track_cleanup(ctx, process_id):
+            cleanup_calls.append(process_id)
+            return original_cleanup(ctx, process_id)
+
+        monkeypatch.setattr(plugin, "_schedule_background_job_cleanup", track_cleanup)
+        for process_id, event_type in (
+            ("proc_completed", "completed"),
+            ("proc_killed", "killed"),
+            ("proc_lost", "lost"),
+        ):
+            assert plugin._schedule_render(
+                ctx,
+                BackgroundJobEvent(
+                    "s1",
+                    "k1",
+                    "discord",
+                    process_id,
+                    event_type=event_type,
+                    exited=True,
+                ),
+                force=True,
+            )
+        for _ in range(10):
+            await asyncio.sleep(0.01)
+            if len(cleanup_calls) >= 3:
+                break
+        assert cleanup_calls == ["proc_completed", "proc_killed", "proc_lost"]
+
+    asyncio.run(run())
+
+
+def test_background_terminal_states_are_pruned_after_ttl_but_running_is_preserved():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        now = time.time()
+        for process_id, event_type in (
+            ("proc_failed", "completed"),
+            ("proc_killed", "killed"),
+            ("proc_lost", "lost"),
+        ):
+            await renderer.handle_event(
+                BackgroundJobEvent(
+                    "s1",
+                    "k1",
+                    "discord",
+                    process_id,
+                    event_type=event_type,
+                    command="pytest -q",
+                    output="done",
+                    exited=True,
+                    exit_code=1 if process_id == "proc_failed" else None,
+                    created_at=now - 6,
+                ),
+                force=True,
+            )
+        await renderer.handle_event(
+            BackgroundJobEvent(
+                "s1",
+                "k1",
+                "discord",
+                "proc_running",
+                event_type="started",
+                command="sleep 999",
+                created_at=now - 60,
+            ),
+            force=True,
+        )
+
+        await renderer.handle_event(
+            BackgroundJobEvent(
+                "s1",
+                "k1",
+                "discord",
+                "proc_cleanup_tick",
+                event_type="cleanup",
+                created_at=now,
+            ),
+            force=True,
+        )
+
+        remaining = renderer.sessions["s1"].background_jobs
+        assert "proc_failed" not in remaining
+        assert "proc_killed" not in remaining
+        assert "proc_lost" not in remaining
+        assert "proc_running" in remaining
+        assert "proc_running" in adapter.edits[-1][2]
+
+    asyncio.run(run())
+
+
+def test_terminal_background_immediate_completed_result_does_not_stay_running(monkeypatch):
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        monkeypatch.setattr(plugin, "_renderer", renderer)
+        monkeypatch.setattr(
+            plugin,
+            "_context_for_non_background_thread",
+            lambda renderer, session_id="", session_key="": ctx,
+        )
+        monkeypatch.setattr(plugin, "_suppress_native_background_notify", lambda process_id: None)
+        poll_calls = []
+        cleanup_calls = []
+        monkeypatch.setattr(
+            plugin,
+            "_schedule_background_job_poll",
+            lambda ctx, process_id: poll_calls.append(process_id),
+        )
+        original_cleanup = plugin._schedule_background_job_cleanup
+
+        def track_cleanup(ctx, process_id):
+            cleanup_calls.append(process_id)
+            return original_cleanup(ctx, process_id)
+
+        monkeypatch.setattr(plugin, "_schedule_background_job_cleanup", track_cleanup)
+
+        plugin._on_post_tool_call(
+            "terminal",
+            args={"background": True, "command": "pytest -q"},
+            result='{"session_id":"proc_done","exited":true,"exit_code":0,"output":"2 passed"}',
+            task_id="k1",
+            session_id="s1",
+        )
+        for _ in range(10):
+            await asyncio.sleep(0.01)
+            if "proc_done" in renderer.sessions["s1"].background_jobs:
+                break
+
+        job = renderer.sessions["s1"].background_jobs["proc_done"]
+        assert job.status == "completed"
+        assert job.exit_code == 0
+        assert poll_calls == []
+        assert cleanup_calls == ["proc_done"]
+        assert "✅ proc_done" in adapter.sent[-1][1]
+        assert "exit 0" in adapter.sent[-1][1]
+        assert "2 passed" in adapter.sent[-1][1]
 
     asyncio.run(run())
 
