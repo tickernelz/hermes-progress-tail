@@ -9,7 +9,13 @@ from typing import Any
 
 import yaml
 
-from ..gateway.compat import platform_name, source_chat_id, source_thread_id
+from ..gateway.compat import (
+    platform_name,
+    source_chat_id,
+    source_chat_type,
+    source_message_id,
+    source_thread_id,
+)
 from ..hooks.monkeypatches import install_monkeypatches
 from ..models.state import (
     AssistantEvent,
@@ -271,6 +277,8 @@ def _register_context(
         thread_id=source_thread_id(source),
         adapter=adapter,
         loop=loop,
+        chat_type=source_chat_type(source),
+        source_message_id=source_message_id(source),
         strategy=settings.strategy,
         lines=settings.lines,
         preview_length=settings.preview_length,

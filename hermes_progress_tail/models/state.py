@@ -141,6 +141,8 @@ class SessionContext:
     timestamp: bool | None = None
     timestamp_format: str = ""
     agent_label: str = ""
+    chat_type: str = ""
+    source_message_id: str | None = None
     lock: Any = field(default_factory=asyncio.Lock)
 
     @property
@@ -152,8 +154,17 @@ class SessionContext:
         self.tool_lines = value
 
     @property
-    def metadata(self) -> dict[str, str] | None:
-        return {"thread_id": self.thread_id} if self.thread_id else None
+    def metadata(self) -> dict[str, str | bool] | None:
+        if not self.thread_id:
+            return None
+        metadata: dict[str, str | bool] = {"thread_id": self.thread_id}
+        if self.platform == "telegram" and self.chat_type == "dm":
+            metadata["telegram_dm_topic_reply_fallback"] = True
+            if self.thread_id not in {"", "1"}:
+                metadata["direct_messages_topic_id"] = self.thread_id
+            if self.source_message_id:
+                metadata["telegram_reply_to_message_id"] = self.source_message_id
+        return metadata
 
     def resize(self, lines: int) -> None:
         if self.tool_lines.maxlen == lines:

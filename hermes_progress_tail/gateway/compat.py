@@ -30,6 +30,15 @@ def source_chat_id(source: Any) -> str:
     return str(getattr(source, "chat_id", "") or "")
 
 
+def source_chat_type(source: Any) -> str:
+    return str(getattr(source, "chat_type", "") or "")
+
+
+def source_message_id(source: Any) -> str | None:
+    value = getattr(source, "message_id", None)
+    return str(value) if value is not None and str(value) else None
+
+
 async def delete_message(adapter: Any, chat_id: str, message_id: str) -> bool:
     delete = getattr(adapter, "delete_message", None)
     if callable(delete):
