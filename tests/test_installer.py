@@ -34,7 +34,9 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
     assert "hermes-progress-tail" in config["plugins"]["enabled"]
     assert config["display"]["tool_progress"] == "off"
+    assert config["display"]["streaming"] is False
     assert config["display"]["show_reasoning"] is False
+    assert config["streaming"]["enabled"] is False
     assert config["agent"]["gateway_notify_interval"] == 0
     assert config["progress_tail"]["tools"]["show_completed"] is True
     assert config["progress_tail"]["tools"]["show_duration"] is True
@@ -155,6 +157,33 @@ def test_install_disables_core_notifier_with_recommended_display_defaults(tmp_pa
     config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
     assert config["agent"]["gateway_notify_interval"] == 0
     assert any("gateway_notify_interval" in message for message in result.messages)
+
+
+def test_install_disables_native_streaming_with_recommended_display_defaults(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    (source / "__init__.py").write_text("def register(ctx): pass\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "display": {"streaming": True, "tool_progress": "all", "keep_me": "yes"},
+                "streaming": {"enabled": True, "chunk_delay": 0.2},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    install(hermes_home, source, set_display_off=True, dry_run=False)
+
+    config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
+    assert config["display"]["streaming"] is False
+    assert config["display"]["tool_progress"] == "off"
+    assert config["display"]["keep_me"] == "yes"
+    assert config["streaming"]["enabled"] is False
+    assert config["streaming"]["chunk_delay"] == 0.2
 
 
 def test_install_warns_when_core_notifier_conflicts_without_recommended_defaults(tmp_path):
@@ -362,7 +391,9 @@ def test_interactive_cli_default_mode_applies_recommended_defaults_after_profile
     config = yaml.safe_load((work_home / "config.yaml").read_text(encoding="utf-8"))
     assert config["progress_tail"] == DEFAULT_CONFIG
     assert config["display"]["tool_progress"] == "off"
+    assert config["display"]["streaming"] is False
     assert config["display"]["show_reasoning"] is False
+    assert config["streaming"]["enabled"] is False
     assert config["agent"]["gateway_notify_interval"] == 0
 
 
@@ -421,6 +452,8 @@ def test_interactive_cli_simple_mode_asks_core_questions_only(tmp_path):
     assert progress_tail["renderer"]["density"] == "compact"
     assert progress_tail["patch"] == DEFAULT_CONFIG["patch"]
     assert config["display"]["tool_progress"] == "off"
+    assert config["display"]["streaming"] is False
+    assert config["streaming"]["enabled"] is False
 
 
 def test_interactive_cli_accepts_advanced_alias_for_full_setup(tmp_path):
@@ -671,6 +704,8 @@ def test_interactive_cli_selects_profiles_and_features(tmp_path):
     assert progress_tail["no_edit"]["final_summary"] is True
     assert progress_tail["no_edit"]["max_snapshots_per_turn"] == 6
     assert config["display"]["tool_progress"] == "off"
+    assert config["display"]["streaming"] is False
+    assert config["streaming"]["enabled"] is False
     assert not (hermes_home / "plugins" / "hermes-progress-tail").exists()
 
 

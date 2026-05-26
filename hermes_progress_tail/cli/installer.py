@@ -425,6 +425,9 @@ def _update_config(
         if display.get("tool_progress") != "off":
             display["tool_progress"] = "off"
             changed = True
+        if display.get("streaming") is not False:
+            display["streaming"] = False
+            changed = True
         if (
             _assistant_tail_enabled(config)
             and display.get("interim_assistant_messages") is not False
@@ -433,6 +436,13 @@ def _update_config(
             changed = True
         if _reasoning_tail_enabled(config) and display.get("show_reasoning") is not False:
             display["show_reasoning"] = False
+            changed = True
+        streaming = config.setdefault("streaming", {})
+        if not isinstance(streaming, dict):
+            config["streaming"] = streaming = {}
+            changed = True
+        if streaming.get("enabled") is not False:
+            streaming["enabled"] = False
             changed = True
         agent = config.setdefault("agent", {})
         if not isinstance(agent, dict):
@@ -875,14 +885,14 @@ def _interactive_install_options(
     elif setup_mode == "simple":
         overrides = _simple_install_overrides(input_stream)
         set_display_off = _confirm(
-            "Disable Hermes built-in progress/reasoning display to avoid duplicates",
+            "Disable Hermes built-in progress/reasoning/streaming display to avoid duplicates",
             True,
             input_stream,
         )
     else:
         overrides = _advanced_install_overrides(input_stream)
         set_display_off = _confirm(
-            "Disable Hermes built-in progress/reasoning display to avoid duplicates",
+            "Disable Hermes built-in progress/reasoning/streaming display to avoid duplicates",
             True,
             input_stream,
         )

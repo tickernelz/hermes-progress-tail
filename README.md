@@ -84,7 +84,11 @@ plugins:
 
 display:
   tool_progress: off
+  streaming: false
   show_reasoning: false
+
+streaming:
+  enabled: false
 
 agent:
   gateway_notify_interval: 0
