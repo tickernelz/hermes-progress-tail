@@ -231,6 +231,79 @@ def _get_session_entry(session_store: Any, source: Any):
         return None
 
 
+class _SourceThreadOverride:
+    def __init__(self, source: Any, thread_id: str):
+        self._source = source
+        self.thread_id = thread_id
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._source, name)
+
+
+def _is_telegram_dm_source(source: Any) -> bool:
+    return platform_name(source).lower() == "telegram" and source_chat_type(source) == "dm"
+
+
+def _telegram_general_topic_ids(gateway: Any) -> set[str]:
+    raw = getattr(gateway, "_TELEGRAM_GENERAL_TOPIC_IDS", frozenset({"", "1"}))
+    try:
+        return {str(item) for item in raw}
+    except TypeError:
+        return {"", "1"}
+
+
+def _source_with_thread_id(source: Any, thread_id: str) -> Any:
+    if str(source_thread_id(source) or "") == str(thread_id or ""):
+        return source
+    return _SourceThreadOverride(source, str(thread_id or ""))
+
+
+def _topic_recovered_source(gateway: Any, source: Any) -> Any:
+    if not _is_telegram_dm_source(source):
+        return source
+    recover = getattr(gateway, "_recover_telegram_topic_thread_id", None)
+    if not callable(recover):
+        return source
+    try:
+        recovered = recover(source)
+    except Exception:
+        logger.debug("hermes-progress-tail Telegram topic recovery lookup failed", exc_info=True)
+        return source
+    if not recovered:
+        return source
+    return _source_with_thread_id(source, str(recovered))
+
+
+def _bound_telegram_topic_session_id(gateway: Any, source: Any) -> str:
+    if not _is_telegram_dm_source(source):
+        return ""
+    thread_id = str(source_thread_id(source) or "")
+    if not thread_id or thread_id in _telegram_general_topic_ids(gateway):
+        return ""
+    session_db = getattr(gateway, "_session_db", None)
+    getter = getattr(session_db, "get_telegram_topic_binding", None)
+    if not callable(getter):
+        return ""
+    try:
+        binding = getter(chat_id=source_chat_id(source), thread_id=thread_id)
+    except Exception:
+        logger.debug("hermes-progress-tail Telegram topic binding lookup failed", exc_info=True)
+        return ""
+    if isinstance(binding, dict):
+        return str(binding.get("session_id") or "")
+    return str(getattr(binding, "session_id", "") or "")
+
+
+def _pre_gateway_session_context(gateway: Any, session_store: Any, source: Any):
+    effective_source = _topic_recovered_source(gateway, source)
+    entry = _get_session_entry(session_store, effective_source)
+    session_id = str(getattr(entry, "session_id", "") or "")
+    bound_session_id = _bound_telegram_topic_session_id(gateway, effective_source)
+    if bound_session_id:
+        session_id = bound_session_id
+    return effective_source, entry, session_id
+
+
 def _session_key(entry: Any, source: Any, gateway: Any) -> str:
     direct = getattr(entry, "session_key", "")
     if direct:
@@ -321,8 +394,7 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
     settings = resolve_platform_settings(renderer.settings, platform)
     if not settings.enabled or settings.strategy == "off":
         return None
-    entry = _get_session_entry(session_store, source)
-    session_id = str(getattr(entry, "session_id", "") or "")
+    source, entry, session_id = _pre_gateway_session_context(gateway, session_store, source)
     if not session_id:
         return None
     adapter = _adapter_for(gateway, source)
@@ -353,8 +425,12 @@ def register_context_from_adapter_event(adapter: Any, event: Any) -> None:
     session_store = getattr(adapter, "_session_store", None)
     if session_store is None:
         return
-    entry = _get_session_entry(session_store, source)
-    session_id = str(getattr(entry, "session_id", "") or "")
+    gateway = (
+        getattr(adapter, "_hermes_progress_tail_gateway", None)
+        or getattr(adapter, "gateway", None)
+        or adapter
+    )
+    source, entry, session_id = _pre_gateway_session_context(gateway, session_store, source)
     if not session_id:
         return
     _register_context(
@@ -362,7 +438,7 @@ def register_context_from_adapter_event(adapter: Any, event: Any) -> None:
         source=source,
         adapter=adapter,
         session_id=session_id,
-        session_key=_session_key(entry, source, getattr(adapter, "gateway", None) or adapter),
+        session_key=_session_key(entry, source, gateway),
         origin="adapter_internal",
     )
     return
@@ -986,7 +1062,12 @@ def _finalize_target_context(
 
 
 def _schedule_finalize(
-    session_id: str = "", platform: str = "", session_key: str = "", *, purge: bool = False
+    session_id: str = "",
+    platform: str = "",
+    session_key: str = "",
+    *,
+    purge: bool = False,
+    success: bool = True,
 ) -> None:
     renderer = _get_renderer()
     ctx = _finalize_target_context(renderer, session_id, platform, session_key)
@@ -995,7 +1076,12 @@ def _schedule_finalize(
     generation = ctx.generation
     try:
         future = asyncio.run_coroutine_threadsafe(
-            renderer.finalize(session_id=ctx.session_id, purge=purge, generation=generation),
+            renderer.finalize(
+                session_id=ctx.session_id,
+                purge=purge,
+                generation=generation,
+                success=success,
+            ),
             ctx.loop,
         )
 
@@ -1008,6 +1094,24 @@ def _schedule_finalize(
         future.add_done_callback(_consume_done)
     except Exception as exc:
         logger.debug("hermes-progress-tail finalize schedule failed: %s", exc)
+
+
+def on_gateway_stop_from_runner(
+    gateway: Any = None, *, session_key: str = "", source: Any = None
+) -> bool:
+    _ = gateway
+    platform = platform_name(source) if source is not None else ""
+    renderer = _get_renderer()
+    ctx = _finalize_target_context(renderer, session_key=session_key, platform=platform)
+    if ctx is None:
+        return False
+    _schedule_finalize(
+        session_id=ctx.session_id,
+        session_key=ctx.session_key,
+        platform=ctx.platform,
+        success=False,
+    )
+    return True
 
 
 def _on_post_llm_call(session_id: str = "", agent: Any = None, **_: Any):

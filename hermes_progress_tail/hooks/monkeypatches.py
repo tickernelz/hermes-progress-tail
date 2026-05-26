@@ -11,6 +11,7 @@ _ADAPTER_ORIGINALS: dict[type, dict[str, Any]] = {}
 _DELEGATE_ORIGINALS: dict[int, tuple[Any, Any]] = {}
 _TELEGRAM_ORIGINALS: dict[type, Any] = {}
 _TELEGRAM_TOPIC_RECOVERY_ORIGINALS: dict[type, Any] = {}
+_GATEWAY_INTERRUPT_ORIGINALS: dict[type, Any] = {}
 _PROCESS_NOTIFICATION_ORIGINALS: dict[int, tuple[Any, Any]] = {}
 _COMPRESSION_STATUS_ORIGINALS: dict[type, Any] = {}
 _COMPRESSION_LIFECYCLE_ORIGINALS: dict[type, Any] = {}
@@ -19,6 +20,7 @@ _PATCH_MARKER = "_hermes_progress_tail_patched"
 _DELEGATE_PATCH_MARKER = "_hermes_progress_tail_delegate_patched"
 _TELEGRAM_PATCH_MARKER = "_hermes_progress_tail_telegram_format_patched"
 _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER = "_hermes_progress_tail_telegram_topic_recovery_patched"
+_GATEWAY_INTERRUPT_PATCH_MARKER = "_hermes_progress_tail_gateway_interrupt_patched"
 _PROCESS_NOTIFICATION_PATCH_MARKER = "_hermes_progress_tail_process_notification_patched"
 _COMPRESSION_STATUS_PATCH_MARKER = "_hermes_progress_tail_compression_status_patched"
 _COMPRESSION_LIFECYCLE_PATCH_MARKER = "_hermes_progress_tail_compression_lifecycle_patched"
@@ -89,6 +91,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     delegate_ok = install_delegate_monkeypatches()
     telegram_ok = install_telegram_format_monkeypatch()
     telegram_topic_ok = install_telegram_topic_recovery_monkeypatch()
+    gateway_interrupt_ok = install_gateway_interrupt_monkeypatch()
     process_ok = install_process_notification_monkeypatch()
     compression_ok = install_compression_status_monkeypatch(agent_cls)
     compression_lifecycle_ok = install_compression_lifecycle_monkeypatch(agent_cls)
@@ -99,6 +102,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
             delegate_ok,
             telegram_ok,
             telegram_topic_ok,
+            gateway_interrupt_ok,
             process_ok,
             compression_ok,
             compression_lifecycle_ok,
@@ -106,13 +110,14 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     )
     logger.info(
         "hermes-progress-tail monkeypatches installed: agent=%s adapter=%s delegate=%s "
-        "telegram_format=%s telegram_topic_recovery=%s process_notifications=%s "
-        "compression_status=%s compression_lifecycle=%s any=%s",
+        "telegram_format=%s telegram_topic_recovery=%s gateway_interrupt=%s "
+        "process_notifications=%s compression_status=%s compression_lifecycle=%s any=%s",
         agent_ok,
         adapter_ok,
         delegate_ok,
         telegram_ok,
         telegram_topic_ok,
+        gateway_interrupt_ok,
         process_ok,
         compression_ok,
         compression_lifecycle_ok,
@@ -143,6 +148,12 @@ def install_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
     def patched_set_message_handler(self, handler):
         try:
             self._hermes_progress_tail_message_handler = handler
+            gateway = getattr(handler, "__self__", None)
+            if gateway is not None and gateway is not self:
+                self._hermes_progress_tail_gateway = gateway
+            else:
+                with suppress(AttributeError):
+                    delattr(self, "_hermes_progress_tail_gateway")
         except Exception:
             logger.debug("hermes-progress-tail could not remember adapter handler", exc_info=True)
         return set_handler(self, handler)
@@ -215,6 +226,64 @@ def _should_preserve_telegram_topic_thread(gateway: Any, source: Any) -> bool:
     general_ids = getattr(gateway, "_TELEGRAM_GENERAL_TOPIC_IDS", frozenset({"", "1"}))
     general_ids = {str(item) for item in general_ids}
     return bool(inbound) and inbound not in general_ids
+
+
+def install_gateway_interrupt_monkeypatch(gateway_runner_cls: type | None = None) -> bool:
+    runner_cls = gateway_runner_cls
+    if runner_cls is None:
+        try:
+            from gateway.run import GatewayRunner
+
+            runner_cls = GatewayRunner
+        except Exception as exc:
+            logger.debug(
+                "hermes-progress-tail could not import GatewayRunner for interrupt lifecycle: %s",
+                exc,
+            )
+            return False
+    if getattr(runner_cls, _GATEWAY_INTERRUPT_PATCH_MARKER, False):
+        return True
+    original = getattr(runner_cls, "_interrupt_and_clear_session", None)
+    if original is None:
+        logger.debug("hermes-progress-tail gateway interrupt monkeypatch disabled: API missing")
+        return False
+    _GATEWAY_INTERRUPT_ORIGINALS[runner_cls] = original
+
+    @wraps(original)
+    async def patched_interrupt_and_clear_session(self, session_key, source, *args, **kwargs):
+        interrupt_reason, invalidation_reason = _extract_interrupt_reasons(args, kwargs)
+        result = await original(self, session_key, source, *args, **kwargs)
+        if _is_stop_interrupt(interrupt_reason, invalidation_reason):
+            try:
+                from ..runtime.plugin import on_gateway_stop_from_runner
+
+                on_gateway_stop_from_runner(self, session_key=str(session_key or ""), source=source)
+            except Exception:
+                logger.debug(
+                    "hermes-progress-tail gateway stop lifecycle capture failed",
+                    exc_info=True,
+                )
+        return result
+
+    runner_cls._interrupt_and_clear_session = patched_interrupt_and_clear_session
+    setattr(runner_cls, _GATEWAY_INTERRUPT_PATCH_MARKER, True)
+    return True
+
+
+def _extract_interrupt_reasons(args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[str, str]:
+    interrupt_reason = kwargs.get("interrupt_reason")
+    invalidation_reason = kwargs.get("invalidation_reason")
+    if interrupt_reason is None and len(args) > 0:
+        interrupt_reason = args[0]
+    if invalidation_reason is None and len(args) > 1:
+        invalidation_reason = args[1]
+    return str(interrupt_reason or ""), str(invalidation_reason or "")
+
+
+def _is_stop_interrupt(interrupt_reason: str, invalidation_reason: str) -> bool:
+    reason = str(interrupt_reason or "").strip().lower()
+    invalidation = str(invalidation_reason or "").strip().lower()
+    return reason == "stop requested" or invalidation.startswith("stop_command")
 
 
 def install_process_notification_monkeypatch(process_module: Any | None = None) -> bool:
@@ -817,6 +886,7 @@ def uninstall_monkeypatches(agent_cls: type | None = None) -> bool:
     delegate_ok = uninstall_delegate_monkeypatches()
     telegram_ok = uninstall_telegram_format_monkeypatch()
     telegram_topic_ok = uninstall_telegram_topic_recovery_monkeypatch()
+    gateway_interrupt_ok = uninstall_gateway_interrupt_monkeypatch()
     process_ok = uninstall_process_notification_monkeypatch()
     compression_ok = uninstall_compression_status_monkeypatch(agent_cls)
     compression_lifecycle_ok = uninstall_compression_lifecycle_monkeypatch(agent_cls)
@@ -827,6 +897,7 @@ def uninstall_monkeypatches(agent_cls: type | None = None) -> bool:
             delegate_ok,
             telegram_ok,
             telegram_topic_ok,
+            gateway_interrupt_ok,
             process_ok,
             compression_ok,
             compression_lifecycle_ok,
@@ -886,6 +957,26 @@ def uninstall_telegram_topic_recovery_monkeypatch(gateway_runner_cls: type | Non
         delattr(runner_cls, _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER)
     except Exception:
         setattr(runner_cls, _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER, False)
+    return True
+
+
+def uninstall_gateway_interrupt_monkeypatch(gateway_runner_cls: type | None = None) -> bool:
+    runner_cls = gateway_runner_cls
+    if runner_cls is None:
+        try:
+            from gateway.run import GatewayRunner
+
+            runner_cls = GatewayRunner
+        except Exception:
+            return False
+    original = _GATEWAY_INTERRUPT_ORIGINALS.pop(runner_cls, None)
+    if original is None:
+        return False
+    runner_cls._interrupt_and_clear_session = original
+    try:
+        delattr(runner_cls, _GATEWAY_INTERRUPT_PATCH_MARKER)
+    except Exception:
+        setattr(runner_cls, _GATEWAY_INTERRUPT_PATCH_MARKER, False)
     return True
 
 
