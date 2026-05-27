@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta
 
 import hermes_progress_tail
 from hermes_progress_tail.config import load_settings
@@ -270,6 +271,74 @@ def test_telegram_dm_topic_context_uses_bound_session_id(monkeypatch):
 
         assert adapter.sent
         assert adapter.sent[0][1] == "▰ 🧰 Tools\n💻 terminal: pwd · running"
+
+    asyncio.run(run())
+
+
+def test_telegram_dm_topic_context_ignores_stale_binding_after_session_split(monkeypatch):
+    async def run():
+        now = datetime.now()
+
+        class TelegramSource:
+            platform = type("P", (), {"value": "telegram"})()
+            chat_id = "191060132"
+            thread_id = "77445"
+            user_id = "191060132"
+            user_id_alt = None
+            chat_type = "dm"
+            message_id = "9002"
+
+        class TelegramEvent:
+            source = TelegramSource()
+
+        class CurrentSessionEntry:
+            session_id = "post-compression-session"
+            session_key = "agent:main:telegram:dm:191060132:77445"
+            updated_at = now
+
+        class CurrentSessionStore:
+            def get_or_create_session(self, source):
+                return CurrentSessionEntry()
+
+        class BindingDB:
+            def get_telegram_topic_binding(self, *, chat_id, thread_id):
+                assert chat_id == "191060132"
+                assert thread_id == "77445"
+                return {
+                    "session_id": "pre-compression-session",
+                    "updated_at": (now - timedelta(minutes=10)).timestamp(),
+                }
+
+        class TelegramGateway:
+            _TELEGRAM_GENERAL_TOPIC_IDS = frozenset({"", "1"})
+
+            def __init__(self, adapter):
+                self.adapters = {TelegramSource.platform: adapter, "telegram": adapter}
+                self.config = type(
+                    "Config",
+                    (),
+                    {"group_sessions_per_user": True, "thread_sessions_per_user": False},
+                )()
+                self._session_db = BindingDB()
+
+        adapter = Adapter()
+        hermes_progress_tail.plugin._renderer = None
+        monkeypatch.setattr(
+            hermes_progress_tail.plugin,
+            "_load_runtime_settings",
+            lambda: load_settings({"progress_tail": {"tools": {"timestamp": False}}}),
+        )
+
+        hermes_progress_tail._on_pre_gateway_dispatch(
+            TelegramEvent(), TelegramGateway(adapter), CurrentSessionStore()
+        )
+        renderer = hermes_progress_tail._get_renderer()
+
+        assert renderer.find_context("pre-compression-session") is None
+        ctx = renderer.find_context("post-compression-session")
+        assert isinstance(ctx, SessionContext)
+        assert ctx.session_key == "agent:main:telegram:dm:191060132:77445"
+        assert ctx.source_message_id == "9002"
 
     asyncio.run(run())
 

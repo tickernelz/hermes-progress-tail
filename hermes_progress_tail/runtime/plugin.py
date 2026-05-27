@@ -4,6 +4,7 @@ import asyncio
 import logging
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -274,33 +275,87 @@ def _topic_recovered_source(gateway: Any, source: Any) -> Any:
     return _source_with_thread_id(source, str(recovered))
 
 
-def _bound_telegram_topic_session_id(gateway: Any, source: Any) -> str:
+def _timestamp_seconds(value: Any) -> float:
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, datetime):
+        return value.timestamp()
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    try:
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _telegram_topic_binding(gateway: Any, source: Any) -> dict[str, Any] | None:
     if not _is_telegram_dm_source(source):
-        return ""
+        return None
     thread_id = str(source_thread_id(source) or "")
     if not thread_id or thread_id in _telegram_general_topic_ids(gateway):
-        return ""
+        return None
     session_db = getattr(gateway, "_session_db", None)
     getter = getattr(session_db, "get_telegram_topic_binding", None)
     if not callable(getter):
-        return ""
+        return None
     try:
         binding = getter(chat_id=source_chat_id(source), thread_id=thread_id)
     except Exception:
         logger.debug("hermes-progress-tail Telegram topic binding lookup failed", exc_info=True)
-        return ""
+        return None
+    if binding is None:
+        return None
     if isinstance(binding, dict):
-        return str(binding.get("session_id") or "")
-    return str(getattr(binding, "session_id", "") or "")
+        return binding
+    return {
+        "session_id": getattr(binding, "session_id", ""),
+        "updated_at": getattr(binding, "updated_at", 0),
+    }
+
+
+def _binding_session_id(binding: dict[str, Any] | None) -> str:
+    if not binding:
+        return ""
+    return str(binding.get("session_id") or "")
+
+
+def _binding_is_stale_for_entry(binding: dict[str, Any] | None, entry: Any) -> bool:
+    bound_session_id = _binding_session_id(binding)
+    entry_session_id = str(getattr(entry, "session_id", "") or "")
+    if not bound_session_id or not entry_session_id or bound_session_id == entry_session_id:
+        return False
+    binding_updated = _timestamp_seconds((binding or {}).get("updated_at"))
+    entry_updated = _timestamp_seconds(getattr(entry, "updated_at", None))
+    return bool(binding_updated and entry_updated and binding_updated < entry_updated)
+
+
+def _bound_telegram_topic_session_id(gateway: Any, source: Any) -> str:
+    return _binding_session_id(_telegram_topic_binding(gateway, source))
 
 
 def _pre_gateway_session_context(gateway: Any, session_store: Any, source: Any):
     effective_source = _topic_recovered_source(gateway, source)
     entry = _get_session_entry(session_store, effective_source)
     session_id = str(getattr(entry, "session_id", "") or "")
-    bound_session_id = _bound_telegram_topic_session_id(gateway, effective_source)
-    if bound_session_id:
+    binding = _telegram_topic_binding(gateway, effective_source)
+    bound_session_id = _binding_session_id(binding)
+    if bound_session_id and (not session_id or not _binding_is_stale_for_entry(binding, entry)):
         session_id = bound_session_id
+    elif bound_session_id and session_id != bound_session_id:
+        logger.debug(
+            "hermes-progress-tail ignored stale Telegram topic binding: entry_session_id=%s bound_session_id=%s",
+            session_id,
+            bound_session_id,
+        )
     return effective_source, entry, session_id
 
 

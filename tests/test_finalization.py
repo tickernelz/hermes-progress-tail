@@ -39,7 +39,14 @@ class EditableAdapter:
         return True
 
 
-def make_ctx(adapter, *, session_id="s1", session_key="k1", platform="telegram"):
+def make_ctx(
+    adapter,
+    *,
+    session_id="s1",
+    session_key="k1",
+    platform="telegram",
+    source_message_id=None,
+):
     return SessionContext(
         session_id,
         session_key,
@@ -50,6 +57,7 @@ def make_ctx(adapter, *, session_id="s1", session_key="k1", platform="telegram")
         asyncio.get_running_loop(),
         "live_tail",
         timestamp=False,
+        source_message_id=source_message_id,
     )
 
 
@@ -125,6 +133,29 @@ def test_active_turn_interrupt_reuses_existing_progress_bubble():
         assert len(adapter.sent) == 1
         assert adapter.edits[-1] == ("chat", "m1", "▰ 🧰 Tools\nfirst event\ninterrupt event")
         assert replacement_ctx.message_id == "m1"
+
+    asyncio.run(run())
+
+
+def test_new_source_message_does_not_reuse_stale_active_progress_bubble():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        ctx = make_ctx(adapter, source_message_id="msg-1")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "first turn"), force=True)
+        assert ctx.message_id == "m1"
+        assert ctx.progress_state == "active"
+
+        next_ctx = make_ctx(adapter, source_message_id="msg-2")
+        renderer.register_context(next_ctx)
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "second turn"), force=True)
+
+        assert len(adapter.sent) == 2
+        assert adapter.sent[0][1] == "▰ 🧰 Tools\nfirst turn"
+        assert adapter.sent[1][1] == "▰ 🧰 Tools\nsecond turn"
+        assert next_ctx.message_id == "m2"
 
     asyncio.run(run())
 

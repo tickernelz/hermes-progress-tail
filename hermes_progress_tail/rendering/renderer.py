@@ -56,8 +56,11 @@ class ProgressRenderer:
     def register_context(self, ctx: SessionContext) -> None:
         existing = self.sessions.get(ctx.session_id)
         if existing is not None:
-            reuse_progress = existing.progress_state == "active"
+            reuse_progress = existing.progress_state == "active" and self._same_source_message(
+                existing, ctx
+            )
             if reuse_progress:
+                self._cancel_delete(existing)
                 ctx.message_id = existing.message_id
                 ctx.tool_lines = existing.tool_lines
                 ctx.started_at = existing.started_at
@@ -113,6 +116,12 @@ class ProgressRenderer:
         self.sessions[ctx.session_id] = ctx
         if ctx.session_key:
             self.session_keys[ctx.session_key] = ctx.session_id
+
+    @staticmethod
+    def _same_source_message(existing: SessionContext, incoming: SessionContext) -> bool:
+        existing_source = str(existing.source_message_id or "")
+        incoming_source = str(incoming.source_message_id or "")
+        return not existing_source or not incoming_source or existing_source == incoming_source
 
     def find_context(self, session_id: str = "", session_key: str = "") -> SessionContext | None:
         if session_id and session_id in self.sessions:
