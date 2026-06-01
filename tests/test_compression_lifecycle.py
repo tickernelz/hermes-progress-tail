@@ -184,6 +184,136 @@ def test_compression_lifecycle_monkeypatch_migrates_progress_context_and_reports
     asyncio.run(run())
 
 
+def test_compression_lifecycle_uses_rough_after_tokens_when_real_usage_is_pending(
+    monkeypatch,
+):
+    async def run():
+        import hermes_progress_tail.plugin as plugin
+
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        monkeypatch.setattr(plugin, "_renderer", renderer)
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        await renderer.handle_event(
+            ToolEvent("old-session", "stable-key", "telegram", "before compression"),
+            force=True,
+        )
+
+        class Compressor:
+            compression_count = 1
+            last_prompt_tokens = -1
+            last_compression_rough_tokens = 79468
+            awaiting_real_usage_after_compression = True
+
+            def get_status(self):
+                return {"last_prompt_tokens": self.last_prompt_tokens}
+
+        class FakeAgent:
+            session_id = "old-session"
+            gateway_session_key = "stable-key"
+            platform = "telegram"
+            context_compressor = Compressor()
+
+            def _compress_context(self, messages, system_message, **kwargs):
+                self.session_id = "new-session"
+                return ([{"role": "user", "content": "compressed"}] * 72, "system")
+
+        install_compression_lifecycle_monkeypatch(FakeAgent)
+        try:
+            agent = FakeAgent()
+            agent._compress_context(
+                [{"role": "user", "content": "one"}] * 270,
+                "system",
+                approx_tokens=241771,
+            )
+        finally:
+            uninstall_compression_lifecycle_monkeypatch(FakeAgent)
+
+        await asyncio.sleep(0.01)
+
+        latest = adapter.edits[-1][2]
+        assert "Context compacted" in latest
+        assert "270 → 72 messages" in latest
+        assert "rough 242k → 79k tokens" in latest
+        assert "-1" not in latest
+
+    asyncio.run(run())
+
+
+def test_compression_lifecycle_omits_stale_rough_tokens_when_not_awaiting_real_usage(
+    monkeypatch,
+):
+    async def run():
+        import hermes_progress_tail.plugin as plugin
+
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        monkeypatch.setattr(plugin, "_renderer", renderer)
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        await renderer.handle_event(
+            ToolEvent("old-session", "stable-key", "telegram", "before compression"),
+            force=True,
+        )
+
+        class Compressor:
+            compression_count = 1
+            last_prompt_tokens = -1
+            last_compression_rough_tokens = 79468
+            awaiting_real_usage_after_compression = False
+
+            def get_status(self):
+                return {"last_prompt_tokens": self.last_prompt_tokens}
+
+        class FakeAgent:
+            session_id = "old-session"
+            gateway_session_key = "stable-key"
+            platform = "telegram"
+            context_compressor = Compressor()
+
+            def _compress_context(self, messages, system_message, **kwargs):
+                self.session_id = "new-session"
+                return ([{"role": "user", "content": "compressed"}] * 72, "system")
+
+        install_compression_lifecycle_monkeypatch(FakeAgent)
+        try:
+            agent = FakeAgent()
+            agent._compress_context(
+                [{"role": "user", "content": "one"}] * 270,
+                "system",
+                approx_tokens=241771,
+            )
+        finally:
+            uninstall_compression_lifecycle_monkeypatch(FakeAgent)
+
+        await asyncio.sleep(0.01)
+
+        latest = adapter.edits[-1][2]
+        assert "Context compacted" in latest
+        assert "270 → 72 messages" in latest
+        assert "rough 242k → 79k tokens" not in latest
+        assert "-1" not in latest
+
+    asyncio.run(run())
+
+
+def test_compression_lifecycle_omits_non_positive_after_tokens():
+    import hermes_progress_tail.plugin as plugin
+
+    text = plugin._compression_lifecycle_completed_text(
+        {
+            "before_count": 270,
+            "after_count": 72,
+            "before_tokens": 241771,
+            "after_tokens": -1,
+        }
+    )
+
+    assert text == "Context compacted · 270 → 72 messages"
+    assert "-1" not in text
+
+
 def test_post_llm_finalize_finds_compression_migrated_context_by_session_key(monkeypatch):
     async def run():
         import hermes_progress_tail.plugin as plugin

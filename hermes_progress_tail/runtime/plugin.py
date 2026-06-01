@@ -976,17 +976,24 @@ def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> 
 
 
 def _compression_lifecycle_completed_text(data: dict[str, Any]) -> str:
-    before_count = _int_kw(data.get("before_count"), 0)
-    after_count = _int_kw(data.get("after_count"), 0)
-    before_tokens = _int_kw(data.get("before_tokens"), 0)
-    after_tokens = _int_kw(data.get("after_tokens"), 0)
+    before_count = _positive_int_kw(data.get("before_count"), 0)
+    after_count = _positive_int_kw(data.get("after_count"), 0)
+    before_tokens = _positive_int_kw(data.get("before_tokens"), 0)
+    after_tokens = _positive_int_kw(data.get("after_tokens"), 0)
+    after_tokens_kind = str(data.get("after_tokens_kind") or "").strip().lower()
     if before_count and after_count and after_count < before_count:
         text = f"Context compacted · {before_count} → {after_count} messages"
     else:
         text = "Context compaction checked"
     if before_tokens and after_tokens:
-        text += f" · {_compact_count(before_tokens)} → {_compact_count(after_tokens)} tokens"
+        label = "rough " if after_tokens_kind == "rough" else ""
+        text += f" · {label}{_compact_count(before_tokens)} → {_compact_count(after_tokens)} tokens"
     return text
+
+
+def _positive_int_kw(value: Any, default: int) -> int:
+    parsed = _int_kw(value, default)
+    return parsed if parsed > 0 else default
 
 
 def _compact_count(value: int) -> str:

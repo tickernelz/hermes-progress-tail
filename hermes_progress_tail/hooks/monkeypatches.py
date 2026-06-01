@@ -33,6 +33,14 @@ def _noop_reasoning_callback(_text: str) -> None:
 setattr(_noop_reasoning_callback, _NOOP_MARKER, True)
 
 
+def _positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def _telegram_edit_target_lost(error_text: str) -> bool:
     text = str(error_text or "").lower()
     return (
@@ -474,7 +482,17 @@ def install_compression_lifecycle_monkeypatch(agent_cls: type | None = None) -> 
             status = compressor.get_status() if hasattr(compressor, "get_status") else {}
             after_tokens = getattr(compressor, "last_prompt_tokens", None)
             if isinstance(status, dict):
-                after_tokens = status.get("last_prompt_tokens") or after_tokens
+                status_tokens = status.get("last_prompt_tokens")
+                if _positive_int(status_tokens) is not None:
+                    after_tokens = status_tokens
+            after_tokens_kind = ""
+            if _positive_int(after_tokens) is None and getattr(
+                compressor, "awaiting_real_usage_after_compression", False
+            ):
+                rough_tokens = getattr(compressor, "last_compression_rough_tokens", None)
+                if _positive_int(rough_tokens) is not None:
+                    after_tokens = rough_tokens
+                    after_tokens_kind = "rough"
             from ..runtime.plugin import on_compression_lifecycle_from_agent
 
             on_compression_lifecycle_from_agent(
@@ -486,6 +504,7 @@ def install_compression_lifecycle_monkeypatch(agent_cls: type | None = None) -> 
                 after_count=after_count,
                 before_tokens=before_tokens,
                 after_tokens=after_tokens,
+                after_tokens_kind=after_tokens_kind,
                 compression_count=getattr(compressor, "compression_count", 0),
             )
         except Exception:
