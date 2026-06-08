@@ -536,22 +536,34 @@ def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None
     _TELEGRAM_ORIGINALS[telegram_adapter_cls] = original
 
     @wraps(original)
-    async def patched_edit_message(self, chat_id, message_id, content, *, finalize=False):
+    async def patched_edit_message(
+        self, chat_id, message_id, content, *, finalize=False, metadata=None
+    ):
         if finalize:
-            return await original(self, chat_id, message_id, content, finalize=finalize)
+            return await original(
+                self, chat_id, message_id, content, finalize=finalize, metadata=metadata
+            )
         if not getattr(self, "_bot", None):
-            return await original(self, chat_id, message_id, content, finalize=finalize)
+            return await original(
+                self, chat_id, message_id, content, finalize=finalize, metadata=metadata
+            )
         try:
             from gateway.platforms.base import SendResult, utf16_len
             from gateway.platforms.telegram import ParseMode
         except Exception:
-            return await original(self, chat_id, message_id, content, finalize=finalize)
+            return await original(
+                self, chat_id, message_id, content, finalize=finalize, metadata=metadata
+            )
         try:
             max_len = int(getattr(self, "MAX_MESSAGE_LENGTH", 4096) or 4096)
             if utf16_len(str(content or "")) > max_len:
-                return await original(self, chat_id, message_id, content, finalize=finalize)
+                return await original(
+                    self, chat_id, message_id, content, finalize=finalize, metadata=metadata
+                )
         except Exception:
-            return await original(self, chat_id, message_id, content, finalize=finalize)
+            return await original(
+                self, chat_id, message_id, content, finalize=finalize, metadata=metadata
+            )
         try:
             formatted = format_progress_tail_telegram_markdown(content, self.format_message)
             await self._bot.edit_message_text(
