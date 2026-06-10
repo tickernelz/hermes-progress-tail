@@ -101,7 +101,9 @@ def _clean_parts(values: list[str]) -> list[str]:
 def _context_label(env: EnvironmentSnapshot) -> str:
     if env.context_tokens > 0 and env.context_window > 0:
         suffix = f" {env.context_kind.strip()}" if env.context_kind.strip() else ""
-        return f"ctx {_compact_count(env.context_tokens)}/{_compact_count(env.context_window)}{suffix}"
+        return (
+            f"ctx {_compact_count(env.context_tokens)}/{_compact_count(env.context_window)}{suffix}"
+        )
     if env.context_window > 0:
         return f"ctx {_compact_count(env.context_window)} window"
     return ""

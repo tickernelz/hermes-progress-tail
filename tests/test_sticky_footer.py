@@ -84,7 +84,9 @@ def test_focused_footer_renders_normal_environment_snapshot():
         ctx = make_ctx(adapter, env=env)
         renderer.register_context(ctx)
 
-        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True)
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True
+        )
 
         content = adapter.sent[-1][1]
         assert "**__Status__**" in content
@@ -101,7 +103,9 @@ def test_focused_footer_hides_unknown_fields_and_can_be_disabled():
         ctx = make_ctx(adapter, env=EnvironmentSnapshot(model="gpt-5.5"))
         renderer.register_context(ctx)
 
-        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True)
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True
+        )
 
         assert "**__Status__**" not in adapter.sent[-1][1]
 
@@ -177,11 +181,15 @@ def test_runtime_hook_updates_footer_environment_from_agent(monkeypatch):
 def test_footer_hides_when_only_strategy_is_known():
     async def run():
         adapter = EditableAdapter()
-        renderer = ProgressRenderer(load_settings({"progress_tail": {"tools": {"timestamp": False}}}))
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
         ctx = make_ctx(adapter)
         renderer.register_context(ctx)
 
-        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True)
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True
+        )
 
         assert adapter.sent[-1][1] == "▰ 🧰 Tools\nread_file: renderer.py"
 
@@ -191,7 +199,9 @@ def test_footer_hides_when_only_strategy_is_known():
 def test_default_sectioned_renderer_shows_footer_when_enabled():
     async def run():
         adapter = EditableAdapter()
-        renderer = ProgressRenderer(load_settings({"progress_tail": {"tools": {"timestamp": False}}}))
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
         ctx = make_ctx(
             adapter,
             env=EnvironmentSnapshot(
@@ -203,7 +213,9 @@ def test_default_sectioned_renderer_shows_footer_when_enabled():
         )
         renderer.register_context(ctx)
 
-        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True)
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True
+        )
 
         content = adapter.sent[-1][1]
         assert "▰ 🧭 Status" in content
