@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 
+import hermes_progress_tail.rendering.footer as footer_module
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import EnvironmentSnapshot, SessionContext, ToolEvent
@@ -92,6 +93,30 @@ def test_focused_footer_renders_normal_environment_snapshot():
         assert "**__Status__**" in content
         assert "ctx 82k/256k est · custom:gpt-5.5 · profile default · live_tail" in content
         assert "git main* +1 · worktree main · cwd ~/Projects/hermes-progress-tail" in content
+
+    asyncio.run(run())
+
+
+def test_footer_does_not_collapse_project_root_to_dot(monkeypatch):
+    async def run():
+        monkeypatch.setattr(footer_module.Path, "home", lambda: Path("/home/runner"))
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        env = EnvironmentSnapshot(
+            model="gpt-5.5",
+            provider="custom",
+            cwd="/home/zhafron/Projects/hermes-progress-tail",
+        )
+        ctx = make_ctx(adapter, env=env)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True
+        )
+
+        content = adapter.sent[-1][1]
+        assert "cwd ." not in content
+        assert "cwd hermes-progress-tail" in content
 
     asyncio.run(run())
 

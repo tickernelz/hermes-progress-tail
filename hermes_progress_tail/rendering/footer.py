@@ -185,9 +185,13 @@ def _display_path(raw: str) -> str:
         try:
             return "~/" + path.relative_to(home).as_posix()
         except ValueError:
-            return simplify_path(raw)
+            simplified = simplify_path(raw)
+            if simplified in {"", "."}:
+                return path.name or path.as_posix()
+            return simplified
     except Exception:
-        return simplify_path(raw)
+        simplified = simplify_path(raw)
+        return raw if simplified in {"", "."} else simplified
 
 
 def _short_provider(provider: str) -> str:
