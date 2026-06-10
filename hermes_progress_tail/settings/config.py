@@ -69,6 +69,11 @@ PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
         "delete_on_failure": None,
         "delete_background_active": None,
     },
+    "footer": {
+        "enabled": None,
+        "density": None,
+        "max_path_chars": None,
+    },
     "renderer": {
         "strategy": None,
         "edit_interval": None,
@@ -207,6 +212,13 @@ class CleanupSettings:
 
 
 @dataclass(frozen=True)
+class FooterSettings:
+    enabled: bool = True
+    density: Literal["compact", "normal", "debug"] = "normal"
+    max_path_chars: int = 56
+
+
+@dataclass(frozen=True)
 class LegacyDefaultSettings:
     lines: int = 3
     preview_length: int = 120
@@ -266,6 +278,7 @@ class Settings:
     reasoning: ReasoningSettings = ReasoningSettings()
     background_jobs: BackgroundJobSettings = BackgroundJobSettings()
     cleanup: CleanupSettings = CleanupSettings()
+    footer: FooterSettings = FooterSettings()
     renderer: RendererSettings = RendererSettings()
     no_edit: NoEditSettings = NoEditSettings()
     platforms: dict[str, dict[str, Any]] | None = None
@@ -425,6 +438,11 @@ def _density(
     return val if val in {"compact", "normal", "verbose", "debug"} else "normal"
 
 
+def _footer_density(value: Any, default: str = "normal") -> Literal["compact", "normal", "debug"]:
+    val = str(value or default).strip().lower()
+    return val if val in {"compact", "normal", "debug"} else "normal"
+
+
 def _renderer_mode_and_density(
     raw: dict[str, Any],
 ) -> tuple[str, Literal["compact", "normal", "verbose", "debug"]]:
@@ -464,6 +482,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         section.get("background_jobs") if isinstance(section.get("background_jobs"), dict) else {}
     )
     cleanup_raw = section.get("cleanup") if isinstance(section.get("cleanup"), dict) else {}
+    footer_raw = section.get("footer") if isinstance(section.get("footer"), dict) else {}
     tools = ToolSettings(
         enabled=_bool(tools_raw.get("enabled"), True),
         lines=_int(tools_raw.get("lines"), 3),
@@ -534,6 +553,11 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         delete_on_failure=_bool(cleanup_raw.get("delete_on_failure"), False),
         delete_background_active=_bool(cleanup_raw.get("delete_background_active"), False),
     )
+    footer = FooterSettings(
+        enabled=_bool(footer_raw.get("enabled"), True),
+        density=_footer_density(footer_raw.get("density"), "normal"),
+        max_path_chars=_int(footer_raw.get("max_path_chars"), 56, min_value=16),
+    )
     renderer_mode, renderer_density = _renderer_mode_and_density(renderer_raw)
     renderer = RendererSettings(
         strategy=_strategy(renderer_raw.get("strategy"), "auto"),
@@ -562,6 +586,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         reasoning=reasoning,
         background_jobs=background_jobs,
         cleanup=cleanup,
+        footer=footer,
         renderer=renderer,
         no_edit=no_edit,
         platforms=platforms,

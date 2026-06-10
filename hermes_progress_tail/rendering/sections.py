@@ -8,6 +8,7 @@ from ..settings.config import Settings
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
 from .focused import compose_focused_content
+from .footer import sectioned_footer
 
 
 def compose_content(renderer, ctx: SessionContext) -> str:
@@ -35,6 +36,9 @@ def compose_content(renderer, ctx: SessionContext) -> str:
         debug = renderer._debug_section(ctx)
         if debug:
             parts.append(debug)
+    footer = sectioned_footer(ctx, settings=renderer.settings)
+    if footer:
+        parts.append(footer)
     content = "\n\n".join(parts)
     return redact_text(content) if renderer.settings.renderer.redact_secrets else content
 

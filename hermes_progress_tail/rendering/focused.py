@@ -7,6 +7,7 @@ from ..models.state import SessionContext, TodoItem
 from ..settings.config import Settings
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
+from .footer import focused_footer
 
 _CODE_RE = re.compile(r"(```[\s\S]*?```|`[^`]*`)")
 _FORMATTED_LIVE_EDIT_PLATFORMS = frozenset(
@@ -69,6 +70,10 @@ def compose_focused_content(renderer, ctx: SessionContext) -> str:
         debug = strip_legacy_section_header(renderer._debug_section(ctx), "Debug")
         if debug:
             parts.append(focused_block("Debug", debug, platform=ctx.platform))
+
+    footer = focused_footer(ctx, settings=settings)
+    if footer:
+        parts.append(footer)
 
     content = "\n\n".join(part for part in parts if part.strip())
     return redact_text(content) if settings.renderer.redact_secrets else content

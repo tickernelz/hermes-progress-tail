@@ -73,6 +73,23 @@ class AssistantLine:
 
 
 @dataclass
+class EnvironmentSnapshot:
+    context_tokens: int = 0
+    context_window: int = 0
+    context_kind: str = ""
+    model: str = ""
+    provider: str = ""
+    profile: str = ""
+    cwd: str = ""
+    git_branch: str = ""
+    git_dirty: bool = False
+    git_ahead: int = 0
+    git_behind: int = 0
+    worktree: str = ""
+    strategy: str = ""
+
+
+@dataclass
 class SessionContext:
     session_id: str
     session_key: str
@@ -144,6 +161,7 @@ class SessionContext:
     chat_type: str = ""
     source_message_id: str | None = None
     lock: Any = field(default_factory=asyncio.Lock)
+    environment: EnvironmentSnapshot = field(default_factory=EnvironmentSnapshot)
 
     @property
     def line_buffer(self) -> deque[str]:

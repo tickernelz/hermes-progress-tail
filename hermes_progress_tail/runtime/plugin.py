@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -22,6 +23,7 @@ from ..models.state import (
     AssistantEvent,
     BackgroundJobEvent,
     DelegateEvent,
+    EnvironmentSnapshot,
     ReasoningEvent,
     SessionContext,
     ToolEvent,
@@ -38,6 +40,7 @@ from ..utils.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
+_GIT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 VERSION = "0.1.65"
 _ASSISTANT_CAPTURE: dict[str, Any] = {
     "status": "never",
@@ -59,6 +62,162 @@ def _agent_session_key(agent: Any) -> str:
         or getattr(agent, "_gateway_session_key", None)
         or ""
     )
+
+
+def _update_environment_from_agent(ctx: SessionContext, agent: Any) -> None:
+    if agent is None:
+        return
+    try:
+        cwd = _agent_cwd(agent)
+        git = _git_snapshot(cwd)
+        compressor = getattr(agent, "context_compressor", None)
+        ctx.environment = EnvironmentSnapshot(
+            context_tokens=_positive_attr(
+                compressor,
+                "last_estimated_tokens",
+                "current_context_tokens",
+                "current_tokens",
+                "approx_tokens",
+                "last_compression_rough_tokens",
+            ),
+            context_window=_positive_attr(
+                agent,
+                "_config_context_length",
+                "context_length",
+                "max_context_tokens",
+                "max_context_length",
+            )
+            or _positive_attr(compressor, "context_length", "max_context_tokens"),
+            context_kind="est" if compressor is not None else "",
+            model=_agent_string(agent, "model", "model_name"),
+            provider=_agent_string(agent, "provider", "provider_name", "model_provider"),
+            profile=_runtime_profile_name(),
+            cwd=str(cwd),
+            git_branch=str(git.get("branch") or ""),
+            git_dirty=bool(git.get("dirty")),
+            git_ahead=int(git.get("ahead") or 0),
+            git_behind=int(git.get("behind") or 0),
+            worktree=str(git.get("worktree") or ""),
+            strategy=ctx.strategy,
+        )
+    except Exception:
+        logger.debug("hermes-progress-tail environment snapshot update failed", exc_info=True)
+
+
+def _agent_cwd(agent: Any) -> Path:
+    for attr in ("workdir", "working_dir", "cwd", "project_dir"):
+        value = getattr(agent, attr, None)
+        if value:
+            return Path(str(value)).expanduser()
+    return Path.cwd()
+
+
+def _agent_string(agent: Any, *attrs: str) -> str:
+    for attr in attrs:
+        value = getattr(agent, attr, None)
+        if value:
+            return str(value)
+    return ""
+
+
+def _positive_attr(obj: Any, *attrs: str) -> int:
+    if obj is None:
+        return 0
+    for attr in attrs:
+        value = getattr(obj, attr, None)
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            return parsed
+    return 0
+
+
+def _runtime_profile_name() -> str:
+    try:
+        from hermes_cli.profiles import get_active_profile_name
+
+        return str(get_active_profile_name() or "")
+    except Exception:
+        return ""
+
+
+def _git_snapshot(cwd: Path) -> dict[str, Any]:
+    try:
+        path = cwd.expanduser().resolve(strict=False)
+    except Exception:
+        path = cwd
+    key = str(path)
+    now = time.monotonic()
+    cached = _GIT_CACHE.get(key)
+    if cached and now - cached[0] < 5.0:
+        return cached[1]
+    data = _load_git_snapshot(path)
+    _GIT_CACHE[key] = (now, data)
+    return data
+
+
+def _load_git_snapshot(cwd: Path) -> dict[str, Any]:
+    result = _git_command(cwd, "rev-parse", "--is-inside-work-tree")
+    if result != "true":
+        return {}
+    branch = _git_command(cwd, "branch", "--show-current") or _git_command(
+        cwd, "rev-parse", "--short", "HEAD"
+    )
+    root = _git_command(cwd, "rev-parse", "--show-toplevel")
+    status = _git_command(cwd, "status", "--porcelain=v1", "--branch")
+    ahead = 0
+    behind = 0
+    dirty = False
+    for line in status.splitlines():
+        if line.startswith("## "):
+            if "ahead " in line:
+                ahead = _branch_count(line, "ahead")
+            if "behind " in line:
+                behind = _branch_count(line, "behind")
+            continue
+        if line.strip():
+            dirty = True
+    return {
+        "branch": branch,
+        "dirty": dirty,
+        "ahead": ahead,
+        "behind": behind,
+        "worktree": Path(root).name if root else "",
+    }
+
+
+def _branch_count(line: str, label: str) -> int:
+    marker = f"{label} "
+    if marker not in line:
+        return 0
+    tail = line.split(marker, 1)[1]
+    digits = []
+    for ch in tail:
+        if ch.isdigit():
+            digits.append(ch)
+        elif digits:
+            break
+    return int("".join(digits) or "0")
+
+
+def _git_command(cwd: Path, *args: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=0.15,
+            check=False,
+        )
+    except Exception:
+        return ""
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.strip()
 
 
 def _load_runtime_config() -> dict[str, Any]:
@@ -760,6 +919,7 @@ def _on_pre_tool_call(
     session_id: str = "",
     tool_call_id: str = "",
     preview: str | None = None,
+    agent: Any = None,
     **_: Any,
 ):
     renderer = _get_renderer()
@@ -780,6 +940,7 @@ def _on_pre_tool_call(
         threading.current_thread().name,
         tool_call_id,
     )
+    _update_environment_from_agent(ctx, agent)
     line = format_tool_line(
         tool_name,
         args or {},
@@ -812,6 +973,7 @@ def _on_post_tool_call(
     session_id: str = "",
     tool_call_id: str = "",
     duration_ms: int | None = None,
+    agent: Any = None,
     **_: Any,
 ):
     renderer = _get_renderer()
@@ -835,6 +997,7 @@ def _on_post_tool_call(
         duration_ms,
         tool_call_id,
     )
+    _update_environment_from_agent(ctx, agent)
     result_obj = _json_obj(result)
     if tool_name == "terminal" and _terminal_background_requested(args):
         process_id = str(result_obj.get("session_id") or "")
@@ -901,6 +1064,7 @@ def on_reasoning_delta_from_agent(
     ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None or not ctx.reasoning_enabled:
         return
+    _update_environment_from_agent(ctx, agent)
     _schedule_render(
         ctx, ReasoningEvent(ctx.session_id, ctx.session_key, ctx.platform, text, source=source)
     )
@@ -918,6 +1082,7 @@ def on_compression_status_from_agent(agent: Any, text: str) -> bool:
         return False
     if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
         return False
+    _update_environment_from_agent(ctx, agent)
     return _schedule_render(
         ctx,
         AssistantEvent(
@@ -953,6 +1118,7 @@ def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> 
     )
     if ctx is None or not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
         return False
+    _update_environment_from_agent(ctx, agent)
     if phase == "started":
         text = "Compacting context — summarizing earlier conversation"
     elif phase == "completed":
@@ -1031,6 +1197,7 @@ def on_assistant_progress_from_agent(
             already_streamed=already_streamed,
         )
         return False
+    _update_environment_from_agent(ctx, agent)
     scheduled = _schedule_render(
         ctx,
         AssistantEvent(
@@ -1282,6 +1449,7 @@ def _command(raw_args: str = "") -> str:
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
             f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} ttl={settings.delegates.completed_ttl_seconds}s thinking={settings.delegates.thinking}",
             f"background_jobs={'enabled' if settings.background_jobs.enabled else 'disabled'} list_running={settings.background_jobs.list_running} show_completed={settings.background_jobs.show_completed} max={settings.background_jobs.max_jobs} ttl={settings.background_jobs.completed_ttl_seconds}s head={settings.background_jobs.head_lines} tail={settings.background_jobs.tail_lines} update={settings.background_jobs.update_interval_seconds}s suppress_native_notify={settings.background_jobs.suppress_native_notify} suppress_watch={settings.background_jobs.suppress_watch_notifications}",
+            f"footer={'enabled' if settings.footer.enabled else 'disabled'} density:{settings.footer.density} max_path_chars:{settings.footer.max_path_chars}",
             f"renderer=mode:{settings.renderer.mode} strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval} agent_label:{settings.renderer.agent_label or '-'}",
             f"display.tool_progress={display.get('tool_progress', '<unset>')}",
             f"display.show_reasoning={display.get('show_reasoning', '<unset>')}",

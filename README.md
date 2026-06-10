@@ -163,6 +163,11 @@ progress_tail:
     delete_on_failure: false
     delete_background_active: false
 
+  footer:
+    enabled: true
+    density: normal # compact|normal|debug
+    max_path_chars: 56
+
   renderer:
     strategy: auto
     edit_interval: 1.5

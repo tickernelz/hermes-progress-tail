@@ -83,6 +83,11 @@ DEFAULT_CONFIG = {
         "delete_on_failure": False,
         "delete_background_active": False,
     },
+    "footer": {
+        "enabled": True,
+        "density": "normal",
+        "max_path_chars": 56,
+    },
     "renderer": {
         "strategy": "auto",
         "edit_interval": 1.5,

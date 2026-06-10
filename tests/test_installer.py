@@ -53,6 +53,9 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert config["progress_tail"]["patch"]["max_files"] == 3
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
     assert config["progress_tail"]["renderer"]["agent_label"] == ""
+    assert config["progress_tail"]["footer"]["enabled"] is True
+    assert config["progress_tail"]["footer"]["density"] == "normal"
+    assert config["progress_tail"]["footer"]["max_path_chars"] == 56
     assert "default_notify_on_complete" not in config["progress_tail"]["background_jobs"]
     assert "finalization" not in config["progress_tail"]
     assert "progress_tail" in config

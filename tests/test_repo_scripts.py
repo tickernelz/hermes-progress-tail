@@ -54,6 +54,9 @@ def test_readme_documents_background_job_defaults_without_finalization_config():
     assert "mode: focused # focused|sectioned" in readme
     assert "mode: focused # focused|sectioned|compact" not in readme
     assert "density: verbose # compact|normal|verbose|debug" in readme
+    assert "footer:" in readme
+    assert "density: normal # compact|normal|debug" in readme
+    assert "max_path_chars: 56" in readme
     assert "code_fence" not in readme
 
 
