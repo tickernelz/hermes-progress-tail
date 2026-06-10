@@ -92,7 +92,9 @@ def test_focused_footer_renders_normal_environment_snapshot():
         content = adapter.sent[-1][1]
         assert "**__Status__**" in content
         assert "ctx 82k/256k est · custom:gpt-5.5 · profile default · live_tail" in content
-        assert "git main* +1 · worktree main · cwd ~/Projects/hermes-progress-tail" in content
+        assert "git main* +1 · worktree main · cwd " in content
+        assert "cwd ." not in content
+        assert "hermes-progress-tail" in content
 
     asyncio.run(run())
 
@@ -195,10 +197,9 @@ def test_runtime_hook_updates_footer_environment_from_agent(monkeypatch):
 
         content = adapter.sent[-1][1]
         assert "ctx 82k/256k est · custom:gpt-5.5 · profile default · live_tail" in content
-        assert (
-            "git feature/footer* +2 -1 · worktree hermes-progress-tail · cwd ~/Projects/hermes-progress-tail"
-            in content
-        )
+        assert "git feature/footer* +2 -1 · worktree hermes-progress-tail · cwd " in content
+        assert "cwd ." not in content
+        assert "hermes-progress-tail" in content
 
     asyncio.run(run())
 
