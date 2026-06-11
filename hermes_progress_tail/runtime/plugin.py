@@ -42,7 +42,7 @@ from ..utils.redaction import redact_text
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
 _GIT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-VERSION = "0.1.68"
+VERSION = "0.1.69"
 _ASSISTANT_CAPTURE: dict[str, Any] = {
     "status": "never",
     "session_id": "",
