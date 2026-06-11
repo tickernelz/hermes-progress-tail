@@ -155,6 +155,14 @@ def _positive_int(value: Any) -> int:
 
 def _runtime_profile_name() -> str:
     try:
+        from . import plugin as runtime_plugin
+
+        func = getattr(runtime_plugin, "_runtime_profile_name", None)
+        if callable(func) and func is not _runtime_profile_name:
+            return str(func() or "")
+    except Exception:
+        pass
+    try:
         from hermes_cli.profiles import get_active_profile_name
 
         return str(get_active_profile_name() or "")
