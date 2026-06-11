@@ -40,7 +40,7 @@ def test_redacts_jwt_and_long_opaque_blobs():
 
 def test_redaction_preserves_long_filename_components():
     filename = "a1b2c3d4e5f67890" * 6 + ".css"
-    text = f"📖 read_file: ~/Works/HMX/.../views/{filename}:1384+26"
+    text = f"📖 read_file: ~/Works/Acme/.../views/{filename}:1384+26"
 
     redacted = redact_text(text)
 
@@ -58,11 +58,11 @@ def test_simplify_path_keeps_ordinary_paths_visible(monkeypatch, tmp_path):
 
 
 def test_simplify_path_handles_wsl_windows_user_paths():
-    assert simplify_path("/mnt/c/Users/Zhafron/Downloads/foo.pdf") == "~/Downloads/foo.pdf"
+    assert simplify_path("/mnt/c/Users/Alice/Downloads/foo.pdf") == "~/Downloads/foo.pdf"
 
 
 def test_simplify_path_redacts_secret_like_components_without_hiding_file_context():
-    path = "/home/zhafron/Projects/app/API_KEY=supersecret1234567890/file.py"
+    path = "/home/example/Projects/app/API_KEY=supersecret1234567890/file.py"
 
     simplified = simplify_path(path)
 

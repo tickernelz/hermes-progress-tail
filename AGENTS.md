@@ -6,12 +6,12 @@
 
 ## Commands
 
-Use the Hermes Agent venv when available:
+Use project-local tooling from the repository root. If you use a virtualenv, activate it first.
 
 ```bash
-/home/zhafron/.hermes/hermes-agent/venv/bin/pytest -q
-/home/zhafron/.hermes/hermes-agent/venv/bin/ruff check .
-/home/zhafron/.hermes/hermes-agent/venv/bin/ruff format --check .
+python -m pytest -q
+ruff check .
+ruff format --check .
 bash -n install.sh
 bash -n uninstall.sh
 python -m compileall -q .
@@ -21,8 +21,8 @@ git diff --check
 Targeted test examples:
 
 ```bash
-/home/zhafron/.hermes/hermes-agent/venv/bin/pytest tests/test_sticky_footer.py -q
-/home/zhafron/.hermes/hermes-agent/venv/bin/pytest tests/test_telegram_format_monkeypatch.py -q
+python -m pytest tests/test_sticky_footer.py -q
+python -m pytest tests/test_telegram_format_monkeypatch.py -q
 ```
 
 ## Structure
@@ -58,7 +58,7 @@ Targeted test examples:
 
 ```bash
 HPT_INTERACTIVE=0 \
-HPT_SOURCE_DIR=/home/zhafron/Projects/hermes-progress-tail \
+HPT_SOURCE_DIR="$(pwd)" \
 HPT_ALL_PROFILES=1 \
-bash /home/zhafron/Projects/hermes-progress-tail/install.sh
+bash install.sh
 ```

@@ -144,7 +144,7 @@ def test_focused_now_ignores_stale_tool_tail_when_no_tools_running():
                 "s1",
                 "k1",
                 "telegram",
-                "skill_manage: patch hmx-development-version-control · running",
+                "skill_manage: patch example-version-control · running",
                 tool_call_id="bg-review-skill",
                 tool_name="skill_manage",
             ),
@@ -158,7 +158,7 @@ def test_focused_now_ignores_stale_tool_tail_when_no_tools_running():
         content = adapter.edits[-1][2]
 
         assert "**State** 20 tools · 25 done · 0 running" in content
-        assert "**Now** skill_manage: patch hmx-development-version-control" not in content
+        assert "**Now** skill_manage: patch example-version-control" not in content
         assert "**Now** working" in content
 
     asyncio.run(run())

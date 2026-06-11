@@ -259,7 +259,7 @@ def test_background_job_filters_wsl_login_banner_noise():
                     " * Support:        https://ubuntu.com/pro\n"
                     "\n"
                     "This message is shown once a day. To disable it please create the\n"
-                    "/home/zhafron/.hushlogin file.\n"
+                    "/home/example/.hushlogin file.\n"
                     "background smoke tick 0\n"
                     "background smoke tick 1\n"
                     "background smoke done\n"

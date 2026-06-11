@@ -475,14 +475,14 @@ def test_background_review_tool_calls_are_suppressed(monkeypatch):
         )
         hermes_progress_tail._on_pre_tool_call(
             "skill_manage",
-            {"action": "patch", "name": "hmx-development-version-control"},
+            {"action": "patch", "name": "example-version-control"},
             task_id="session-1",
             session_id="session-1",
             tool_call_id="bg-skill",
         )
         hermes_progress_tail._on_post_tool_call(
             "skill_manage",
-            {"action": "patch", "name": "hmx-development-version-control"},
+            {"action": "patch", "name": "example-version-control"},
             result='{"success": true}',
             task_id="session-1",
             session_id="session-1",

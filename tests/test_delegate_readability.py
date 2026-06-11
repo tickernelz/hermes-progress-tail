@@ -54,7 +54,7 @@ def test_delegate_section_simplifies_tool_labels_and_paths():
             ],
             maxlen=3,
         ),
-        completion_line="✓ done: Sudah saya lakukan smoke check read-only pada implementasi progress tail yang terpasang di /home/zhafron/.hermes/plugins/hermes-progress-tail",
+        completion_line="✓ done: Sudah saya lakukan smoke check read-only pada implementasi progress tail yang terpasang di /home/example/.hermes/plugins/hermes-progress-tail",
     )
     ctx.delegate_branches["sa-1"] = branch
     ctx.delegate_order.append("sa-1")
@@ -65,7 +65,7 @@ def test_delegate_section_simplifies_tool_labels_and_paths():
     assert "terminal: python -m pytest -q tests/test_formatter.py · cwd ." not in section
     assert "tool:" not in section
     assert "~/.hermes/plugins/hermes-progress-tail/hermes_progress_tail" not in section
-    assert "/home/zhafron/.hermes/plugins/hermes-progress-tail" not in section
+    assert "/home/example/.hermes/plugins/hermes-progress-tail" not in section
     assert "└ result\n" in section
     assert "  Sudah saya lakukan smoke check" in section
 
@@ -129,7 +129,7 @@ def test_delegate_completed_result_renders_as_structured_block_with_line_budget(
         completion_line="✓ done: short fallback",
         completion_summary=(
             "✓ done: ## PASS start verdict\n"
-            "- front line 1 with /home/zhafron/Works/HMX/hmx-002-Fundamental-New/hmx/module/basic/base/models/base_import_res_log.py\n"
+            "- front line 1 with /home/example/workspaces/acme-app/acme/module/models/base_import_res_log.py\n"
             "- front line 2 with 37583aab4759e71cf9a93a15fa7ab4ffeed123\n"
             "- front line 3 with readable context\n"
             "- front line 4 with readable context\n"

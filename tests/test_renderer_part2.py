@@ -489,7 +489,7 @@ def test_focused_mode_does_not_render_changes_section_for_write_file():
                 "s1",
                 "k1",
                 "telegram",
-                "✍️ write_file: ~/Works/HMX/hmx-002/tools/promotion/ai_replay.py · done",
+                "✍️ write_file: ~/Works/Acme/example-app/tools/promotion/ai_replay.py · done",
                 tool_name="write_file",
             ),
             force=True,
@@ -497,7 +497,7 @@ def test_focused_mode_does_not_render_changes_section_for_write_file():
 
         content = adapter.sent[0][1]
         assert "Changes\n" not in content
-        assert "write_file: ~/Works/HMX/hmx-002/tools/promotion/ai_replay.py" in content
+        assert "write_file: ~/Works/Acme/example-app/tools/promotion/ai_replay.py" in content
         assert "~ ~/Works" not in content
 
     asyncio.run(run())

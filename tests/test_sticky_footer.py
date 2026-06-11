@@ -78,7 +78,7 @@ def test_focused_footer_renders_normal_environment_snapshot():
             model="gpt-5.5",
             provider="custom",
             profile="default",
-            cwd="/home/zhafron/Projects/hermes-progress-tail",
+            cwd="/home/example/Projects/hermes-progress-tail",
             git_branch="main",
             git_dirty=True,
             git_ahead=1,
@@ -109,7 +109,7 @@ def test_footer_does_not_collapse_project_root_to_dot(monkeypatch):
         env = EnvironmentSnapshot(
             model="gpt-5.5",
             provider="custom",
-            cwd="/home/zhafron/Projects/hermes-progress-tail",
+            cwd="/home/example/Projects/hermes-progress-tail",
         )
         ctx = make_ctx(adapter, env=env)
         renderer.register_context(ctx)
@@ -176,7 +176,7 @@ def test_runtime_hook_updates_footer_environment_from_agent(monkeypatch):
         monkeypatch.setattr(
             plugin.Path,
             "cwd",
-            lambda: Path("/home/zhafron/Projects/hermes-progress-tail"),
+            lambda: Path("/home/example/Projects/hermes-progress-tail"),
         )
         agent = type(
             "Agent",
@@ -224,7 +224,7 @@ def test_terminal_post_tool_updates_footer_cwd_from_live_terminal_env(monkeypatc
                 }
             ),
         )
-        monkeypatch.setattr(plugin, "_runtime_profile_name", lambda: "akbar_hmx", raising=False)
+        monkeypatch.setattr(plugin, "_runtime_profile_name", lambda: "dev_profile", raising=False)
         monkeypatch.setattr(plugin, "_git_snapshot", lambda cwd: {}, raising=False)
         live_env = SimpleNamespace(cwd="/tmp/project/subdir")
         terminal_module = SimpleNamespace(get_active_env=lambda task_id: live_env)
@@ -240,8 +240,8 @@ def test_terminal_post_tool_updates_footer_cwd_from_live_terminal_env(monkeypatc
                 context_kind="est",
                 model="gpt-5.5",
                 provider="custom",
-                profile="akbar_hmx",
-                cwd="/home/zhafron/.hermes/profiles/akbar_hmx",
+                profile="dev_profile",
+                cwd="/home/example/.hermes/profiles/dev_profile",
             ),
         )
         renderer.register_context(ctx)
@@ -258,9 +258,9 @@ def test_terminal_post_tool_updates_footer_cwd_from_live_terminal_env(monkeypatc
 
         assert ctx.environment.cwd == "/tmp/project/subdir"
         content = adapter.sent[-1][1]
-        assert "ctx 82k/256k est · custom:gpt-5.5 · profile akbar_hmx · live_tail" in content
+        assert "ctx 82k/256k est · custom:gpt-5.5 · profile dev_profile · live_tail" in content
         assert "cwd /tmp/project/subdir" in content
-        assert "profiles/akbar_hmx" not in content
+        assert "profiles/dev_profile" not in content
 
     asyncio.run(run())
 
@@ -390,7 +390,7 @@ def test_default_sectioned_renderer_shows_footer_when_enabled():
                 model="gpt-5.5",
                 provider="custom",
                 profile="default",
-                cwd="/home/zhafron/Projects/hermes-progress-tail",
+                cwd="/home/example/Projects/hermes-progress-tail",
             ),
         )
         renderer.register_context(ctx)

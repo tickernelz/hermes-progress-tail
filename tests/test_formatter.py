@@ -159,15 +159,15 @@ print(payload)
 
 
 def test_long_search_patterns_use_middle_ellipsis():
-    pattern = r"\.hx-ai-chat-interface \.ai-message-action \{|\.hx-ai-chat-interface \.ai-message-content pre code"
+    pattern = r"\.demo-chat-interface \.ai-message-action \{|\.demo-chat-interface \.ai-message-content pre code"
 
     line = format_tool_line(
-        "search_files", {"pattern": pattern, "path": "hmx/module/basic/ai/static/css/views"}
+        "search_files", {"pattern": pattern, "path": "app/module/basic/ui/static/css/views"}
     )
 
     assert line == (
-        '🔎 search_files: "\\.hx-ai-chat-interface ...message-content pre code" '
-        "in hmx/module/basic/ai/static/css/views"
+        '🔎 search_files: "\\.demo-chat-interface \\...message-content pre code" '
+        "in app/module/basic/ui/static/css/views"
     )
 
 
@@ -517,9 +517,9 @@ def test_long_home_paths_use_middle_ellipsis_and_keep_filename(monkeypatch, tmp_
     path = (
         tmp_path
         / "Works"
-        / "HMX"
-        / "hmx-002-Fundamental-New"
-        / "hmx"
+        / "Acme"
+        / "example-app"
+        / "app"
         / "module"
         / "basic"
         / "ai"
@@ -531,15 +531,15 @@ def test_long_home_paths_use_middle_ellipsis_and_keep_filename(monkeypatch, tmp_
 
     line = format_tool_line("read_file", {"path": str(path), "offset": 1384, "limit": 26})
 
-    assert line == "📖 read_file: ~/Works/HMX/.../static/css/views/ai-chat-interface.css:1384+26"
+    assert line == "📖 read_file: ~/Works/Acme/.../static/css/views/ai-chat-interface.css:1384+26"
     assert "[redacted_blob]" not in line
-    assert "hmx-002-Fundamental-New/hmx/module/basic/ai" not in line
+    assert "example-app/app/module/basic/ai" not in line
 
 
 def test_vue_paths_keep_filename_instead_of_redacted_blob(monkeypatch, tmp_path):
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
     component = "A" * 96 + ".vue"
-    path = tmp_path / "Works" / "HMX" / "frontend" / "src" / "components" / component
+    path = tmp_path / "Works" / "Acme" / "frontend" / "src" / "components" / component
 
     line = format_tool_line(
         "read_file",
@@ -549,13 +549,13 @@ def test_vue_paths_keep_filename_instead_of_redacted_blob(monkeypatch, tmp_path)
 
     assert "[redacted_blob]" not in line
     assert line.endswith(f"components/{component}:120+95")
-    assert line.startswith("📖 read_file: ~/Works/HMX/...")
+    assert line.startswith("📖 read_file: ~/Works/Acme/...")
 
 
 def test_formatter_simplifies_wsl_windows_user_paths():
     line = format_tool_line(
         "read_file",
-        {"path": "/mnt/c/Users/Zhafron/Downloads/foo.pdf", "offset": 1, "limit": 5},
+        {"path": "/mnt/c/Users/Alice/Downloads/foo.pdf", "offset": 1, "limit": 5},
     )
 
     assert line == "📖 read_file: ~/Downloads/foo.pdf:1+5"

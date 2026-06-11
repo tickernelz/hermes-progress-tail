@@ -479,7 +479,7 @@ def test_delegate_normal_density_terminal_renders_safe_multiline_details():
                 goal="terminal detail delegate",
                 event_type="subagent.tool",
                 tool_name="terminal",
-                args={"command": command, "workdir": "/home/zhafron/Projects/hermes-progress-tail"},
+                args={"command": command, "workdir": "/home/example/Projects/hermes-progress-tail"},
                 tool_count=1,
             ),
             force=True,
