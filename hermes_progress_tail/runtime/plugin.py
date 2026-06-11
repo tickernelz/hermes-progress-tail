@@ -5,6 +5,7 @@ import logging
 import subprocess
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -64,22 +65,23 @@ def _agent_session_key(agent: Any) -> str:
     )
 
 
-def _update_environment_from_agent(ctx: SessionContext, agent: Any) -> None:
+def _update_environment_from_agent(
+    ctx: SessionContext, agent: Any, messages: list[dict[str, Any]] | None = None
+) -> None:
     if agent is None:
         return
     try:
-        cwd = _agent_cwd(agent)
+        agent_cwd = _agent_cwd(agent)
+        cwd_source = str(getattr(ctx, "_progress_tail_cwd_source", "") or "")
+        if cwd_source == "terminal" and ctx.environment and ctx.environment.cwd:
+            cwd = Path(ctx.environment.cwd).expanduser()
+        else:
+            cwd = agent_cwd
+            ctx._progress_tail_cwd_source = "agent"
         git = _git_snapshot(cwd)
         compressor = getattr(agent, "context_compressor", None)
         ctx.environment = EnvironmentSnapshot(
-            context_tokens=_positive_attr(
-                compressor,
-                "last_estimated_tokens",
-                "current_context_tokens",
-                "current_tokens",
-                "approx_tokens",
-                "last_compression_rough_tokens",
-            ),
+            context_tokens=_context_tokens(agent, compressor, messages),
             context_window=_positive_attr(
                 agent,
                 "_config_context_length",
@@ -88,7 +90,7 @@ def _update_environment_from_agent(ctx: SessionContext, agent: Any) -> None:
                 "max_context_length",
             )
             or _positive_attr(compressor, "context_length", "max_context_tokens"),
-            context_kind="est" if compressor is not None else "",
+            context_kind="est" if compressor is not None or messages is not None else "",
             model=_agent_string(agent, "model", "model_name"),
             provider=_agent_string(agent, "provider", "provider_name", "model_provider"),
             profile=_runtime_profile_name(),
@@ -102,6 +104,59 @@ def _update_environment_from_agent(ctx: SessionContext, agent: Any) -> None:
         )
     except Exception:
         logger.debug("hermes-progress-tail environment snapshot update failed", exc_info=True)
+
+
+def _context_tokens(
+    agent: Any, compressor: Any, messages: list[dict[str, Any]] | None = None
+) -> int:
+    estimated = _estimate_request_tokens(agent, messages)
+    if estimated > 0:
+        return estimated
+    if bool(getattr(compressor, "awaiting_real_usage_after_compression", False)):
+        rough = _positive_attr(compressor, "last_compression_rough_tokens")
+        if rough > 0:
+            return rough
+    return _positive_attr(
+        compressor,
+        "last_prompt_tokens",
+        "last_estimated_tokens",
+        "current_context_tokens",
+        "current_tokens",
+        "approx_tokens",
+        "last_compression_rough_tokens",
+    )
+
+
+def _estimate_request_tokens(agent: Any, messages: list[dict[str, Any]] | None) -> int:
+    if not isinstance(messages, list) or not messages:
+        return 0
+    try:
+        from agent.model_metadata import estimate_request_tokens_rough
+
+        return _positive_int(
+            estimate_request_tokens_rough(
+                messages,
+                system_prompt=_agent_system_prompt(agent),
+                tools=getattr(agent, "tools", None) or None,
+            )
+        )
+    except Exception:
+        logger.debug("hermes-progress-tail request token estimate failed", exc_info=True)
+    try:
+        from agent.model_metadata import estimate_messages_tokens_rough
+
+        return _positive_int(estimate_messages_tokens_rough(messages))
+    except Exception:
+        logger.debug("hermes-progress-tail message token estimate failed", exc_info=True)
+    return 0
+
+
+def _agent_system_prompt(agent: Any) -> str:
+    for attr in ("system_message", "_system_message", "current_system_message"):
+        value = getattr(agent, attr, None)
+        if value:
+            return str(value)
+    return ""
 
 
 def _agent_cwd(agent: Any) -> Path:
@@ -124,14 +179,18 @@ def _positive_attr(obj: Any, *attrs: str) -> int:
     if obj is None:
         return 0
     for attr in attrs:
-        value = getattr(obj, attr, None)
-        try:
-            parsed = int(value)
-        except (TypeError, ValueError):
-            continue
+        parsed = _positive_int(getattr(obj, attr, None))
         if parsed > 0:
             return parsed
     return 0
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
 
 
 def _runtime_profile_name() -> str:
@@ -912,6 +971,76 @@ def _context_owned_by_current_thread(
     return ctx if _is_context_owner_thread(ctx) else None
 
 
+def _tool_agent_context(
+    tool_name: str, session_id: str = "", task_id: str = "", tool_call_id: str = ""
+) -> dict[str, Any]:
+    try:
+        from ..hooks.monkeypatches import current_tool_agent_context
+
+        return current_tool_agent_context(
+            tool_name=tool_name,
+            session_id=session_id,
+            task_id=task_id,
+            tool_call_id=tool_call_id,
+        )
+    except Exception:
+        return {}
+
+
+def _resolve_tool_agent(
+    agent: Any, tool_name: str, session_id: str = "", task_id: str = "", tool_call_id: str = ""
+) -> tuple[Any, list[dict[str, Any]] | None]:
+    if agent is not None:
+        return agent, None
+    context = _tool_agent_context(tool_name, session_id, task_id, tool_call_id)
+    return context.get("agent"), context.get("messages")
+
+
+def _update_environment_from_terminal(
+    ctx: SessionContext, args: dict | None, task_id: str = ""
+) -> None:
+    cwd = _terminal_live_cwd(task_id) or str((args or {}).get("workdir") or "")
+    if not cwd:
+        return
+    _replace_environment_cwd(ctx, cwd, source="terminal")
+
+
+def _terminal_live_cwd(task_id: str = "") -> str:
+    try:
+        from tools.terminal_tool import get_active_env
+
+        env = get_active_env(task_id or "default")
+        cwd = getattr(env, "cwd", None)
+        return str(cwd) if cwd else ""
+    except Exception:
+        return ""
+
+
+def _replace_environment_cwd(ctx: SessionContext, cwd: str | Path, *, source: str) -> None:
+    try:
+        path = Path(str(cwd)).expanduser()
+    except Exception:
+        return
+    if not str(path):
+        return
+    git = _git_snapshot(path)
+    env = ctx.environment or EnvironmentSnapshot(
+        profile=_runtime_profile_name(), strategy=ctx.strategy
+    )
+    ctx.environment = replace(
+        env,
+        cwd=str(path),
+        git_branch=str(git.get("branch") or ""),
+        git_dirty=bool(git.get("dirty")),
+        git_ahead=int(git.get("ahead") or 0),
+        git_behind=int(git.get("behind") or 0),
+        worktree=str(git.get("worktree") or ""),
+        profile=env.profile or _runtime_profile_name(),
+        strategy=env.strategy or ctx.strategy,
+    )
+    ctx._progress_tail_cwd_source = source
+
+
 def _on_pre_tool_call(
     tool_name: str,
     args: dict | None = None,
@@ -940,7 +1069,10 @@ def _on_pre_tool_call(
         threading.current_thread().name,
         tool_call_id,
     )
-    _update_environment_from_agent(ctx, agent)
+    agent, messages = _resolve_tool_agent(agent, tool_name, session_id, task_id, tool_call_id)
+    _update_environment_from_agent(ctx, agent, messages=messages)
+    if tool_name == "terminal":
+        _update_environment_from_terminal(ctx, args, task_id)
     line = format_tool_line(
         tool_name,
         args or {},
@@ -997,7 +1129,10 @@ def _on_post_tool_call(
         duration_ms,
         tool_call_id,
     )
-    _update_environment_from_agent(ctx, agent)
+    agent, messages = _resolve_tool_agent(agent, tool_name, session_id, task_id, tool_call_id)
+    _update_environment_from_agent(ctx, agent, messages=messages)
+    if tool_name == "terminal":
+        _update_environment_from_terminal(ctx, args, task_id)
     result_obj = _json_obj(result)
     if tool_name == "terminal" and _terminal_background_requested(args):
         process_id = str(result_obj.get("session_id") or "")

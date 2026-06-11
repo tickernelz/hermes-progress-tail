@@ -1,5 +1,7 @@
 import asyncio
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import hermes_progress_tail.rendering.footer as footer_module
 from hermes_progress_tail.config import load_settings
@@ -200,6 +202,160 @@ def test_runtime_hook_updates_footer_environment_from_agent(monkeypatch):
         assert "git feature/footer* +2 -1 · worktree hermes-progress-tail · cwd " in content
         assert "cwd ." not in content
         assert "hermes-progress-tail" in content
+
+    asyncio.run(run())
+
+
+def test_terminal_post_tool_updates_footer_cwd_from_live_terminal_env(monkeypatch):
+    async def run():
+        import hermes_progress_tail.plugin as plugin
+
+        adapter = EditableAdapter()
+        plugin._renderer = None
+        monkeypatch.setattr(
+            plugin,
+            "_load_runtime_settings",
+            lambda: load_settings(
+                {
+                    "progress_tail": {
+                        "renderer": {"mode": "focused"},
+                        "tools": {"timestamp": False},
+                    }
+                }
+            ),
+        )
+        monkeypatch.setattr(plugin, "_runtime_profile_name", lambda: "akbar_hmx", raising=False)
+        monkeypatch.setattr(plugin, "_git_snapshot", lambda cwd: {}, raising=False)
+        live_env = SimpleNamespace(cwd="/tmp/project/subdir")
+        terminal_module = SimpleNamespace(get_active_env=lambda task_id: live_env)
+        monkeypatch.setitem(sys.modules, "tools", SimpleNamespace(terminal_tool=terminal_module))
+        monkeypatch.setitem(sys.modules, "tools.terminal_tool", terminal_module)
+
+        renderer = plugin._get_renderer()
+        ctx = make_ctx(
+            adapter,
+            env=EnvironmentSnapshot(
+                context_tokens=82_000,
+                context_window=256_000,
+                context_kind="est",
+                model="gpt-5.5",
+                provider="custom",
+                profile="akbar_hmx",
+                cwd="/home/zhafron/.hermes/profiles/akbar_hmx",
+            ),
+        )
+        renderer.register_context(ctx)
+
+        plugin._on_post_tool_call(
+            "terminal",
+            {"command": "cd /tmp/project/subdir && pwd"},
+            result='{"output":"/tmp/project/subdir", "exit_code":0}',
+            task_id="k1",
+            session_id="s1",
+            tool_call_id="terminal-1",
+        )
+        await asyncio.sleep(0.05)
+
+        assert ctx.environment.cwd == "/tmp/project/subdir"
+        content = adapter.sent[-1][1]
+        assert "ctx 82k/256k est · custom:gpt-5.5 · profile akbar_hmx · live_tail" in content
+        assert "cwd /tmp/project/subdir" in content
+        assert "profiles/akbar_hmx" not in content
+
+    asyncio.run(run())
+
+
+def test_tool_hooks_refresh_footer_context_from_current_agent(monkeypatch):
+    async def run():
+        import hermes_progress_tail.plugin as plugin
+        from hermes_progress_tail.monkeypatches import (
+            install_monkeypatches,
+            uninstall_monkeypatches,
+        )
+
+        class FakeCompressor:
+            last_prompt_tokens = 125_000
+            context_length = 256_000
+
+        class FakeAgent:
+            session_id = "s1"
+            _gateway_session_key = "k1"
+            model = "custom/gpt-5.5"
+            provider = "custom:local"
+            context_compressor = FakeCompressor()
+
+            def __init__(self):
+                self.stream_delta_callback = None
+                self.reasoning_callback = None
+
+            def _fire_reasoning_delta(self, *_args, **_kwargs):
+                return None
+
+            def _emit_interim_assistant_message(self, *_args, **_kwargs):
+                return None
+
+            def _invoke_tool(
+                self,
+                function_name,
+                function_args,
+                effective_task_id,
+                tool_call_id=None,
+                messages=None,
+                pre_tool_block_checked=False,
+                skip_tool_request_middleware=False,
+                tool_request_middleware_trace=None,
+            ):
+                plugin._on_pre_tool_call(
+                    function_name,
+                    function_args,
+                    task_id=effective_task_id,
+                    session_id=self.session_id,
+                    tool_call_id=tool_call_id or "",
+                )
+                result = '{"output":"ok", "exit_code":0}'
+                plugin._on_post_tool_call(
+                    function_name,
+                    function_args,
+                    result=result,
+                    task_id=effective_task_id,
+                    session_id=self.session_id,
+                    tool_call_id=tool_call_id or "",
+                )
+                return result
+
+        adapter = EditableAdapter()
+        plugin._renderer = None
+        monkeypatch.setattr(
+            plugin,
+            "_load_runtime_settings",
+            lambda: load_settings(
+                {
+                    "progress_tail": {
+                        "renderer": {"mode": "focused"},
+                        "tools": {"timestamp": False},
+                    }
+                }
+            ),
+        )
+        monkeypatch.setattr(plugin, "_runtime_profile_name", lambda: "default", raising=False)
+        monkeypatch.setattr(plugin, "_git_snapshot", lambda cwd: {}, raising=False)
+        monkeypatch.setattr(plugin.Path, "cwd", lambda: Path("/tmp/project"))
+        renderer = plugin._get_renderer()
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        install_monkeypatches(FakeAgent)
+        try:
+            FakeAgent()._invoke_tool("terminal", {"command": "pwd"}, "k1", tool_call_id="tc1")
+            await asyncio.sleep(0.05)
+        finally:
+            uninstall_monkeypatches(FakeAgent)
+
+        assert ctx.environment.context_tokens == 125_000
+        assert ctx.environment.context_window == 256_000
+        assert ctx.environment.model == "custom/gpt-5.5"
+        assert ctx.environment.provider == "custom:local"
+        assert "ctx 125k/256k est · custom:gpt-5.5" in adapter.sent[-1][1]
 
     asyncio.run(run())
 

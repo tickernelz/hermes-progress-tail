@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import suppress
 from functools import wraps
 from typing import Any
@@ -24,6 +25,74 @@ _GATEWAY_INTERRUPT_PATCH_MARKER = "_hermes_progress_tail_gateway_interrupt_patch
 _PROCESS_NOTIFICATION_PATCH_MARKER = "_hermes_progress_tail_process_notification_patched"
 _COMPRESSION_STATUS_PATCH_MARKER = "_hermes_progress_tail_compression_status_patched"
 _COMPRESSION_LIFECYCLE_PATCH_MARKER = "_hermes_progress_tail_compression_lifecycle_patched"
+_TOOL_AGENT_CONTEXT_LOCAL = threading.local()
+
+
+def current_tool_agent_context(
+    *,
+    tool_name: str = "",
+    session_id: str = "",
+    task_id: str = "",
+    tool_call_id: str = "",
+) -> dict[str, Any]:
+    """Return the current AIAgent tool invocation context for plugin hooks.
+
+    Hermes core pre/post tool hooks are observational and do not include the
+    owning AIAgent object. Progress-tail needs that object to refresh runtime
+    metadata (ctx window, model/provider, stable session key) on every tool
+    event. The AIAgent monkeypatch below installs a thread-local bridge around
+    ``_invoke_tool`` so the hook can resolve the agent without changing Hermes
+    core hook signatures.
+    """
+    stack = getattr(_TOOL_AGENT_CONTEXT_LOCAL, "stack", None)
+    if not stack:
+        return {}
+    for item in reversed(stack):
+        if _tool_context_matches(
+            item,
+            tool_name=tool_name,
+            session_id=session_id,
+            task_id=task_id,
+            tool_call_id=tool_call_id,
+        ):
+            return dict(item)
+    return {}
+
+
+def _tool_context_matches(
+    item: dict[str, Any],
+    *,
+    tool_name: str,
+    session_id: str,
+    task_id: str,
+    tool_call_id: str,
+) -> bool:
+    if tool_name and item.get("tool_name") and item.get("tool_name") != tool_name:
+        return False
+    if tool_call_id and item.get("tool_call_id") and item.get("tool_call_id") != tool_call_id:
+        return False
+    if session_id and item.get("session_id") and item.get("session_id") != session_id:
+        return False
+    return not (task_id and item.get("task_id") and item.get("task_id") != task_id)
+
+
+def _push_tool_agent_context(item: dict[str, Any]) -> None:
+    stack = getattr(_TOOL_AGENT_CONTEXT_LOCAL, "stack", None)
+    if stack is None:
+        stack = []
+        _TOOL_AGENT_CONTEXT_LOCAL.stack = stack
+    stack.append(item)
+
+
+def _pop_tool_agent_context(item: dict[str, Any]) -> None:
+    stack = getattr(_TOOL_AGENT_CONTEXT_LOCAL, "stack", None)
+    if not stack:
+        return
+    if stack[-1] is item:
+        stack.pop()
+        return
+    with suppress(ValueError):
+        stack.remove(item)
 
 
 def _noop_reasoning_callback(_text: str) -> None:
@@ -615,6 +684,7 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
     init = getattr(agent_cls, "__init__", None)
     fire_reasoning = getattr(agent_cls, "_fire_reasoning_delta", None)
     emit_interim = getattr(agent_cls, "_emit_interim_assistant_message", None)
+    invoke_tool = getattr(agent_cls, "_invoke_tool", None)
     if init is None or fire_reasoning is None:
         logger.warning("hermes-progress-tail monkeypatch disabled: AIAgent callback API missing")
         return False
@@ -622,6 +692,7 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
         "__init__": init,
         "_fire_reasoning_delta": fire_reasoning,
         "_emit_interim_assistant_message": emit_interim,
+        "_invoke_tool": invoke_tool,
     }
 
     @wraps(init)
@@ -679,12 +750,54 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
             return None
         return emit_interim(self, assistant_msg)
 
+    def patched_invoke_tool(
+        self,
+        function_name,
+        function_args,
+        effective_task_id,
+        tool_call_id=None,
+        messages=None,
+        *args,
+        **kwargs,
+    ):
+        if invoke_tool is None:
+            return None
+        item = {
+            "agent": self,
+            "tool_name": str(function_name or ""),
+            "task_id": str(effective_task_id or ""),
+            "session_id": str(getattr(self, "session_id", "") or ""),
+            "session_key": str(
+                getattr(self, "gateway_session_key", None)
+                or getattr(self, "_gateway_session_key", None)
+                or ""
+            ),
+            "tool_call_id": str(tool_call_id or ""),
+            "messages": messages,
+        }
+        _push_tool_agent_context(item)
+        try:
+            return invoke_tool(
+                self,
+                function_name,
+                function_args,
+                effective_task_id,
+                tool_call_id,
+                messages,
+                *args,
+                **kwargs,
+            )
+        finally:
+            _pop_tool_agent_context(item)
+
     agent_cls.__init__ = patched_init
     agent_cls._fire_reasoning_delta = patched_fire_reasoning_delta
     if emit_interim is not None:
         agent_cls._emit_interim_assistant_message = wraps(emit_interim)(
             patched_emit_interim_assistant_message
         )
+    if invoke_tool is not None:
+        agent_cls._invoke_tool = wraps(invoke_tool)(patched_invoke_tool)
     setattr(agent_cls, _PATCH_MARKER, True)
     return True
 
@@ -1079,6 +1192,9 @@ def uninstall_agent_monkeypatches(agent_cls: type | None = None) -> bool:
     emit_interim = originals.get("_emit_interim_assistant_message")
     if emit_interim is not None:
         agent_cls._emit_interim_assistant_message = emit_interim
+    invoke_tool = originals.get("_invoke_tool")
+    if invoke_tool is not None:
+        agent_cls._invoke_tool = invoke_tool
     try:
         delattr(agent_cls, _PATCH_MARKER)
     except Exception:
