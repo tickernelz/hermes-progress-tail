@@ -1,47 +1,206 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-import subprocess
 import threading
-import time
-from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from ..gateway.compat import (
-    platform_name,
-    source_chat_id,
-    source_chat_type,
-    source_message_id,
-    source_thread_id,
-)
 from ..hooks.monkeypatches import install_monkeypatches
-from ..models.state import (
-    AssistantEvent,
-    BackgroundJobEvent,
-    DelegateEvent,
-    EnvironmentSnapshot,
-    ReasoningEvent,
-    SessionContext,
-    ToolEvent,
-)
-from ..rendering.formatter import extract_todo_items, format_tool_line
+from ..models.state import SessionContext
 from ..rendering.renderer import ProgressRenderer
-from ..settings.config import (
-    find_retired_config_keys,
-    find_unknown_config_keys,
-    load_settings,
-    resolve_platform_settings,
+from ..settings.config import load_settings
+from .agent_events import (
+    _compact_count,
+    _compression_lifecycle_completed_text,
+    _compression_status_tail_text,
+    _finalize_target_context,
+    _float_kw,
+    _int_kw,
+    _on_post_llm_call,
+    _on_session_finalize,
+    _on_session_reset,
+    _positive_int_kw,
+    _record_assistant_capture,
+    _schedule_finalize,
+    on_assistant_progress_from_agent,
+    on_compression_lifecycle_from_agent,
+    on_compression_status_from_agent,
+    on_delegate_progress_from_agent,
+    on_gateway_stop_from_runner,
+    on_reasoning_delta_from_agent,
 )
-from ..utils.redaction import redact_text
+from .commands import _command
+from .config_runtime import (
+    _assistant_tail_enabled,
+    _background_job_config_warnings,
+    _builtin_interim_conflict,
+    _builtin_reasoning_conflict,
+    _core_notifier_conflict,
+    _core_notifier_conflict_warning,
+    _feature_enabled,
+    _interim_conflict_warning,
+    _load_runtime_config,
+    _load_runtime_settings,
+    _progress_tail_enabled,
+    _reasoning_conflict_warning,
+)
+from .context import (
+    _adapter_for,
+    _binding_is_stale_for_entry,
+    _binding_session_id,
+    _bound_telegram_topic_session_id,
+    _context_for,
+    _get_session_entry,
+    _is_telegram_dm_source,
+    _on_pre_gateway_dispatch,
+    _pre_gateway_session_context,
+    _register_context,
+    _session_key,
+    _source_with_thread_id,
+    _SourceThreadOverride,
+    _telegram_general_topic_ids,
+    _telegram_topic_binding,
+    _timestamp_seconds,
+    _topic_recovered_source,
+    register_context_from_adapter_event,
+)
+from .demo import _demo_command
+from .environment import (
+    _agent_cwd,
+    _agent_session_id,
+    _agent_session_key,
+    _agent_string,
+    _agent_system_prompt,
+    _branch_count,
+    _context_tokens,
+    _estimate_request_tokens,
+    _git_command,
+    _git_snapshot,
+    _load_git_snapshot,
+    _positive_attr,
+    _positive_int,
+    _replace_environment_cwd,
+    _runtime_profile_name,
+    _terminal_live_cwd,
+    _update_environment_from_agent,
+    _update_environment_from_terminal,
+)
+from .tool_events import (
+    _background_job_event_is_terminal,
+    _compact_result_status,
+    _context_for_non_background_thread,
+    _context_owned_by_current_thread,
+    _duration_text,
+    _is_background_review_thread,
+    _is_context_owner_thread,
+    _json_obj,
+    _on_post_tool_call,
+    _on_pre_tool_call,
+    _resolve_tool_agent,
+    _schedule_background_job_cleanup,
+    _schedule_background_job_poll,
+    _schedule_render,
+    _suppress_native_background_notify,
+    _terminal_background_requested,
+    _tool_agent_context,
+)
+
+__all__ = [
+    "Path",
+    "SessionContext",
+    "VERSION",
+    "_ASSISTANT_CAPTURE",
+    "_SourceThreadOverride",
+    "_adapter_for",
+    "_agent_cwd",
+    "_agent_session_id",
+    "_agent_session_key",
+    "_agent_string",
+    "_agent_system_prompt",
+    "_assistant_tail_enabled",
+    "_background_job_config_warnings",
+    "_background_job_event_is_terminal",
+    "_binding_is_stale_for_entry",
+    "_binding_session_id",
+    "_bound_telegram_topic_session_id",
+    "_branch_count",
+    "_builtin_interim_conflict",
+    "_builtin_reasoning_conflict",
+    "_compact_count",
+    "_compact_result_status",
+    "_compression_lifecycle_completed_text",
+    "_compression_status_tail_text",
+    "_context_for",
+    "_context_for_non_background_thread",
+    "_context_owned_by_current_thread",
+    "_context_tokens",
+    "_core_notifier_conflict",
+    "_core_notifier_conflict_warning",
+    "_demo_command",
+    "_duration_text",
+    "_estimate_request_tokens",
+    "_feature_enabled",
+    "_finalize_target_context",
+    "_float_kw",
+    "_get_renderer",
+    "_get_session_entry",
+    "_git_command",
+    "_git_snapshot",
+    "_int_kw",
+    "_interim_conflict_warning",
+    "_is_background_review_thread",
+    "_is_context_owner_thread",
+    "_is_telegram_dm_source",
+    "_json_obj",
+    "_load_git_snapshot",
+    "_load_runtime_config",
+    "_load_runtime_settings",
+    "_on_post_llm_call",
+    "_on_post_tool_call",
+    "_on_pre_gateway_dispatch",
+    "_on_pre_tool_call",
+    "_on_session_finalize",
+    "_on_session_reset",
+    "_positive_attr",
+    "_positive_int",
+    "_positive_int_kw",
+    "_pre_gateway_session_context",
+    "_progress_tail_enabled",
+    "_reasoning_conflict_warning",
+    "_record_assistant_capture",
+    "_register_context",
+    "_replace_environment_cwd",
+    "_resolve_tool_agent",
+    "_runtime_profile_name",
+    "_schedule_background_job_cleanup",
+    "_schedule_background_job_poll",
+    "_schedule_finalize",
+    "_schedule_render",
+    "_session_key",
+    "_source_with_thread_id",
+    "_suppress_native_background_notify",
+    "_telegram_general_topic_ids",
+    "_telegram_topic_binding",
+    "_terminal_background_requested",
+    "_terminal_live_cwd",
+    "_timestamp_seconds",
+    "_tool_agent_context",
+    "_topic_recovered_source",
+    "_update_environment_from_agent",
+    "_update_environment_from_terminal",
+    "on_assistant_progress_from_agent",
+    "on_compression_lifecycle_from_agent",
+    "on_compression_status_from_agent",
+    "on_delegate_progress_from_agent",
+    "on_gateway_stop_from_runner",
+    "on_reasoning_delta_from_agent",
+    "register",
+    "register_context_from_adapter_event",
+    "threading",
+]
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-_GIT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 VERSION = "0.1.69"
 _ASSISTANT_CAPTURE: dict[str, Any] = {
     "status": "never",
@@ -53,385 +212,6 @@ _ASSISTANT_CAPTURE: dict[str, Any] = {
 }
 
 
-def _agent_session_id(agent: Any) -> str:
-    return str(getattr(agent, "session_id", "") or "")
-
-
-def _agent_session_key(agent: Any) -> str:
-    return str(
-        getattr(agent, "gateway_session_key", None)
-        or getattr(agent, "_gateway_session_key", None)
-        or ""
-    )
-
-
-def _update_environment_from_agent(
-    ctx: SessionContext, agent: Any, messages: list[dict[str, Any]] | None = None
-) -> None:
-    if agent is None:
-        return
-    try:
-        agent_cwd = _agent_cwd(agent)
-        cwd_source = str(getattr(ctx, "_progress_tail_cwd_source", "") or "")
-        if cwd_source == "terminal" and ctx.environment and ctx.environment.cwd:
-            cwd = Path(ctx.environment.cwd).expanduser()
-        else:
-            cwd = agent_cwd
-            ctx._progress_tail_cwd_source = "agent"
-        git = _git_snapshot(cwd)
-        compressor = getattr(agent, "context_compressor", None)
-        ctx.environment = EnvironmentSnapshot(
-            context_tokens=_context_tokens(agent, compressor, messages),
-            context_window=_positive_attr(
-                agent,
-                "_config_context_length",
-                "context_length",
-                "max_context_tokens",
-                "max_context_length",
-            )
-            or _positive_attr(compressor, "context_length", "max_context_tokens"),
-            context_kind="est" if compressor is not None or messages is not None else "",
-            model=_agent_string(agent, "model", "model_name"),
-            provider=_agent_string(agent, "provider", "provider_name", "model_provider"),
-            profile=_runtime_profile_name(),
-            cwd=str(cwd),
-            git_branch=str(git.get("branch") or ""),
-            git_dirty=bool(git.get("dirty")),
-            git_ahead=int(git.get("ahead") or 0),
-            git_behind=int(git.get("behind") or 0),
-            worktree=str(git.get("worktree") or ""),
-            strategy=ctx.strategy,
-        )
-    except Exception:
-        logger.debug("hermes-progress-tail environment snapshot update failed", exc_info=True)
-
-
-def _context_tokens(
-    agent: Any, compressor: Any, messages: list[dict[str, Any]] | None = None
-) -> int:
-    estimated = _estimate_request_tokens(agent, messages)
-    if estimated > 0:
-        return estimated
-    if bool(getattr(compressor, "awaiting_real_usage_after_compression", False)):
-        rough = _positive_attr(compressor, "last_compression_rough_tokens")
-        if rough > 0:
-            return rough
-    return _positive_attr(
-        compressor,
-        "last_prompt_tokens",
-        "last_estimated_tokens",
-        "current_context_tokens",
-        "current_tokens",
-        "approx_tokens",
-        "last_compression_rough_tokens",
-    )
-
-
-def _estimate_request_tokens(agent: Any, messages: list[dict[str, Any]] | None) -> int:
-    if not isinstance(messages, list) or not messages:
-        return 0
-    try:
-        from agent.model_metadata import estimate_request_tokens_rough
-
-        return _positive_int(
-            estimate_request_tokens_rough(
-                messages,
-                system_prompt=_agent_system_prompt(agent),
-                tools=getattr(agent, "tools", None) or None,
-            )
-        )
-    except Exception:
-        logger.debug("hermes-progress-tail request token estimate failed", exc_info=True)
-    try:
-        from agent.model_metadata import estimate_messages_tokens_rough
-
-        return _positive_int(estimate_messages_tokens_rough(messages))
-    except Exception:
-        logger.debug("hermes-progress-tail message token estimate failed", exc_info=True)
-    return 0
-
-
-def _agent_system_prompt(agent: Any) -> str:
-    for attr in ("system_message", "_system_message", "current_system_message"):
-        value = getattr(agent, attr, None)
-        if value:
-            return str(value)
-    return ""
-
-
-def _agent_cwd(agent: Any) -> Path:
-    for attr in ("workdir", "working_dir", "cwd", "project_dir"):
-        value = getattr(agent, attr, None)
-        if value:
-            return Path(str(value)).expanduser()
-    return Path.cwd()
-
-
-def _agent_string(agent: Any, *attrs: str) -> str:
-    for attr in attrs:
-        value = getattr(agent, attr, None)
-        if value:
-            return str(value)
-    return ""
-
-
-def _positive_attr(obj: Any, *attrs: str) -> int:
-    if obj is None:
-        return 0
-    for attr in attrs:
-        parsed = _positive_int(getattr(obj, attr, None))
-        if parsed > 0:
-            return parsed
-    return 0
-
-
-def _positive_int(value: Any) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return 0
-    return parsed if parsed > 0 else 0
-
-
-def _runtime_profile_name() -> str:
-    try:
-        from hermes_cli.profiles import get_active_profile_name
-
-        return str(get_active_profile_name() or "")
-    except Exception:
-        return ""
-
-
-def _git_snapshot(cwd: Path) -> dict[str, Any]:
-    try:
-        path = cwd.expanduser().resolve(strict=False)
-    except Exception:
-        path = cwd
-    key = str(path)
-    now = time.monotonic()
-    cached = _GIT_CACHE.get(key)
-    if cached and now - cached[0] < 5.0:
-        return cached[1]
-    data = _load_git_snapshot(path)
-    _GIT_CACHE[key] = (now, data)
-    return data
-
-
-def _load_git_snapshot(cwd: Path) -> dict[str, Any]:
-    result = _git_command(cwd, "rev-parse", "--is-inside-work-tree")
-    if result != "true":
-        return {}
-    branch = _git_command(cwd, "branch", "--show-current") or _git_command(
-        cwd, "rev-parse", "--short", "HEAD"
-    )
-    root = _git_command(cwd, "rev-parse", "--show-toplevel")
-    status = _git_command(cwd, "status", "--porcelain=v1", "--branch")
-    ahead = 0
-    behind = 0
-    dirty = False
-    for line in status.splitlines():
-        if line.startswith("## "):
-            if "ahead " in line:
-                ahead = _branch_count(line, "ahead")
-            if "behind " in line:
-                behind = _branch_count(line, "behind")
-            continue
-        if line.strip():
-            dirty = True
-    return {
-        "branch": branch,
-        "dirty": dirty,
-        "ahead": ahead,
-        "behind": behind,
-        "worktree": Path(root).name if root else "",
-    }
-
-
-def _branch_count(line: str, label: str) -> int:
-    marker = f"{label} "
-    if marker not in line:
-        return 0
-    tail = line.split(marker, 1)[1]
-    digits = []
-    for ch in tail:
-        if ch.isdigit():
-            digits.append(ch)
-        elif digits:
-            break
-    return int("".join(digits) or "0")
-
-
-def _git_command(cwd: Path, *args: str) -> str:
-    try:
-        completed = subprocess.run(
-            ["git", *args],
-            cwd=str(cwd),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=0.15,
-            check=False,
-        )
-    except Exception:
-        return ""
-    if completed.returncode != 0:
-        return ""
-    return completed.stdout.strip()
-
-
-def _load_runtime_config() -> dict[str, Any]:
-    config = {}
-    try:
-        from hermes_constants import get_hermes_home
-
-        config_path = Path(get_hermes_home()) / "config.yaml"
-    except Exception:
-        config_path = Path.home() / ".hermes" / "config.yaml"
-    try:
-        if config_path.exists():
-            loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                config = loaded
-    except Exception as exc:
-        logger.debug("hermes-progress-tail config load failed: %s", exc)
-    return config
-
-
-def _load_runtime_settings():
-    return load_settings(_load_runtime_config())
-
-
-def _record_assistant_capture(
-    status: str,
-    *,
-    session_id: str = "",
-    session_key: str = "",
-    text: str = "",
-    already_streamed: bool = False,
-) -> None:
-    _ASSISTANT_CAPTURE.update(
-        {
-            "status": status,
-            "session_id": str(session_id or ""),
-            "session_key_present": bool(session_key),
-            "text_preview": redact_text(" ".join(str(text or "").split()))[:120],
-            "already_streamed": bool(already_streamed),
-            "updated_at": time.time(),
-        }
-    )
-
-
-def _context_for(renderer: ProgressRenderer, session_id: str = "", session_key: str = ""):
-    ctx = renderer.find_context(session_id, session_key)
-    if ctx is not None:
-        return ctx
-    if session_id:
-        matches = [
-            candidate
-            for candidate in renderer.sessions.values()
-            if candidate.session_id == session_id
-        ]
-        if len(matches) == 1:
-            return matches[0]
-    if session_key:
-        mapped = renderer.session_keys.get(session_key)
-        if mapped:
-            return renderer.sessions.get(mapped)
-    return None
-
-
-def _progress_tail_enabled(config: dict[str, Any]) -> bool:
-    progress_tail = config.get("progress_tail")
-    return not (isinstance(progress_tail, dict) and progress_tail.get("enabled") is False)
-
-
-def _feature_enabled(config: dict[str, Any], name: str, default: bool = True) -> bool:
-    if not _progress_tail_enabled(config):
-        return False
-    progress_tail = config.get("progress_tail")
-    feature = progress_tail.get(name) if isinstance(progress_tail, dict) else None
-    if not isinstance(feature, dict):
-        return default
-    return feature.get("enabled") is not False
-
-
-def _assistant_tail_enabled(config: dict[str, Any]) -> bool:
-    return _feature_enabled(config, "assistant", True)
-
-
-def _builtin_interim_conflict(config: dict[str, Any]) -> bool:
-    display = config.get("display")
-    if not isinstance(display, dict) or display.get("interim_assistant_messages") is False:
-        return False
-    return _assistant_tail_enabled(config)
-
-
-def _builtin_reasoning_conflict(config: dict[str, Any]) -> bool:
-    display = config.get("display")
-    if not isinstance(display, dict) or display.get("show_reasoning") is not True:
-        return False
-    return _feature_enabled(config, "reasoning", True)
-
-
-def _core_notifier_conflict(config: dict[str, Any]) -> bool:
-    if not _progress_tail_enabled(config):
-        return False
-    agent = config.get("agent")
-    if not isinstance(agent, dict):
-        return True
-    value = agent.get("gateway_notify_interval", 180)
-    try:
-        return float(value) > 0
-    except (TypeError, ValueError):
-        return True
-
-
-def _interim_conflict_warning() -> str:
-    return (
-        "warning: display.interim_assistant_messages=true while "
-        "progress_tail.assistant.enabled=true; duplicate mid-turn assistant progress may occur. "
-        "Set display.interim_assistant_messages=false."
-    )
-
-
-def _reasoning_conflict_warning() -> str:
-    return (
-        "warning: display.show_reasoning=true while progress_tail.reasoning.enabled=true; "
-        "duplicate reasoning/final output may occur. Set display.show_reasoning=false."
-    )
-
-
-def _core_notifier_conflict_warning() -> str:
-    return (
-        "warning: agent.gateway_notify_interval is enabled while progress_tail.enabled=true; "
-        "Hermes core Still working notifications use send() and can duplicate progress. "
-        "Set agent.gateway_notify_interval=0."
-    )
-
-
-def _background_job_config_warnings(settings: Any) -> list[str]:
-    background = settings.background_jobs
-    if not background.enabled:
-        return []
-    warnings = []
-    if not background.suppress_native_notify:
-        warnings.append(
-            "warning: background_jobs.enabled=true but suppress_native_notify=false; "
-            "native process notifications may duplicate progress-tail output"
-        )
-    if not background.suppress_watch_notifications:
-        warnings.append(
-            "warning: background_jobs.enabled=true but suppress_watch_notifications=false; "
-            "watch pattern notifications may duplicate progress-tail output"
-        )
-    if not background.list_running:
-        warnings.append(
-            "warning: background_jobs.enabled=true but list_running=false; "
-            "running jobs will be hidden from /progresstail jobs"
-        )
-    return warnings
-
-
 def _get_renderer() -> ProgressRenderer:
     global _renderer
     settings = _load_runtime_settings()
@@ -440,1321 +220,6 @@ def _get_renderer() -> ProgressRenderer:
     else:
         _renderer.settings = settings
     return _renderer
-
-
-def _get_session_entry(session_store: Any, source: Any):
-    try:
-        return session_store.get_or_create_session(source)
-    except Exception as exc:
-        logger.debug("hermes-progress-tail failed to resolve session entry: %s", exc)
-        return None
-
-
-class _SourceThreadOverride:
-    def __init__(self, source: Any, thread_id: str):
-        self._source = source
-        self.thread_id = thread_id
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._source, name)
-
-
-def _is_telegram_dm_source(source: Any) -> bool:
-    return platform_name(source).lower() == "telegram" and source_chat_type(source) == "dm"
-
-
-def _telegram_general_topic_ids(gateway: Any) -> set[str]:
-    raw = getattr(gateway, "_TELEGRAM_GENERAL_TOPIC_IDS", frozenset({"", "1"}))
-    try:
-        return {str(item) for item in raw}
-    except TypeError:
-        return {"", "1"}
-
-
-def _source_with_thread_id(source: Any, thread_id: str) -> Any:
-    if str(source_thread_id(source) or "") == str(thread_id or ""):
-        return source
-    return _SourceThreadOverride(source, str(thread_id or ""))
-
-
-def _topic_recovered_source(gateway: Any, source: Any) -> Any:
-    if not _is_telegram_dm_source(source):
-        return source
-    recover = getattr(gateway, "_recover_telegram_topic_thread_id", None)
-    if not callable(recover):
-        return source
-    try:
-        recovered = recover(source)
-    except Exception:
-        logger.debug("hermes-progress-tail Telegram topic recovery lookup failed", exc_info=True)
-        return source
-    if not recovered:
-        return source
-    return _source_with_thread_id(source, str(recovered))
-
-
-def _timestamp_seconds(value: Any) -> float:
-    if value is None:
-        return 0.0
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, datetime):
-        return value.timestamp()
-    text = str(value or "").strip()
-    if not text:
-        return 0.0
-    try:
-        return float(text)
-    except ValueError:
-        pass
-    try:
-        if text.endswith("Z"):
-            text = f"{text[:-1]}+00:00"
-        return datetime.fromisoformat(text).timestamp()
-    except ValueError:
-        return 0.0
-
-
-def _telegram_topic_binding(gateway: Any, source: Any) -> dict[str, Any] | None:
-    if not _is_telegram_dm_source(source):
-        return None
-    thread_id = str(source_thread_id(source) or "")
-    if not thread_id or thread_id in _telegram_general_topic_ids(gateway):
-        return None
-    session_db = getattr(gateway, "_session_db", None)
-    getter = getattr(session_db, "get_telegram_topic_binding", None)
-    if not callable(getter):
-        return None
-    try:
-        binding = getter(chat_id=source_chat_id(source), thread_id=thread_id)
-    except Exception:
-        logger.debug("hermes-progress-tail Telegram topic binding lookup failed", exc_info=True)
-        return None
-    if binding is None:
-        return None
-    if isinstance(binding, dict):
-        return binding
-    return {
-        "session_id": getattr(binding, "session_id", ""),
-        "updated_at": getattr(binding, "updated_at", 0),
-    }
-
-
-def _binding_session_id(binding: dict[str, Any] | None) -> str:
-    if not binding:
-        return ""
-    return str(binding.get("session_id") or "")
-
-
-def _binding_is_stale_for_entry(binding: dict[str, Any] | None, entry: Any) -> bool:
-    bound_session_id = _binding_session_id(binding)
-    entry_session_id = str(getattr(entry, "session_id", "") or "")
-    if not bound_session_id or not entry_session_id or bound_session_id == entry_session_id:
-        return False
-    binding_updated = _timestamp_seconds((binding or {}).get("updated_at"))
-    entry_updated = _timestamp_seconds(getattr(entry, "updated_at", None))
-    return bool(binding_updated and entry_updated and binding_updated < entry_updated)
-
-
-def _bound_telegram_topic_session_id(gateway: Any, source: Any) -> str:
-    return _binding_session_id(_telegram_topic_binding(gateway, source))
-
-
-def _pre_gateway_session_context(gateway: Any, session_store: Any, source: Any):
-    effective_source = _topic_recovered_source(gateway, source)
-    entry = _get_session_entry(session_store, effective_source)
-    session_id = str(getattr(entry, "session_id", "") or "")
-    binding = _telegram_topic_binding(gateway, effective_source)
-    bound_session_id = _binding_session_id(binding)
-    if bound_session_id and (not session_id or not _binding_is_stale_for_entry(binding, entry)):
-        session_id = bound_session_id
-    elif bound_session_id and session_id != bound_session_id:
-        logger.debug(
-            "hermes-progress-tail ignored stale Telegram topic binding: entry_session_id=%s bound_session_id=%s",
-            session_id,
-            bound_session_id,
-        )
-    return effective_source, entry, session_id
-
-
-def _session_key(entry: Any, source: Any, gateway: Any) -> str:
-    direct = getattr(entry, "session_key", "")
-    if direct:
-        return str(direct)
-    try:
-        from gateway.session import build_session_key
-
-        cfg = getattr(gateway, "config", None)
-        return build_session_key(
-            source,
-            group_sessions_per_user=getattr(cfg, "group_sessions_per_user", True),
-            thread_sessions_per_user=getattr(cfg, "thread_sessions_per_user", False),
-        )
-    except Exception:
-        return ""
-
-
-def _adapter_for(gateway: Any, source: Any):
-    adapters = getattr(gateway, "adapters", {}) or {}
-    platform = getattr(source, "platform", None)
-    return adapters.get(platform) or adapters.get(platform_name(source))
-
-
-def _register_context(
-    *,
-    renderer: ProgressRenderer,
-    source: Any,
-    adapter: Any,
-    session_id: str,
-    session_key: str,
-    origin: str = "gateway",
-) -> None:
-    platform = platform_name(source)
-    settings = resolve_platform_settings(renderer.settings, platform)
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-    ctx = SessionContext(
-        session_id=session_id,
-        session_key=session_key,
-        platform=platform,
-        chat_id=source_chat_id(source),
-        thread_id=source_thread_id(source),
-        adapter=adapter,
-        loop=loop,
-        chat_type=source_chat_type(source),
-        source_message_id=source_message_id(source),
-        strategy=settings.strategy,
-        lines=settings.lines,
-        preview_length=settings.preview_length,
-        edit_interval=settings.edit_interval,
-        tools_enabled=settings.tools_enabled,
-        assistant_enabled=settings.assistant_enabled,
-        reasoning_enabled=settings.reasoning_enabled,
-        delegates_enabled=settings.delegates_enabled,
-        background_jobs_enabled=settings.background_jobs_enabled,
-        timestamp=settings.timestamp,
-        timestamp_format=settings.timestamp_format,
-        agent_label=renderer.settings.renderer.agent_label,
-        owner_thread_id=0,
-        owner_thread_name="",
-    )
-    renderer.register_context(ctx)
-    logger.info(
-        "hermes-progress-tail context registered: origin=%s platform=%s session_id=%s "
-        "session_key_present=%s strategy=%s tools=%s assistant=%s reasoning=%s delegates=%s",
-        origin,
-        platform,
-        session_id,
-        bool(session_key),
-        settings.strategy,
-        settings.tools_enabled,
-        settings.assistant_enabled,
-        settings.reasoning_enabled,
-        settings.delegates_enabled,
-    )
-
-
-def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: Any):
-    renderer = _get_renderer()
-    source = getattr(event, "source", None)
-    if source is None:
-        return None
-    platform = platform_name(source)
-    if not platform:
-        return None
-    settings = resolve_platform_settings(renderer.settings, platform)
-    if not settings.enabled or settings.strategy == "off":
-        return None
-    source, entry, session_id = _pre_gateway_session_context(gateway, session_store, source)
-    if not session_id:
-        return None
-    adapter = _adapter_for(gateway, source)
-    if adapter is None:
-        logger.debug("hermes-progress-tail adapter not found for platform %s", platform)
-        return None
-    _register_context(
-        renderer=renderer,
-        source=source,
-        adapter=adapter,
-        session_id=session_id,
-        session_key=_session_key(entry, source, gateway),
-    )
-    return None
-
-
-def register_context_from_adapter_event(adapter: Any, event: Any) -> None:
-    renderer = _get_renderer()
-    source = getattr(event, "source", None)
-    if source is None:
-        return
-    platform = platform_name(source)
-    if not platform:
-        return
-    settings = resolve_platform_settings(renderer.settings, platform)
-    if not settings.enabled or settings.strategy == "off":
-        return
-    session_store = getattr(adapter, "_session_store", None)
-    if session_store is None:
-        return
-    gateway = (
-        getattr(adapter, "_hermes_progress_tail_gateway", None)
-        or getattr(adapter, "gateway", None)
-        or adapter
-    )
-    source, entry, session_id = _pre_gateway_session_context(gateway, session_store, source)
-    if not session_id:
-        return
-    _register_context(
-        renderer=renderer,
-        source=source,
-        adapter=adapter,
-        session_id=session_id,
-        session_key=_session_key(entry, source, gateway),
-        origin="adapter_internal",
-    )
-    return
-
-
-def _schedule_render(
-    ctx: SessionContext,
-    event: ToolEvent | ReasoningEvent | AssistantEvent | DelegateEvent | BackgroundJobEvent,
-    *,
-    force: bool = False,
-) -> bool:
-    renderer = _get_renderer()
-    if ctx.loop is None:
-        logger.debug(
-            "hermes-progress-tail render skipped: no event loop for session_id=%s session_key_present=%s event=%s",
-            ctx.session_id,
-            bool(ctx.session_key),
-            type(event).__name__,
-        )
-        return False
-    try:
-        logger.debug(
-            "hermes-progress-tail schedule render: event=%s session_id=%s session_key_present=%s force=%s",
-            type(event).__name__,
-            ctx.session_id,
-            bool(ctx.session_key),
-            force,
-        )
-        future = asyncio.run_coroutine_threadsafe(
-            renderer.handle_event(event, force=force), ctx.loop
-        )
-
-        def _consume_done(fut):
-            try:
-                fut.result()
-            except Exception as exc:
-                logger.debug("hermes-progress-tail render failed: %s", exc)
-
-        future.add_done_callback(_consume_done)
-        if isinstance(event, BackgroundJobEvent) and _background_job_event_is_terminal(event):
-            _schedule_background_job_cleanup(ctx, event.process_id)
-        return True
-    except Exception as exc:
-        logger.debug("hermes-progress-tail schedule failed: %s", exc)
-        return False
-
-
-def _background_job_event_is_terminal(event: BackgroundJobEvent) -> bool:
-    return bool(event.exited or event.event_type in {"completed", "killed", "lost"})
-
-
-def _compact_result_status(result: Any) -> str:
-    if result is None or result == "":
-        return "done"
-    data = result
-    if isinstance(result, str):
-        try:
-            import json
-
-            data = json.loads(result)
-        except Exception:
-            data = None
-    if isinstance(data, dict):
-        success = data.get("success")
-        if success is False:
-            return "failed"
-        exit_code = data.get("exit_code")
-        if isinstance(exit_code, int) and exit_code != 0:
-            return "failed"
-        error = data.get("error")
-        if error not in {None, "", False} and success is not True:
-            return "failed"
-        return "done"
-    text = str(result).lower()
-    if "traceback" in text or "exception" in text:
-        return "failed"
-    return "done"
-
-
-def _duration_text(duration_ms: int | float | None) -> str:
-    if not isinstance(duration_ms, (int, float)) or duration_ms < 0:
-        return ""
-    seconds = duration_ms / 1000
-    if seconds < 10:
-        return f"{seconds:.1f}s"
-    return f"{seconds:.0f}s"
-
-
-def _json_obj(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    if not isinstance(value, str):
-        return {}
-    try:
-        import json
-
-        parsed = json.loads(value)
-    except Exception:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
-def _terminal_background_requested(args: dict | None) -> bool:
-    return isinstance(args, dict) and bool(args.get("background"))
-
-
-def _suppress_native_background_notify(process_id: str) -> None:
-    if not process_id:
-        return
-    try:
-        from tools.process_registry import process_registry
-
-        session = process_registry.get(process_id)
-        if session is not None:
-            if _get_renderer().settings.background_jobs.suppress_native_notify:
-                session.notify_on_complete = False
-                session.watcher_interval = 0
-            if _get_renderer().settings.background_jobs.suppress_watch_notifications:
-                session.watch_patterns = []
-        process_registry.pending_watchers[:] = [
-            watcher
-            for watcher in process_registry.pending_watchers
-            if watcher.get("session_id") != process_id
-        ]
-    except Exception:
-        logger.debug(
-            "hermes-progress-tail failed to suppress native background notify", exc_info=True
-        )
-
-
-def _schedule_background_job_cleanup(ctx: SessionContext, process_id: str) -> None:
-    if not process_id or ctx.loop is None or not _get_renderer().settings.background_jobs.enabled:
-        return
-
-    async def _cleanup() -> None:
-        await asyncio.sleep(_get_renderer().settings.background_jobs.completed_ttl_seconds)
-        _schedule_render(
-            ctx,
-            BackgroundJobEvent(
-                ctx.session_id,
-                ctx.session_key,
-                ctx.platform,
-                process_id,
-                event_type="cleanup",
-            ),
-            force=True,
-        )
-
-    ctx.loop.create_task(_cleanup())
-
-
-def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
-    if not process_id or ctx.loop is None or not _get_renderer().settings.background_jobs.enabled:
-        return
-    job = ctx.background_jobs.get(process_id)
-    if job is not None and job.poll_task is not None and not job.poll_task.done():
-        return
-
-    async def _poll() -> None:
-        try:
-            while True:
-                await asyncio.sleep(
-                    _get_renderer().settings.background_jobs.update_interval_seconds
-                )
-                try:
-                    from tools.process_registry import process_registry
-
-                    session = process_registry.get(process_id)
-                except Exception:
-                    session = None
-                if session is None:
-                    _schedule_render(
-                        ctx,
-                        BackgroundJobEvent(
-                            ctx.session_id,
-                            ctx.session_key,
-                            ctx.platform,
-                            process_id,
-                            event_type="lost",
-                            exited=True,
-                        ),
-                    )
-                    return
-                output = str(getattr(session, "output_buffer", "") or "")
-                exited = bool(getattr(session, "exited", False))
-                existing = ctx.background_jobs.get(process_id)
-                if existing is not None and not exited and output == existing.last_output:
-                    continue
-                _schedule_render(
-                    ctx,
-                    BackgroundJobEvent(
-                        ctx.session_id,
-                        ctx.session_key,
-                        ctx.platform,
-                        process_id,
-                        event_type="completed" if exited else "output",
-                        command=str(getattr(session, "command", "") or ""),
-                        cwd=str(getattr(session, "cwd", "") or ""),
-                        pid=getattr(session, "pid", None),
-                        output=output,
-                        exited=exited,
-                        exit_code=getattr(session, "exit_code", None),
-                    ),
-                )
-                if exited:
-                    return
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.debug("hermes-progress-tail background job poll failed", exc_info=True)
-
-    task = ctx.loop.create_task(_poll())
-    job = ctx.background_jobs.get(process_id)
-    if job is not None:
-        job.poll_task = task
-
-
-def _is_background_review_thread() -> bool:
-    thread_name = threading.current_thread().name
-    return thread_name == "bg-review" or thread_name.startswith("bg-review:")
-
-
-def _is_context_owner_thread(ctx: SessionContext) -> bool:
-    owner_thread_id = int(getattr(ctx, "owner_thread_id", 0) or 0)
-    return not owner_thread_id or owner_thread_id == threading.get_ident()
-
-
-def _context_for_non_background_thread(
-    renderer: ProgressRenderer, session_id: str = "", session_key: str = ""
-) -> SessionContext | None:
-    if _is_background_review_thread():
-        logger.debug(
-            "hermes-progress-tail ignored background-review event: thread=%s session_id=%s "
-            "session_key_present=%s",
-            threading.current_thread().name,
-            session_id,
-            bool(session_key),
-        )
-        return None
-    ctx = _context_for(renderer, session_id, session_key)
-    if ctx is None:
-        logger.debug(
-            "hermes-progress-tail context lookup missed: thread=%s session_id=%s session_key_present=%s",
-            threading.current_thread().name,
-            session_id,
-            bool(session_key),
-        )
-    return ctx
-
-
-def _context_owned_by_current_thread(
-    renderer: ProgressRenderer, session_id: str = "", session_key: str = ""
-) -> SessionContext | None:
-    ctx = _context_for(renderer, session_id, session_key)
-    if ctx is None:
-        return None
-    return ctx if _is_context_owner_thread(ctx) else None
-
-
-def _tool_agent_context(
-    tool_name: str, session_id: str = "", task_id: str = "", tool_call_id: str = ""
-) -> dict[str, Any]:
-    try:
-        from ..hooks.monkeypatches import current_tool_agent_context
-
-        return current_tool_agent_context(
-            tool_name=tool_name,
-            session_id=session_id,
-            task_id=task_id,
-            tool_call_id=tool_call_id,
-        )
-    except Exception:
-        return {}
-
-
-def _resolve_tool_agent(
-    agent: Any, tool_name: str, session_id: str = "", task_id: str = "", tool_call_id: str = ""
-) -> tuple[Any, list[dict[str, Any]] | None]:
-    if agent is not None:
-        return agent, None
-    context = _tool_agent_context(tool_name, session_id, task_id, tool_call_id)
-    return context.get("agent"), context.get("messages")
-
-
-def _update_environment_from_terminal(
-    ctx: SessionContext, args: dict | None, task_id: str = ""
-) -> None:
-    cwd = _terminal_live_cwd(task_id) or str((args or {}).get("workdir") or "")
-    if not cwd:
-        return
-    _replace_environment_cwd(ctx, cwd, source="terminal")
-
-
-def _terminal_live_cwd(task_id: str = "") -> str:
-    try:
-        from tools.terminal_tool import get_active_env
-
-        env = get_active_env(task_id or "default")
-        cwd = getattr(env, "cwd", None)
-        return str(cwd) if cwd else ""
-    except Exception:
-        return ""
-
-
-def _replace_environment_cwd(ctx: SessionContext, cwd: str | Path, *, source: str) -> None:
-    try:
-        path = Path(str(cwd)).expanduser()
-    except Exception:
-        return
-    if not str(path):
-        return
-    git = _git_snapshot(path)
-    env = ctx.environment or EnvironmentSnapshot(
-        profile=_runtime_profile_name(), strategy=ctx.strategy
-    )
-    ctx.environment = replace(
-        env,
-        cwd=str(path),
-        git_branch=str(git.get("branch") or ""),
-        git_dirty=bool(git.get("dirty")),
-        git_ahead=int(git.get("ahead") or 0),
-        git_behind=int(git.get("behind") or 0),
-        worktree=str(git.get("worktree") or ""),
-        profile=env.profile or _runtime_profile_name(),
-        strategy=env.strategy or ctx.strategy,
-    )
-    ctx._progress_tail_cwd_source = source
-
-
-def _on_pre_tool_call(
-    tool_name: str,
-    args: dict | None = None,
-    task_id: str = "",
-    session_id: str = "",
-    tool_call_id: str = "",
-    preview: str | None = None,
-    agent: Any = None,
-    **_: Any,
-):
-    renderer = _get_renderer()
-    ctx = _context_for_non_background_thread(renderer, session_id or task_id, task_id)
-    if ctx is None:
-        return None
-    if not ctx.tools_enabled:
-        logger.debug(
-            "hermes-progress-tail ignored tool event because tools disabled: tool=%s", tool_name
-        )
-        return None
-    logger.debug(
-        "hermes-progress-tail pre_tool_call: tool=%s session_id=%s session_key_present=%s "
-        "thread=%s tool_call_id=%s",
-        tool_name,
-        ctx.session_id,
-        bool(ctx.session_key),
-        threading.current_thread().name,
-        tool_call_id,
-    )
-    agent, messages = _resolve_tool_agent(agent, tool_name, session_id, task_id, tool_call_id)
-    _update_environment_from_agent(ctx, agent, messages=messages)
-    if tool_name == "terminal":
-        _update_environment_from_terminal(ctx, args, task_id)
-    line = format_tool_line(
-        tool_name,
-        args or {},
-        preview=preview,
-        preview_length=ctx.preview_length,
-        patch_detail=renderer.settings.patch.detail,
-        patch_preview_chars=renderer.settings.patch.preview_chars,
-        patch_max_files=renderer.settings.patch.max_files,
-    )
-    if renderer.settings.tools.show_completed:
-        line = f"{line} · {'background' if _terminal_background_requested(args) else 'running'}"
-    event = ToolEvent(
-        session_id=ctx.session_id,
-        session_key=ctx.session_key,
-        platform=ctx.platform,
-        line=line,
-        tool_call_id=tool_call_id or "",
-        tool_name=tool_name,
-        todo_items=extract_todo_items(args or {}) if tool_name == "todo" else (),
-    )
-    _schedule_render(ctx, event)
-    return None
-
-
-def _on_post_tool_call(
-    tool_name: str,
-    args: dict | None = None,
-    result: str = "",
-    task_id: str = "",
-    session_id: str = "",
-    tool_call_id: str = "",
-    duration_ms: int | None = None,
-    agent: Any = None,
-    **_: Any,
-):
-    renderer = _get_renderer()
-    ctx = _context_for_non_background_thread(renderer, session_id or task_id, task_id)
-    if ctx is None:
-        return None
-    if not ctx.tools_enabled:
-        logger.debug(
-            "hermes-progress-tail ignored post-tool event because tools disabled: tool=%s",
-            tool_name,
-        )
-        return None
-    logger.debug(
-        "hermes-progress-tail post_tool_call: tool=%s session_id=%s session_key_present=%s "
-        "thread=%s status=%s duration_ms=%s tool_call_id=%s",
-        tool_name,
-        ctx.session_id,
-        bool(ctx.session_key),
-        threading.current_thread().name,
-        _compact_result_status(result),
-        duration_ms,
-        tool_call_id,
-    )
-    agent, messages = _resolve_tool_agent(agent, tool_name, session_id, task_id, tool_call_id)
-    _update_environment_from_agent(ctx, agent, messages=messages)
-    if tool_name == "terminal":
-        _update_environment_from_terminal(ctx, args, task_id)
-    result_obj = _json_obj(result)
-    if tool_name == "terminal" and _terminal_background_requested(args):
-        process_id = str(result_obj.get("session_id") or "")
-        if process_id and renderer.settings.background_jobs.enabled and ctx.background_jobs_enabled:
-            _suppress_native_background_notify(process_id)
-            _schedule_render(
-                ctx,
-                BackgroundJobEvent(
-                    ctx.session_id,
-                    ctx.session_key,
-                    ctx.platform,
-                    process_id,
-                    event_type="completed" if result_obj.get("exited") else "started",
-                    command=str((args or {}).get("command") or ""),
-                    cwd=str((args or {}).get("workdir") or ""),
-                    pid=result_obj.get("pid"),
-                    output=str(result_obj.get("output") or ""),
-                    exited=bool(result_obj.get("exited", False)),
-                    exit_code=result_obj.get("exit_code"),
-                ),
-            )
-            if not result_obj.get("exited"):
-                _schedule_background_job_poll(ctx, process_id)
-    if not renderer.settings.tools.show_completed:
-        return None
-    base = format_tool_line(
-        tool_name,
-        args or {},
-        preview_length=ctx.preview_length,
-        patch_detail=renderer.settings.patch.detail,
-        patch_preview_chars=renderer.settings.patch.preview_chars,
-        patch_max_files=renderer.settings.patch.max_files,
-    )
-    status = _compact_result_status(result)
-    marker = "✅" if status == "done" else "❌"
-    suffix = f" · {status}"
-    duration = _duration_text(duration_ms) if renderer.settings.tools.show_duration else ""
-    if duration:
-        suffix += f" · {duration}"
-    line = f"{marker} {base} {suffix}"
-    _schedule_render(
-        ctx,
-        ToolEvent(
-            ctx.session_id,
-            ctx.session_key,
-            ctx.platform,
-            line,
-            tool_call_id=tool_call_id or "",
-            tool_name=tool_name,
-            replace_existing=True,
-        ),
-    )
-    return None
-
-
-def on_reasoning_delta_from_agent(
-    agent: Any, text: str, *, source: str = "structured_reasoning"
-) -> None:
-    if not text:
-        return
-    renderer = _get_renderer()
-    session_id = _agent_session_id(agent)
-    session_key = _agent_session_key(agent)
-    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
-    if ctx is None or not ctx.reasoning_enabled:
-        return
-    _update_environment_from_agent(ctx, agent)
-    _schedule_render(
-        ctx, ReasoningEvent(ctx.session_id, ctx.session_key, ctx.platform, text, source=source)
-    )
-
-
-def on_compression_status_from_agent(agent: Any, text: str) -> bool:
-    clean = str(text or "").strip()
-    if not clean:
-        return False
-    renderer = _get_renderer()
-    session_id = _agent_session_id(agent)
-    session_key = _agent_session_key(agent)
-    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
-    if ctx is None:
-        return False
-    if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
-        return False
-    _update_environment_from_agent(ctx, agent)
-    return _schedule_render(
-        ctx,
-        AssistantEvent(
-            ctx.session_id,
-            ctx.session_key,
-            ctx.platform,
-            _compression_status_tail_text(clean),
-            already_streamed=False,
-            transient=True,
-        ),
-    )
-
-
-def _compression_status_tail_text(text: str) -> str:
-    value = str(text or "").strip()
-    lower = value.lower()
-    if "preflight compression" in lower:
-        return "Preflight compression — preparing compact context"
-    return "Compacting context — summarizing earlier conversation"
-
-
-def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> bool:
-    renderer = _get_renderer()
-    old_session_id = str(data.get("old_session_id") or "")
-    new_session_id = str(data.get("new_session_id") or _agent_session_id(agent) or old_session_id)
-    session_key = _agent_session_key(agent)
-    if old_session_id and new_session_id and old_session_id != new_session_id:
-        candidate = _context_for(renderer, old_session_id, session_key)
-        if candidate is not None:
-            renderer.migrate_context(old_session_id, new_session_id, session_key=session_key)
-    ctx = _context_for_non_background_thread(
-        renderer, new_session_id or old_session_id, session_key
-    )
-    if ctx is None or not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
-        return False
-    _update_environment_from_agent(ctx, agent)
-    if phase == "started":
-        text = "Compacting context — summarizing earlier conversation"
-    elif phase == "completed":
-        text = _compression_lifecycle_completed_text(data)
-    elif phase == "failed":
-        text = "Context compaction failed — continuing unchanged"
-    else:
-        return False
-    return _schedule_render(
-        ctx,
-        AssistantEvent(
-            ctx.session_id,
-            ctx.session_key,
-            ctx.platform,
-            text,
-            already_streamed=False,
-            transient=True,
-        ),
-        force=True,
-    )
-
-
-def _compression_lifecycle_completed_text(data: dict[str, Any]) -> str:
-    before_count = _positive_int_kw(data.get("before_count"), 0)
-    after_count = _positive_int_kw(data.get("after_count"), 0)
-    before_tokens = _positive_int_kw(data.get("before_tokens"), 0)
-    after_tokens = _positive_int_kw(data.get("after_tokens"), 0)
-    after_tokens_kind = str(data.get("after_tokens_kind") or "").strip().lower()
-    if before_count and after_count and after_count < before_count:
-        text = f"Context compacted · {before_count} → {after_count} messages"
-    else:
-        text = "Context compaction checked"
-    if before_tokens and after_tokens:
-        label = "rough " if after_tokens_kind == "rough" else ""
-        text += f" · {label}{_compact_count(before_tokens)} → {_compact_count(after_tokens)} tokens"
-    return text
-
-
-def _positive_int_kw(value: Any, default: int) -> int:
-    parsed = _int_kw(value, default)
-    return parsed if parsed > 0 else default
-
-
-def _compact_count(value: int) -> str:
-    if value >= 1000:
-        return f"{round(value / 1000):.0f}k"
-    return str(value)
-
-
-def on_assistant_progress_from_agent(
-    agent: Any, text: str, *, already_streamed: bool = False
-) -> bool:
-    clean = str(text or "").strip()
-    if not clean:
-        _record_assistant_capture("empty", already_streamed=already_streamed)
-        return False
-    renderer = _get_renderer()
-    session_id = _agent_session_id(agent)
-    session_key = _agent_session_key(agent)
-    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
-    if ctx is None:
-        _record_assistant_capture(
-            "no_context",
-            session_id=session_id,
-            session_key=session_key,
-            text=clean,
-            already_streamed=already_streamed,
-        )
-        return False
-    if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
-        _record_assistant_capture(
-            "disabled",
-            session_id=ctx.session_id,
-            session_key=ctx.session_key,
-            text=clean,
-            already_streamed=already_streamed,
-        )
-        return False
-    _update_environment_from_agent(ctx, agent)
-    scheduled = _schedule_render(
-        ctx,
-        AssistantEvent(
-            ctx.session_id,
-            ctx.session_key,
-            ctx.platform,
-            clean,
-            already_streamed=already_streamed,
-        ),
-    )
-    _record_assistant_capture(
-        "scheduled" if scheduled else "schedule_failed",
-        session_id=ctx.session_id,
-        session_key=ctx.session_key,
-        text=clean,
-        already_streamed=already_streamed,
-    )
-    return scheduled and not already_streamed
-
-
-def on_delegate_progress_from_agent(
-    parent_agent: Any,
-    event_type: str,
-    tool_name: str | None = None,
-    preview: str | None = None,
-    args: dict | None = None,
-    **kwargs: Any,
-) -> None:
-    _ = args
-    renderer = _get_renderer()
-    session_id = _agent_session_id(parent_agent)
-    session_key = _agent_session_key(parent_agent)
-    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
-    if ctx is None or not ctx.delegates_enabled:
-        return
-    subagent_id = str(kwargs.get("subagent_id") or f"task-{kwargs.get('task_index', 0)}")
-    event = DelegateEvent(
-        session_id=ctx.session_id,
-        session_key=ctx.session_key,
-        platform=ctx.platform,
-        subagent_id=subagent_id,
-        task_index=_int_kw(kwargs.get("task_index"), 0),
-        task_count=_int_kw(kwargs.get("task_count"), 1),
-        goal=str(kwargs.get("goal") or ""),
-        event_type=str(event_type or ""),
-        tool_name=str(tool_name or ""),
-        preview=str(preview or ""),
-        args=dict(args) if isinstance(args, dict) else {},
-        status=str(kwargs.get("status") or ""),
-        model=str(kwargs.get("model") or ""),
-        tool_count=_int_kw(kwargs.get("tool_count"), 0),
-        duration_seconds=_float_kw(kwargs.get("duration_seconds"), 0.0),
-        summary=str(kwargs.get("summary") or ""),
-    )
-    _schedule_render(ctx, event)
-
-
-def _int_kw(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _float_kw(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _finalize_target_context(
-    renderer: ProgressRenderer,
-    session_id: str = "",
-    platform: str = "",
-    session_key: str = "",
-):
-    if _is_background_review_thread():
-        return None
-    ctx = renderer.find_context(session_id, session_key)
-    if ctx is not None:
-        return ctx
-    if session_id and not session_key:
-        return None
-    active = [
-        candidate
-        for candidate in renderer.sessions.values()
-        if (not platform or candidate.platform == platform) and candidate.progress_state == "active"
-    ]
-    return active[0] if len(active) == 1 else None
-
-
-def _schedule_finalize(
-    session_id: str = "",
-    platform: str = "",
-    session_key: str = "",
-    *,
-    purge: bool = False,
-    success: bool = True,
-) -> None:
-    renderer = _get_renderer()
-    ctx = _finalize_target_context(renderer, session_id, platform, session_key)
-    if ctx is None or ctx.loop is None:
-        return
-    generation = ctx.generation
-    try:
-        future = asyncio.run_coroutine_threadsafe(
-            renderer.finalize(
-                session_id=ctx.session_id,
-                purge=purge,
-                generation=generation,
-                success=success,
-            ),
-            ctx.loop,
-        )
-
-        def _consume_done(fut):
-            try:
-                fut.result()
-            except Exception as exc:
-                logger.debug("hermes-progress-tail finalize failed: %s", exc)
-
-        future.add_done_callback(_consume_done)
-    except Exception as exc:
-        logger.debug("hermes-progress-tail finalize schedule failed: %s", exc)
-
-
-def on_gateway_stop_from_runner(
-    gateway: Any = None, *, session_key: str = "", source: Any = None
-) -> bool:
-    _ = gateway
-    platform = platform_name(source) if source is not None else ""
-    renderer = _get_renderer()
-    ctx = _finalize_target_context(renderer, session_key=session_key, platform=platform)
-    if ctx is None:
-        return False
-    _schedule_finalize(
-        session_id=ctx.session_id,
-        session_key=ctx.session_key,
-        platform=ctx.platform,
-        success=False,
-    )
-    return True
-
-
-def _on_post_llm_call(session_id: str = "", agent: Any = None, **_: Any):
-    if agent is not None:
-        try:
-            from ..hooks.monkeypatches import _reset_inline_reasoning_state
-
-            _reset_inline_reasoning_state(agent)
-        except Exception:
-            logger.debug("hermes-progress-tail inline think reset failed", exc_info=True)
-    _schedule_finalize(session_id=session_id, session_key=_agent_session_key(agent))
-    return None
-
-
-def _on_session_reset(session_id: str = "", platform: str = "", agent: Any = None, **_: Any):
-    if agent is not None:
-        try:
-            from ..hooks.monkeypatches import _reset_inline_reasoning_state
-
-            _reset_inline_reasoning_state(agent)
-        except Exception:
-            logger.debug("hermes-progress-tail inline think reset failed", exc_info=True)
-    _get_renderer().purge(session_id=session_id, platform=platform)
-    return None
-
-
-def _on_session_finalize(session_id: str = "", platform: str = "", agent: Any = None, **_: Any):
-    if agent is not None:
-        try:
-            from ..hooks.monkeypatches import _reset_inline_reasoning_state
-
-            _reset_inline_reasoning_state(agent)
-        except Exception:
-            logger.debug("hermes-progress-tail inline think reset failed", exc_info=True)
-    _schedule_finalize(
-        session_id=session_id, platform=platform, session_key=_agent_session_key(agent), purge=True
-    )
-    return None
-
-
-def _command(raw_args: str = "") -> str:
-    args = (raw_args or "").strip().lower()
-    renderer = _get_renderer()
-    if args in {"jobs", "jobs all"}:
-        include_all = args == "jobs all"
-        lines = [
-            f"background_jobs={'enabled' if renderer.settings.background_jobs.enabled else 'disabled'}"
-        ]
-        for sid, ctx in renderer.sessions.items():
-            for process_id in ctx.background_order:
-                job = ctx.background_jobs.get(process_id)
-                if job is None:
-                    continue
-                if not include_all and job.status != "running":
-                    continue
-                command = redact_text(job.command or process_id)
-                lines.append(
-                    f"{process_id} {job.status} exit={job.exit_code} session={ctx.session_key or sid} {command}"
-                )
-        return "\n".join(lines)
-    if args in {"", "status", "doctor"}:
-        active = len(renderer.sessions)
-        monkeypatch_active = False
-        delegate_monkeypatch_active = False
-        try:
-            from run_agent import AIAgent
-
-            monkeypatch_active = bool(getattr(AIAgent, "_hermes_progress_tail_patched", False))
-        except Exception:
-            monkeypatch_active = False
-        try:
-            from tools import delegate_tool
-
-            delegate_monkeypatch_active = bool(
-                getattr(delegate_tool, "_hermes_progress_tail_delegate_patched", False)
-            )
-        except Exception:
-            delegate_monkeypatch_active = False
-        settings = renderer.settings
-        runtime_config = _load_runtime_config()
-        display = (
-            runtime_config.get("display") if isinstance(runtime_config.get("display"), dict) else {}
-        )
-        plugins = (
-            runtime_config.get("plugins") if isinstance(runtime_config.get("plugins"), dict) else {}
-        )
-        enabled_plugins = plugins.get("enabled") if isinstance(plugins.get("enabled"), list) else []
-        agent_config = (
-            runtime_config.get("agent") if isinstance(runtime_config.get("agent"), dict) else {}
-        )
-        capture_at = float(_ASSISTANT_CAPTURE.get("updated_at") or 0.0)
-        capture_when = (
-            time.strftime("%H:%M:%S", time.localtime(capture_at)) if capture_at else "never"
-        )
-        lines = [
-            f"hermes-progress-tail {VERSION}",
-            f"plugin={'enabled' if 'hermes-progress-tail' in enabled_plugins else 'not listed'}",
-            f"sessions={active}",
-            f"agent.gateway_notify_interval={agent_config.get('gateway_notify_interval', '<default:180>')}",
-            f"tools={'enabled' if settings.tools.enabled else 'disabled'} lines={settings.tools.lines} completed={settings.tools.show_completed} duration={settings.tools.show_duration} timestamp={settings.tools.timestamp_format if settings.tools.timestamp else 'off'}",
-            f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
-            f"patch=detail:{settings.patch.detail} preview_chars:{settings.patch.preview_chars} max_files:{settings.patch.max_files}",
-            f"assistant={'enabled' if settings.assistant.enabled else 'disabled'} max_lines={settings.assistant.max_lines} max_chars={settings.assistant.max_chars}",
-            f"assistant_capture={_ASSISTANT_CAPTURE.get('status', 'never')} already_streamed={_ASSISTANT_CAPTURE.get('already_streamed', False)} session={_ASSISTANT_CAPTURE.get('session_id') or '-'} key_present={_ASSISTANT_CAPTURE.get('session_key_present', False)} at={capture_when}",
-            f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
-            "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
-            f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} ttl={settings.delegates.completed_ttl_seconds}s thinking={settings.delegates.thinking}",
-            f"background_jobs={'enabled' if settings.background_jobs.enabled else 'disabled'} list_running={settings.background_jobs.list_running} show_completed={settings.background_jobs.show_completed} max={settings.background_jobs.max_jobs} ttl={settings.background_jobs.completed_ttl_seconds}s head={settings.background_jobs.head_lines} tail={settings.background_jobs.tail_lines} update={settings.background_jobs.update_interval_seconds}s suppress_native_notify={settings.background_jobs.suppress_native_notify} suppress_watch={settings.background_jobs.suppress_watch_notifications}",
-            f"footer={'enabled' if settings.footer.enabled else 'disabled'} density:{settings.footer.density} max_path_chars:{settings.footer.max_path_chars}",
-            f"renderer=mode:{settings.renderer.mode} strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval} agent_label:{settings.renderer.agent_label or '-'}",
-            f"display.tool_progress={display.get('tool_progress', '<unset>')}",
-            f"display.show_reasoning={display.get('show_reasoning', '<unset>')}",
-            f"monkeypatch={monkeypatch_active}",
-            f"delegate_monkeypatch={delegate_monkeypatch_active}",
-        ]
-        if args == "doctor":
-            if display.get("tool_progress") != "off":
-                lines.append("warning: display.tool_progress is not off; progress may duplicate")
-            if _builtin_interim_conflict(runtime_config):
-                lines.append(_interim_conflict_warning())
-            if _builtin_reasoning_conflict(runtime_config):
-                lines.append(_reasoning_conflict_warning())
-            if _core_notifier_conflict(runtime_config):
-                lines.append(_core_notifier_conflict_warning())
-            lines.extend(_background_job_config_warnings(settings))
-            for key in find_retired_config_keys(runtime_config):
-                lines.append(
-                    f"warning: retired config key {key}; remove it from progress_tail config"
-                )
-            for key in find_unknown_config_keys(runtime_config):
-                lines.append(f"warning: unknown config key {key}; check for typos or stale docs")
-            for sid, ctx in renderer.sessions.items():
-                label = ctx.session_key or sid
-                lines.append(
-                    f"session {label}: strategy={ctx.strategy} disabled={ctx.disabled} events={ctx.total_events}"
-                )
-                if ctx.downgrade_reason:
-                    lines.append(f"session {label}: downgraded={redact_text(ctx.downgrade_reason)}")
-                if ctx.last_error:
-                    lines.append(f"session {label}: last_error={redact_text(ctx.last_error)}")
-                if ctx.last_assistant_at:
-                    when = time.strftime("%H:%M:%S", time.localtime(ctx.last_assistant_at))
-                    lines.append(
-                        f"session {label}: assistant chars={ctx.last_assistant_chars} at={when}"
-                    )
-                if ctx.last_reasoning_source:
-                    when = time.strftime("%H:%M:%S", time.localtime(ctx.last_reasoning_at))
-                    lines.append(
-                        f"session {label}: last_reasoning source={ctx.last_reasoning_source} chars={ctx.last_reasoning_chars} at={when}"
-                    )
-        else:
-            if _builtin_interim_conflict(runtime_config):
-                lines.append(_interim_conflict_warning())
-            if _builtin_reasoning_conflict(runtime_config):
-                lines.append(_reasoning_conflict_warning())
-            if _core_notifier_conflict(runtime_config):
-                lines.append(_core_notifier_conflict_warning())
-        return "\n".join(lines)
-    if args in {"test", "demo", "demo plain", "demo failed"}:
-        return _demo_command(plain=args == "demo plain", failed=args == "demo failed")
-    return "Usage: /progresstail status | doctor | jobs [all] | demo [plain|failed]"
-
-
-def _demo_command(*, plain: bool = False, failed: bool = False) -> str:
-    from ..models.state import (
-        DelegateEvent,
-        SessionContext,
-        TodoItem,
-    )
-
-    renderer = ProgressRenderer(
-        load_settings(
-            {
-                "progress_tail": {
-                    "tools": {"timestamp": False, "lines": 4},
-                    "renderer": {"mode": "focused", "density": "verbose", "style": "emoji"},
-                    "delegates": {"lines_per_delegate": 5, "max_line_chars": 180},
-                }
-            }
-        )
-    )
-    platform = "sms" if plain else "telegram"
-    ctx = SessionContext(
-        "demo-session",
-        "demo-session-key",
-        platform,
-        "demo-chat",
-        None,
-        None,
-        None,
-        "live_tail",
-        timestamp=False,
-    )
-    ctx.agent_label = "Hermes"
-    ctx.todo_items = (
-        TodoItem("Inspect renderer", "completed"),
-        TodoItem("Build deterministic demo", "in_progress"),
-        TodoItem("Run tests", "pending"),
-        TodoItem("Review release", "pending"),
-    )
-    ctx.tool_started_count = 5
-    ctx.tool_completed_count = 4
-    ctx.tool_failed_count = 1 if failed else 0
-    renderer.delegate_renderer.apply_event(
-        ctx,
-        DelegateEvent(
-            "demo-session",
-            "demo-session-key",
-            platform,
-            "demo-agent",
-            task_index=0,
-            task_count=1,
-            goal="demo UI review",
-            event_type="subagent.start",
-            status="running",
-            created_at=1,
-        ),
-    )
-    for index, (tool_name, preview, args) in enumerate(
-        (
-            ("read_file", "hermes_progress_tail/rendering/focused.py:1+120", {}),
-            ("search_files", "focused_block", {"pattern": "focused_block"}),
-            (
-                "terminal",
-                "python -m pytest tests/test_renderer.py -q",
-                {"command": "python -m pytest tests/test_renderer.py -q"},
-            ),
-            ("read_file", "tests/test_focused_live_markdown.py:1+80", {}),
-        ),
-        start=2,
-    ):
-        renderer.delegate_renderer.apply_event(
-            ctx,
-            DelegateEvent(
-                "demo-session",
-                "demo-session-key",
-                platform,
-                "demo-agent",
-                task_index=0,
-                task_count=1,
-                goal="demo UI review",
-                event_type="subagent.tool",
-                tool_name=tool_name,
-                preview=preview,
-                args=args,
-                status="running",
-                created_at=index,
-            ),
-        )
-    renderer.delegate_renderer.apply_event(
-        ctx,
-        DelegateEvent(
-            "demo-session",
-            "demo-session-key",
-            platform,
-            "demo-agent",
-            task_index=0,
-            task_count=1,
-            goal="demo UI review",
-            event_type="subagent.complete",
-            status="completed",
-            duration_seconds=12,
-            summary="demo smoke check passed",
-            created_at=time.time(),
-        ),
-    )
-    ctx.tool_lines.extend(
-        [
-            "✅ read_file: rendering/focused.py:1+120 · done · 0.2s",
-            "✅ search_files: focused_block · done · 0.1s",
-            (
-                "❌ terminal: pytest tests/test_renderer.py -q · failed · 2.1s"
-                if failed
-                else "✅ terminal: pytest tests/test_renderer.py -q · done · 2.1s"
-            ),
-            "terminal: git diff --check · running",
-        ]
-    )
-    return renderer._content(ctx)
 
 
 def register(ctx):

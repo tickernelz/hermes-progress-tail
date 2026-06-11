@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import time
 from typing import Any
 
-from ..gateway.compat import adapter_supports_edit, delete_message
 from ..models.state import (
     AssistantEvent,
     AssistantLine,
@@ -26,6 +24,21 @@ from .background_jobs import (
 )
 from .delegate import DelegateProgressRenderer
 from .delegate import event_preview_args as event_preview_args
+from .delivery import (
+    _cancel_delayed_flush,
+    _cancel_delete,
+    _classify_edit_error,
+    _downgrade_to_snapshot,
+    _edit_backoff_seconds,
+    _fit_message,
+    _message_limit,
+    _prepare_message,
+    _render_live,
+    _render_snapshot,
+    _schedule_auto_delete,
+    _schedule_delayed_live_flush,
+    _send_live_message,
+)
 from .finalization import (
     finalize_progress_message,
     has_background_jobs,
@@ -42,6 +55,13 @@ from .sections import (
     timestamp_text,
     todo_section,
 )
+from .session import (
+    _same_source_message,
+    find_context,
+    migrate_context,
+    purge,
+    register_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,131 +72,6 @@ class ProgressRenderer:
         self.delegate_renderer = DelegateProgressRenderer(settings)
         self.sessions: dict[str, SessionContext] = {}
         self.session_keys: dict[str, str] = {}
-
-    def register_context(self, ctx: SessionContext) -> None:
-        existing = self.sessions.get(ctx.session_id)
-        if existing is not None:
-            reuse_progress = existing.progress_state == "active" and self._same_source_message(
-                existing, ctx
-            )
-            if reuse_progress:
-                self._cancel_delete(existing)
-                ctx.message_id = existing.message_id
-                ctx.tool_lines = existing.tool_lines
-                ctx.started_at = existing.started_at
-                ctx.active_tool_lines = existing.active_tool_lines
-                ctx.active_tool_fingerprints = existing.active_tool_fingerprints
-                ctx.tool_started_count = existing.tool_started_count
-                ctx.tool_completed_count = existing.tool_completed_count
-                ctx.tool_failed_count = existing.tool_failed_count
-                ctx.completed_tool_ids = existing.completed_tool_ids
-                ctx.delegate_branches = existing.delegate_branches
-                ctx.delegate_order = existing.delegate_order
-                ctx.todo_items = existing.todo_items
-                ctx.todo_updated_at = existing.todo_updated_at
-                ctx.assistant_lines = existing.assistant_lines
-                ctx.assistant_latest_text = existing.assistant_latest_text
-                ctx.assistant_pending_chars = existing.assistant_pending_chars
-                ctx.last_assistant_chars = existing.last_assistant_chars
-                ctx.last_assistant_at = existing.last_assistant_at
-                ctx.assistant_transient = existing.assistant_transient
-                ctx.reasoning_text = existing.reasoning_text
-                ctx.reasoning_pending_chars = existing.reasoning_pending_chars
-                ctx.last_reasoning_source = existing.last_reasoning_source
-                ctx.last_reasoning_chars = existing.last_reasoning_chars
-                ctx.last_reasoning_at = existing.last_reasoning_at
-            ctx.background_jobs = existing.background_jobs
-            ctx.background_order = existing.background_order
-            ctx.progress_state = "active"
-            ctx.finalized_at = 0.0
-            ctx.generation = existing.generation + 1
-            ctx.total_events = existing.total_events if reuse_progress else 0
-            ctx.snapshots_sent = existing.snapshots_sent if reuse_progress else 0
-            ctx.last_error = existing.last_error
-            ctx.downgrade_reason = existing.downgrade_reason
-            ctx.downgrade_at = existing.downgrade_at
-            ctx.last_render_at = existing.last_render_at if reuse_progress else 0.0
-            ctx.edit_state = existing.edit_state if reuse_progress else "editable"
-            ctx.edit_backoff_until = existing.edit_backoff_until if reuse_progress else 0.0
-            ctx.edit_failure_count = existing.edit_failure_count if reuse_progress else 0
-            ctx.edit_recovery_sends = existing.edit_recovery_sends if reuse_progress else 0
-            if existing.delayed_flush_task is not None and not existing.delayed_flush_task.done():
-                self._cancel_delayed_flush(existing)
-                ctx.edit_backoff_until = 0.0
-            ctx.fallback_send_count = existing.fallback_send_count if reuse_progress else 0
-            ctx.new_events_since_snapshot = (
-                existing.new_events_since_snapshot if reuse_progress else 0
-            )
-            ctx.lock = existing.lock
-        ctx.resize(ctx.lines)
-        if ctx.strategy == "auto":
-            ctx.strategy = "live_tail" if adapter_supports_edit(ctx.adapter) else "snapshot"
-        if ctx.strategy == "live_tail" and not adapter_supports_edit(ctx.adapter):
-            ctx.strategy = "snapshot"
-        self.sessions[ctx.session_id] = ctx
-        if ctx.session_key:
-            self.session_keys[ctx.session_key] = ctx.session_id
-
-    @staticmethod
-    def _same_source_message(existing: SessionContext, incoming: SessionContext) -> bool:
-        existing_source = str(existing.source_message_id or "")
-        incoming_source = str(incoming.source_message_id or "")
-        return not existing_source or not incoming_source or existing_source == incoming_source
-
-    def find_context(self, session_id: str = "", session_key: str = "") -> SessionContext | None:
-        if session_id and session_id in self.sessions:
-            return self.sessions[session_id]
-        if session_key and session_key in self.session_keys:
-            return self.sessions.get(self.session_keys[session_key])
-        return None
-
-    def migrate_context(
-        self, old_session_id: str, new_session_id: str, session_key: str = ""
-    ) -> bool:
-        old_session_id = str(old_session_id or "")
-        new_session_id = str(new_session_id or "")
-        session_key = str(session_key or "")
-        if not old_session_id or not new_session_id or old_session_id == new_session_id:
-            return False
-        ctx = self.sessions.pop(old_session_id, None)
-        if ctx is None:
-            ctx = self.find_context("", session_key)
-            if ctx is None:
-                return False
-            self.sessions.pop(ctx.session_id, None)
-        if ctx.session_key:
-            self.session_keys.pop(ctx.session_key, None)
-        ctx.session_id = new_session_id
-        if session_key:
-            ctx.session_key = session_key
-        self._cancel_delete(ctx)
-        ctx.progress_state = "active"
-        ctx.finalized_at = 0.0
-        self.sessions[new_session_id] = ctx
-        if ctx.session_key:
-            self.session_keys[ctx.session_key] = new_session_id
-        return True
-
-    def purge(self, session_id: str = "", platform: str = "") -> None:
-        if session_id:
-            ctx = self.sessions.pop(session_id, None)
-            if ctx:
-                self._cancel_delayed_flush(ctx)
-            if ctx and ctx.session_key:
-                self.session_keys.pop(ctx.session_key, None)
-            return
-        stale = []
-        now = time.monotonic()
-        for sid, ctx in self.sessions.items():
-            if platform and ctx.platform != platform:
-                continue
-            if (
-                now - ctx.last_event_at
-                > ctx.lines * ctx.edit_interval + self.settings.renderer.stale_ttl_seconds
-            ):
-                stale.append(sid)
-        for sid in stale:
-            self.purge(sid)
 
     async def handle_event(self, event: ProgressEvent, force: bool = False) -> None:
         ctx = self.find_context(event.session_id, event.session_key)
@@ -639,343 +534,23 @@ class ProgressRenderer:
     def _should_flush_before_reset(ctx: SessionContext) -> bool:
         return should_flush_before_reset(ctx)
 
-    async def _render_live(
-        self, ctx: SessionContext, force: bool = False, *, ignore_backoff: bool = False
-    ) -> None:
-        now = time.monotonic()
-        if not force and ctx.message_id and now - ctx.last_render_at < ctx.edit_interval:
-            return
-        if ctx.message_id and now < ctx.edit_backoff_until and not ignore_backoff:
-            self._schedule_delayed_live_flush(ctx, ctx.edit_backoff_until - now)
-            return
-        content = self._content(ctx)
-        if not content:
-            return
-        content = self._prepare_message(ctx, content)
-        if ctx.message_id and ctx.can_edit:
-            try:
-                result = await ctx.adapter.edit_message(
-                    chat_id=ctx.chat_id,
-                    message_id=ctx.message_id,
-                    content=content,
-                )
-            except Exception as exc:
-                logger.debug("hermes-progress-tail edit failed: %s", exc)
-                ctx.last_error = str(exc)
-                result = _Result(False, ctx.message_id, str(exc))
-            if getattr(result, "success", False):
-                ctx.assistant_pending_chars = 0
-                ctx.reasoning_pending_chars = 0
-                ctx.edit_state = "editable"
-                ctx.edit_backoff_until = 0.0
-                ctx.edit_failure_count = 0
-                ctx.last_render_at = time.monotonic()
-                return
-            error = str(getattr(result, "error", "") or "edit failed")
-            kind = self._classify_edit_error(error)
-            if kind == "noop_success":
-                ctx.assistant_pending_chars = 0
-                ctx.reasoning_pending_chars = 0
-                ctx.edit_state = "editable"
-                ctx.last_render_at = time.monotonic()
-                return
-            ctx.last_error = error
-            if ctx.edit_state == kind and kind in {
-                "rate_limited",
-                "transient",
-                "unknown_transient",
-            }:
-                ctx.edit_failure_count += 1
-            else:
-                ctx.edit_failure_count = 1
-            if kind == "unsupported":
-                await self._downgrade_to_snapshot(ctx, error, "unsupported")
-                return
-            if kind == "message_lost":
-                if ctx.edit_recovery_sends == 0:
-                    ctx.edit_state = "recovering"
-                    await self._send_live_message(ctx, content, recovery=True)
-                    return
-                await self._downgrade_to_snapshot(ctx, error, "message_lost")
-                return
-            if kind == "too_long":
-                await self._downgrade_to_snapshot(ctx, error, "too_long")
-                return
-            delay = self._edit_backoff_seconds(error, kind, ctx.edit_failure_count)
-            ctx.edit_state = kind
-            if ignore_backoff:
-                ctx.edit_backoff_until = 0.0
-                return
-            ctx.edit_backoff_until = time.monotonic() + delay
-            self._schedule_delayed_live_flush(ctx, delay)
-            return
-        await self._send_live_message(ctx, content)
 
-    async def _send_live_message(
-        self, ctx: SessionContext, content: str, *, recovery: bool = False
-    ) -> None:
-        try:
-            result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
-        except Exception as exc:
-            logger.debug("hermes-progress-tail send failed: %s", exc)
-            result = _Result(False, None, str(exc))
-        if getattr(result, "success", False):
-            ctx.message_id = getattr(result, "message_id", None) or ctx.message_id
-            ctx.can_edit = True
-            ctx.edit_state = "editable"
-            ctx.edit_backoff_until = 0.0
-            ctx.edit_failure_count = 0
-            if recovery:
-                ctx.edit_recovery_sends += 1
-                ctx.fallback_send_count += 1
-            ctx.assistant_pending_chars = 0
-            ctx.reasoning_pending_chars = 0
-            ctx.last_render_at = time.monotonic()
-        else:
-            error = str(getattr(result, "error", "send failed") or "send failed")
-            ctx.last_error = error
-            kind = self._classify_edit_error(error)
-            if kind in {"rate_limited", "transient", "unknown_transient"}:
-                if ctx.edit_state == kind:
-                    ctx.edit_failure_count += 1
-                else:
-                    ctx.edit_failure_count = 1
-                delay = self._edit_backoff_seconds(error, kind, ctx.edit_failure_count)
-                ctx.edit_state = kind
-                ctx.edit_backoff_until = time.monotonic() + delay
-                self._schedule_delayed_live_flush(ctx, delay)
-                return
-            ctx.disabled = True
-
-    async def _downgrade_to_snapshot(self, ctx: SessionContext, error: str, state: str) -> None:
-        ctx.strategy = "snapshot"
-        ctx.can_edit = False
-        ctx.edit_state = state
-        ctx.downgrade_reason = error
-        ctx.downgrade_at = time.time()
-        if ctx.fallback_send_count == 0:
-            await self._render_snapshot(ctx, force=True)
-
-    def _schedule_delayed_live_flush(self, ctx: SessionContext, delay: float) -> None:
-        if ctx.loop is None:
-            return
-        current = ctx.delayed_flush_task
-        if current is not None and not current.done():
-            return
-        generation = ctx.generation
-
-        async def _flush_later() -> None:
-            try:
-                await asyncio.sleep(max(0.05, delay))
-                if ctx.generation != generation:
-                    return
-                async with ctx.lock:
-                    if ctx.disabled or ctx.strategy != "live_tail" or not self._content(ctx):
-                        return
-                    await self._render_live(ctx, force=True)
-            except asyncio.CancelledError:
-                raise
-            finally:
-                if ctx.delayed_flush_task is task:
-                    ctx.delayed_flush_task = None
-
-        task = ctx.loop.create_task(_flush_later())
-        ctx.delayed_flush_task = task
-
-    @staticmethod
-    def _cancel_delayed_flush(ctx: SessionContext) -> None:
-        task = ctx.delayed_flush_task
-        if task is not None and not task.done():
-            task.cancel()
-        ctx.delayed_flush_task = None
-
-    @staticmethod
-    def _cancel_delete(ctx: SessionContext) -> None:
-        task = ctx.delete_task
-        if task is not None and not task.done():
-            task.cancel()
-        ctx.delete_task = None
-
-    def _schedule_auto_delete(self, ctx: SessionContext, *, success: bool) -> None:
-        cleanup = self.settings.cleanup
-        if not cleanup.auto_delete or not ctx.message_id or ctx.loop is None:
-            return
-        if success and not cleanup.delete_on_success:
-            return
-        if not success and not cleanup.delete_on_failure:
-            return
-        if ctx.progress_state == "background_active" and not cleanup.delete_background_active:
-            return
-        self._cancel_delete(ctx)
-        generation = ctx.generation
-        message_id = str(ctx.message_id)
-        delay = max(0, cleanup.delay_seconds)
-
-        async def _delete_later() -> None:
-            try:
-                await asyncio.sleep(delay)
-                if ctx.generation != generation or ctx.message_id != message_id:
-                    return
-                try:
-                    deleted = await delete_message(ctx.adapter, ctx.chat_id, message_id)
-                except Exception as exc:
-                    logger.debug("hermes-progress-tail delete failed: %s", exc)
-                    ctx.last_error = str(exc)
-                    return
-                if deleted:
-                    ctx.message_id = None
-                    ctx.can_edit = False
-                    ctx.progress_state = "deleted"
-            except asyncio.CancelledError:
-                raise
-            finally:
-                if ctx.delete_task is task:
-                    ctx.delete_task = None
-
-        task = ctx.loop.create_task(_delete_later())
-        ctx.delete_task = task
-
-    async def _render_snapshot(
-        self, ctx: SessionContext, force: bool = False, final: bool = False
-    ) -> None:
-        content_body = self._content(ctx)
-        if not content_body:
-            return
-        now = time.monotonic()
-        enough_events = ctx.new_events_since_snapshot >= self.settings.no_edit.min_new_events
-        enough_time = now - ctx.last_render_at >= self.settings.no_edit.interval_seconds
-        under_cap = ctx.snapshots_sent < self.settings.no_edit.max_snapshots_per_turn
-        if not force and not (enough_events and enough_time and under_cap):
-            return
-        if not final and not under_cap:
-            return
-        if final:
-            title = "Progress tail — final"
-        elif ctx.tool_lines:
-            title = f"Progress tail — latest {len(ctx.tool_lines)} tools"
-        else:
-            title = "Progress tail — latest updates"
-        if ctx.total_events:
-            title += f" of {ctx.total_events} events"
-        content = self._prepare_message(ctx, title + "\n" + content_body)
-        try:
-            result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
-        except Exception as exc:
-            logger.debug("hermes-progress-tail snapshot send failed: %s", exc)
-            ctx.last_error = str(exc)
-            ctx.disabled = True
-            return
-        if getattr(result, "success", False):
-            ctx.snapshots_sent += 1
-            ctx.fallback_send_count += 1
-            ctx.new_events_since_snapshot = 0
-            ctx.assistant_pending_chars = 0
-            ctx.reasoning_pending_chars = 0
-            ctx.last_render_at = time.monotonic()
-        else:
-            ctx.last_error = str(
-                getattr(result, "error", "snapshot send failed") or "snapshot send failed"
-            )
-            ctx.disabled = True
-
-    def _prepare_message(self, ctx: SessionContext, content: str) -> str:
-        return self._fit_message(content, self._message_limit(ctx))
-
-    @staticmethod
-    def _fit_message(content: str, limit: int) -> str:
-        if limit <= 0 or len(content) <= limit:
-            return content
-        marker = "\n…\n"
-        budget = max(0, limit - len(marker))
-        if budget <= 0:
-            return content[:limit]
-        head_budget = min(180, max(0, budget // 4))
-        tail_budget = max(0, budget - head_budget)
-        return content[:head_budget].rstrip() + marker + content[-tail_budget:].lstrip()
-
-    @staticmethod
-    def _message_limit(ctx: SessionContext) -> int:
-        if ctx.platform == "telegram":
-            return 4096
-        return 0
-
-    @staticmethod
-    def _classify_edit_error(error: Any) -> str:
-        msg = str(error or "").lower()
-        if "not modified" in msg:
-            return "noop_success"
-        if "too long" in msg or "message_too_long" in msg:
-            return "too_long"
-        if any(
-            part in msg
-            for part in (
-                "unsupported",
-                "not supported",
-                "not implemented",
-                "notimplementederror",
-                "edit not supported",
-                "cannot edit",
-                "can't edit",
-                "can't be edited",
-                "method not found",
-                "edit not available",
-            )
-        ):
-            return "unsupported"
-        if any(part in msg for part in ("forbidden", "blocked by the user", "unauthorized")):
-            return "permanent"
-        if (
-            "message to edit not found" in msg
-            or "message_id_invalid" in msg
-            or "unknown message" in msg
-            or "message not found" in msg
-            or "message_id" in msg
-            and "not found" in msg
-        ):
-            return "message_lost"
-        if any(
-            part in msg
-            for part in ("flood", "retry after", "too many requests", "rate limit", "429")
-        ):
-            return "rate_limited"
-        if any(
-            part in msg
-            for part in (
-                "timeout",
-                "timed out",
-                "network",
-                "connection",
-                "temporarily",
-                "temporary",
-                "reset by peer",
-                "server disconnected",
-                "bad gateway",
-                "gateway timeout",
-                "502",
-                "503",
-                "504",
-            )
-        ):
-            return "transient"
-        return "unknown_transient"
-
-    @staticmethod
-    def _edit_backoff_seconds(error: Any, kind: str, failure_count: int) -> float:
-        msg = str(error or "").lower()
-        match = re.search(
-            r"(?:retry after|flood_control:|retry_after=)\s*:?\s*(\d+(?:\.\d+)?)", msg
-        )
-        if match:
-            return min(float(match.group(1)), 30.0)
-        if kind == "rate_limited":
-            return min(2.0 * max(1, failure_count), 30.0)
-        if kind == "too_long":
-            return 1.0
-        return min(1.0 * max(1, failure_count), 10.0)
-
-
-class _Result:
-    def __init__(self, success: bool, message_id: str | None = None, error: str = ""):
-        self.success = success
-        self.message_id = message_id
-        self.error = error
+# Delivery methods live in rendering.delivery to keep this orchestration class small.
+ProgressRenderer._render_live = _render_live
+ProgressRenderer._send_live_message = _send_live_message
+ProgressRenderer._downgrade_to_snapshot = _downgrade_to_snapshot
+ProgressRenderer._schedule_delayed_live_flush = _schedule_delayed_live_flush
+ProgressRenderer._cancel_delayed_flush = staticmethod(_cancel_delayed_flush)
+ProgressRenderer._cancel_delete = staticmethod(_cancel_delete)
+ProgressRenderer._schedule_auto_delete = _schedule_auto_delete
+ProgressRenderer._render_snapshot = _render_snapshot
+ProgressRenderer._prepare_message = _prepare_message
+ProgressRenderer._fit_message = staticmethod(_fit_message)
+ProgressRenderer._message_limit = staticmethod(_message_limit)
+ProgressRenderer._classify_edit_error = staticmethod(_classify_edit_error)
+ProgressRenderer._edit_backoff_seconds = staticmethod(_edit_backoff_seconds)
+ProgressRenderer.register_context = register_context
+ProgressRenderer._same_source_message = staticmethod(_same_source_message)
+ProgressRenderer.find_context = find_context
+ProgressRenderer.migrate_context = migrate_context
+ProgressRenderer.purge = purge
