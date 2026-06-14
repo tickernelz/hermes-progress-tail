@@ -155,7 +155,17 @@ def test_telegram_renderer_keeps_raw_markdown_without_send_patch():
     asyncio.run(run())
 
 
-def test_telegram_renderer_uses_raw_rich_send_for_initial_capable_messages():
+def install_fake_gateway_base(monkeypatch):
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=Result, utf16_len=len),
+    )
+
+
+def test_telegram_renderer_uses_raw_rich_send_for_initial_capable_messages(monkeypatch):
+    install_fake_gateway_base(monkeypatch)
+
     async def run():
         uninstall_telegram_format_monkeypatch(GatewayLikeTelegramAdapter)
         assert install_telegram_format_monkeypatch(GatewayLikeTelegramAdapter) is True
@@ -191,7 +201,9 @@ def test_telegram_renderer_uses_raw_rich_send_for_initial_capable_messages():
     asyncio.run(run())
 
 
-def test_telegram_send_patch_keeps_expect_edits_messages_legacy():
+def test_telegram_send_patch_keeps_expect_edits_messages_legacy(monkeypatch):
+    install_fake_gateway_base(monkeypatch)
+
     async def run():
         uninstall_telegram_format_monkeypatch(GatewayLikeTelegramAdapter)
         assert install_telegram_format_monkeypatch(GatewayLikeTelegramAdapter) is True
@@ -213,7 +225,9 @@ def test_telegram_send_patch_keeps_expect_edits_messages_legacy():
     asyncio.run(run())
 
 
-def test_telegram_renderer_skips_rich_preparation_after_adapter_latch():
+def test_telegram_renderer_skips_rich_preparation_after_adapter_latch(monkeypatch):
+    install_fake_gateway_base(monkeypatch)
+
     async def run():
         uninstall_telegram_format_monkeypatch(GatewayLikeTelegramAdapter)
         assert install_telegram_format_monkeypatch(GatewayLikeTelegramAdapter) is True
