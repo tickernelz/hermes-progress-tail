@@ -34,10 +34,11 @@ def footer_body(ctx: SessionContext, *, settings: Settings) -> str:
     env = ctx.environment or EnvironmentSnapshot()
     if not _has_runtime_signal(env):
         return ""
+    update = _footer_update_label()
     density = settings.footer.density
     if density == "compact":
-        return _compact_footer(ctx, env, settings=settings)
-    return _normal_footer(ctx, env, settings=settings, debug=density == "debug")
+        return _compact_footer(ctx, env, settings=settings, update=update)
+    return _normal_footer(ctx, env, settings=settings, debug=density == "debug", update=update)
 
 
 def _has_runtime_signal(env: EnvironmentSnapshot) -> bool:
@@ -56,7 +57,12 @@ def _has_runtime_signal(env: EnvironmentSnapshot) -> bool:
 
 
 def _normal_footer(
-    ctx: SessionContext, env: EnvironmentSnapshot, *, settings: Settings, debug: bool = False
+    ctx: SessionContext,
+    env: EnvironmentSnapshot,
+    *,
+    settings: Settings,
+    debug: bool = False,
+    update: str = "",
 ) -> str:
     first = _clean_parts(
         [
@@ -73,15 +79,19 @@ def _normal_footer(
             _cwd_label(env, settings=settings),
         ]
     )
-    lines = [" · ".join(first), " · ".join(second)]
+    lines = [_prefix_line("🧠", " · ".join(first)), _prefix_line("🌿", " · ".join(second))]
+    if update:
+        lines.append(update)
     if debug:
         debug_parts = _clean_parts([_provider_label(env), _context_percent_label(env)])
         if debug_parts:
-            lines.append(" · ".join(debug_parts))
+            lines.append(_prefix_line("🔎", " · ".join(debug_parts)))
     return "\n".join(line for line in lines if line)
 
 
-def _compact_footer(ctx: SessionContext, env: EnvironmentSnapshot, *, settings: Settings) -> str:
+def _compact_footer(
+    ctx: SessionContext, env: EnvironmentSnapshot, *, settings: Settings, update: str = ""
+) -> str:
     parts = _clean_parts(
         [
             _context_percent_label(env) or _context_label(env),
@@ -91,7 +101,13 @@ def _compact_footer(ctx: SessionContext, env: EnvironmentSnapshot, *, settings: 
             _strategy_label(ctx, env),
         ]
     )
-    return " · ".join(parts)
+    body = " · ".join(parts)
+    return f"{body}\n{update}" if body and update else body or update
+
+
+def _prefix_line(icon: str, body: str) -> str:
+    body = str(body or "").strip()
+    return f"{icon} {body}" if body else ""
 
 
 def _clean_parts(values: list[str]) -> list[str]:
@@ -206,6 +222,45 @@ def _short_model(model: str) -> str:
     if "/" in value:
         value = value.rsplit("/", 1)[-1]
     return value
+
+
+def _footer_update_label() -> str:
+    latest = _latest_release_info()
+    if not latest:
+        return ""
+    latest_tag = str(latest.get("tag_name") or "").strip()
+    if not latest_tag or not _is_newer_version(_current_version(), latest_tag):
+        return ""
+    latest_url = str(latest.get("html_url") or "").strip()
+    label = f"⬆️ update `{latest_tag}`"
+    return f"{label} · {latest_url}" if latest_url else label
+
+
+def _latest_release_info(timeout: float = 0.35) -> dict[str, str] | None:
+    try:
+        from ..runtime.commands import _latest_release_info as latest_release_info
+
+        return latest_release_info(timeout=timeout)
+    except Exception:
+        return None
+
+
+def _is_newer_version(current: str, latest: str) -> bool:
+    try:
+        from ..runtime.commands import _is_newer_version as is_newer_version
+
+        return bool(is_newer_version(current, latest))
+    except Exception:
+        return False
+
+
+def _current_version() -> str:
+    try:
+        from ..runtime import plugin as runtime_plugin
+
+        return str(runtime_plugin.VERSION or "")
+    except Exception:
+        return ""
 
 
 def _compact_count(value: int) -> str:

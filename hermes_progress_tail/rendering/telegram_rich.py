@@ -89,11 +89,7 @@ class RichThinking:
     text: str
 
     def to_markdown(self) -> str:
-        body = normalize_thinking_text(self.text)
-        if not body:
-            return ""
-        heading = RichHeading("Thinking", level=3).to_markdown()
-        return f"{heading}\n\n{body}"
+        return normalize_thinking_text(self.text)
 
 
 @dataclass(frozen=True)
@@ -126,8 +122,6 @@ def format_progress_tail_telegram_rich_markdown(
     max_detail_items: int = 8,
 ) -> str:
     text = str(content or "")
-    if "## " in text and ("| Command | Result |" in text or "<details" in text):
-        return text
     doc = rich_doc_from_progress_tail(
         text,
         max_table_rows=max_table_rows,
@@ -163,6 +157,10 @@ def rich_doc_from_progress_tail(
         current_body = []
 
     for raw_line in lines:
+        if _is_code_fence(raw_line):
+            continue
+        if _is_retired_rich_subheading(raw_line):
+            continue
         if not raw_line.strip() or set(raw_line.strip()) <= {"─", "-"}:
             if current_title:
                 current_body.append("")
@@ -272,18 +270,15 @@ def section_to_blocks(
                 ]
             )
         detail_lines = [
-            shorten_paths(strip_control_markdown(line)) for line in body if line.strip()
+            shorten_paths(_strip_list_marker(strip_control_markdown(line)))
+            for line in body
+            if line.strip()
         ]
         if compact_success and signals and not failed:
             detail_lines = []
         detail_lines = clamp_detail_lines(detail_lines, max_detail_items)
         if detail_lines:
-            blocks.extend(
-                [
-                    RichHeading("Recent tool details", level=3),
-                    RichList(detail_lines),
-                ]
-            )
+            blocks.append(RichList(detail_lines))
         return blocks
     return [RichHeading(title, level=2), RichParagraph("\n".join(body))]
 
@@ -292,6 +287,7 @@ def progress_section_title(line: str) -> str:
     text = str(line or "").strip()
     patterns = (
         r"^\*\*__([^*\n]+)__\*\*$",
+        r"^##\s+(.+?)\s*$",
         r"^▰\s*(?:[\w\W]️?\s+)?(.+?)$",
     )
     for pattern in patterns:
@@ -301,6 +297,15 @@ def progress_section_title(line: str) -> str:
             title = re.sub(r"^[^A-Za-z0-9]+\s*", "", title).strip()
             return title
     return ""
+
+
+def _is_code_fence(line: str) -> bool:
+    return str(line or "").strip().startswith("```")
+
+
+def _is_retired_rich_subheading(line: str) -> bool:
+    text = strip_control_markdown(str(line or "").strip().lstrip("#").strip())
+    return text.lower() in {"thinking", "recent tool details"}
 
 
 def focused_heading(line: str) -> str:
@@ -378,9 +383,14 @@ def max_table_rows_safe(value: int) -> int:
         return 8
 
 
+def _strip_list_marker(text: str) -> str:
+    return re.sub(r"^[-•]\s+", "", str(text or "").strip())
+
+
 def parse_terminal_line(line: str) -> tuple[str, str, str] | None:
     text = strip_control_markdown(line)
     text = re.sub(r"^\[[^\]]+\]\s*", "", text).strip()
+    text = _strip_list_marker(text)
     marker = "→"
     status = "running"
     if text.startswith(("✅", "✓")):
@@ -437,24 +447,28 @@ def strip_control_markdown(text: str) -> str:
 
 
 def normalize_rich_text(text: str) -> str:
-    lines = [shorten_paths(strip_control_markdown(line)) for line in str(text or "").splitlines()]
+    separated = separate_inline_rich_headings(str(text or ""))
+    lines = [shorten_paths(strip_control_markdown(line)) for line in separated.splitlines()]
     return "\n".join(line for line in lines if line.strip()).strip()
 
 
 def normalize_thinking_text(text: str) -> str:
-    separated = separate_inline_reasoning_headings(str(text or ""))
+    separated = separate_inline_rich_headings(str(text or ""))
     lines = [shorten_paths(line.strip()) for line in separated.splitlines()]
     return "\n".join(line for line in lines if line.strip()).strip()
 
 
-def separate_inline_reasoning_headings(text: str) -> str:
+def separate_inline_rich_headings(text: str) -> str:
     def replace(match: re.Match[str]) -> str:
+        prefix = match.group("prefix") or ""
         heading = match.group("heading").strip()
         body = match.group("body").lstrip()
-        return f"{heading}\n{body}" if body else heading
+        return f"{prefix}{heading}\n{body}" if body else f"{prefix}{heading}"
 
     return re.sub(
-        r"(?m)^(?P<heading>(?:\*\*\*[^*\n][^\n]*?\*\*\*|\*\*[^*\n][^\n]*?\*\*|__[^_\n][^\n]*?__))(?P<body>[ \t]*\S.*)$",
+        r"(?m)^(?P<prefix>(?:[→✓×✅❌•-]\s+)?)"
+        r"(?P<heading>(?:\*\*\*[^*\n][^\n]*?\*\*\*|\*\*[^*\n][^\n]*?\*\*|__[^_\n][^\n]*?__))"
+        r"(?P<body>[ \t]*\S.*)$",
         replace,
         text,
     )

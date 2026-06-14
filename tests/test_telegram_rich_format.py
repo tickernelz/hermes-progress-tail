@@ -52,31 +52,81 @@ def test_telegram_rich_formatter_adds_verification_table_details_and_short_paths
     rich = format_progress_tail_telegram_rich_markdown(content, max_table_rows=4)
 
     assert "## Hermes is working" in rich
-    assert "### Thinking" in rich
+    assert "### Thinking" not in rich
     assert "<details" not in rich
     assert "| Command | Result |" in rich
     assert "`python -m pytest tests/test_telegram_format_monkeypatch.py -q`" in rich
     assert "| `make verify` | ❌ failed · 12s |" in rich
     assert "| `git diff --check` | → running |" in rich
-    assert "### Recent tool details" in rich
+    assert "### Recent tool details" not in rich
+    assert "- ✅ read_file: …/telegram_rich.py:1+240 · done · 0.1s" in rich
     assert "…/telegram_rich.py:1+240" in rich
     assert "/home/zhafron/Projects/hermes-progress-tail" not in rich
 
 
-def test_telegram_rich_reasoning_keeps_inner_heading_on_its_own_line():
+def test_telegram_rich_reasoning_keeps_inner_heading_on_its_own_line_without_extra_subheading():
     content = "\n".join(
         [
             "**__Reasoning__**",
             "**Considering visibility options**I think the composer should remain visible.",
+            "***Designing footer options****I should keep status metadata separate.*",
         ]
     )
 
     rich = format_progress_tail_telegram_rich_markdown(content)
 
-    assert "### Thinking" in rich
+    assert "## Reasoning" in rich
+    assert "### Thinking" not in rich
     assert "**Considering visibility options**\nI think the composer should remain visible." in rich
+    assert "***Designing footer options***\n*I should keep status metadata separate.*" in rich
     assert "**Considering visibility options**I think" not in rich
+    assert "***Designing footer options****I" not in rich
     assert "<details" not in rich
+
+
+def test_telegram_rich_plan_keeps_inner_heading_on_its_own_line():
+    content = "\n".join(
+        [
+            "**__Plan__**",
+            "→ **Add RED tests**for prompt cache and footer update rendering · 2 queued",
+        ]
+    )
+
+    rich = format_progress_tail_telegram_rich_markdown(content)
+
+    assert "## Plan" in rich
+    assert "→ **Add RED tests**\nfor prompt cache and footer update rendering · 2 queued" in rich
+    assert "**Add RED tests**for prompt" not in rich
+
+
+def test_telegram_rich_reformats_embedded_progress_sections_without_code_block_wrapper():
+    content = "\n".join(
+        [
+            "## Progress",
+            "",
+            "⬆️ update v0.1.77",
+            "",
+            "```text",
+            "But raw focused content with MarkdownV2.",
+            "## Reasoning",
+            "### Thinking",
+            "***Designing footer options****I should fix footer status.*",
+            "## Tools",
+            "### Recent tool details",
+            "- ✅ terminal: pytest -q · done · 1.1s",
+            "```",
+        ]
+    )
+
+    rich = format_progress_tail_telegram_rich_markdown(content)
+
+    assert "```text" not in rich
+    assert "### Thinking" not in rich
+    assert "### Recent tool details" not in rich
+    assert "## Reasoning" in rich
+    assert "***Designing footer options***\n*I should fix footer status.*" in rich
+    assert "## Tools" in rich
+    assert "| `pytest -q` | ✅ done · 1.1s |" in rich
 
 
 def test_telegram_rich_formatter_builds_status_table_and_failure_first_tools():
@@ -109,7 +159,7 @@ def test_telegram_rich_formatter_builds_status_table_and_failure_first_tools():
     assert "## Failed tools" in rich
     assert rich.index("## Failed tools") < rich.index("## Verification evidence")
     assert "| `ruff check .` | ❌ failed · 0.2s |" in rich
-    assert "### Recent tool details" in rich
+    assert "### Recent tool details" not in rich
     assert "- ✅ terminal: pytest -q · done · 1.1s" in rich
     assert "- ❌ terminal: ruff check . · failed · 0.2s" in rich
     assert "2 more tool events" in rich
@@ -129,6 +179,7 @@ def test_telegram_rich_formatter_compacts_success_details_by_default_but_can_sho
 
     assert "| `pytest -q` | ✅ done · 1.1s |" in compact
     assert "### Recent tool details" not in compact
-    assert "### Recent tool details" in verbose
+    assert "### Recent tool details" not in verbose
+    assert "- ✅ terminal: pytest -q · done · 1.1s" in verbose
     assert "<details" not in compact
     assert "<details" not in verbose

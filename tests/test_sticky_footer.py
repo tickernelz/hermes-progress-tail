@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import hermes_progress_tail.rendering.footer as footer_module
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.renderer import ProgressRenderer
@@ -33,6 +35,11 @@ class EditableAdapter:
     async def edit_message(self, chat_id, message_id, content):
         self.edits.append((chat_id, message_id, content))
         return Result(True, message_id)
+
+
+@pytest.fixture(autouse=True)
+def no_footer_update_check(monkeypatch):
+    monkeypatch.setattr(footer_module, "_latest_release_info", lambda: None, raising=False)
 
 
 def make_renderer(config=None):
@@ -67,8 +74,9 @@ def test_footer_defaults_on_with_normal_density():
     assert settings.footer.density == "normal"
 
 
-def test_focused_footer_renders_normal_environment_snapshot():
+def test_focused_footer_renders_normal_environment_snapshot(monkeypatch):
     async def run():
+        monkeypatch.setattr(footer_module, "_latest_release_info", lambda: None, raising=False)
         adapter = EditableAdapter()
         renderer = make_renderer()
         env = EnvironmentSnapshot(
@@ -97,6 +105,95 @@ def test_focused_footer_renders_normal_environment_snapshot():
         assert "git main* +1 · worktree main · cwd " in content
         assert "cwd ." not in content
         assert "hermes-progress-tail" in content
+
+    asyncio.run(run())
+
+
+def test_focused_footer_shows_github_latest_release_update_only_when_newer(monkeypatch):
+    async def run():
+        monkeypatch.setattr(
+            footer_module,
+            "_latest_release_info",
+            lambda: {"tag_name": "v0.1.77", "html_url": "https://example.test/v0.1.77"},
+            raising=False,
+        )
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        env = EnvironmentSnapshot(
+            context_tokens=82_000,
+            context_window=256_000,
+            model="gpt-5.5",
+            provider="custom",
+            profile="default",
+            cwd="/home/example/Projects/hermes-progress-tail",
+            git_branch="main",
+            git_dirty=True,
+        )
+        ctx = make_ctx(adapter, env=env)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True
+        )
+        content = adapter.sent[-1][1]
+
+        assert "**__Status__**" in content
+        assert "⬆️ update `v0.1.77`" in content
+        assert "https://example.test/v0.1.77" in content
+        assert content.rfind("**__Status__**") > content.rfind("**__Tools__**")
+
+        monkeypatch.setattr(
+            footer_module,
+            "_latest_release_info",
+            lambda: {"tag_name": "v0.1.76", "html_url": "https://example.test/v0.1.76"},
+            raising=False,
+        )
+        adapter2 = EditableAdapter()
+        renderer2 = make_renderer()
+        ctx2 = make_ctx(adapter2, env=env)
+        renderer2.register_context(ctx2)
+
+        await renderer2.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True
+        )
+        current_content = adapter2.sent[-1][1]
+
+        assert "⬆️ update" not in current_content
+        assert "v0.1.76" not in current_content
+
+    asyncio.run(run())
+
+
+def test_footer_update_check_uses_github_release_not_local_git_status(monkeypatch):
+    async def run():
+        calls = []
+
+        def latest_release():
+            calls.append("github")
+            return None
+
+        monkeypatch.setattr(footer_module, "_latest_release_info", latest_release, raising=False)
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        env = EnvironmentSnapshot(
+            model="gpt-5.5",
+            provider="custom",
+            cwd="/home/example/Projects/hermes-progress-tail",
+            git_branch="main",
+            git_dirty=True,
+            git_ahead=99,
+        )
+        ctx = make_ctx(adapter, env=env)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            ToolEvent("s1", "k1", "telegram", "read_file: renderer.py"), force=True
+        )
+        content = adapter.sent[-1][1]
+
+        assert calls == ["github"]
+        assert "git main* +99" in content
+        assert "⬆️ update" not in content
 
     asyncio.run(run())
 
