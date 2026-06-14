@@ -40,10 +40,19 @@ class GatewayLikeTelegramAdapter(CapturingAdapter):
     def __init__(self):
         super().__init__()
         self.legacy_sent = []
+        self.rich_request = AsyncMock(return_value={"result": {"message_id": 999}})
         self._bot = SimpleNamespace(
-            do_api_request=AsyncMock(return_value={"result": {"message_id": 999}}),
             send_message=AsyncMock(return_value=SimpleNamespace(message_id=111)),
         )
+        self.set_rich_request_mock(self.rich_request)
+
+    def set_rich_request_mock(self, mock):
+        self.rich_request = mock
+
+        async def do_api_request(*args, **kwargs):
+            return await self.rich_request(*args, **kwargs)
+
+        self._bot.do_api_request = do_api_request
 
     def _should_attempt_rich(self, content, metadata=None):
         return bool(
@@ -171,9 +180,9 @@ def test_telegram_renderer_uses_raw_rich_send_for_initial_capable_messages():
             force=True,
         )
 
-        adapter._bot.do_api_request.assert_awaited_once()
-        method = adapter._bot.do_api_request.await_args.args[0]
-        kwargs = adapter._bot.do_api_request.await_args.kwargs["api_kwargs"]
+        adapter.rich_request.assert_awaited_once()
+        method = adapter.rich_request.await_args.args[0]
+        kwargs = adapter.rich_request.await_args.kwargs["api_kwargs"]
         assert method == "sendRichMessage"
         assert "## Tools" in kwargs["rich_message"]["markdown"]
         assert "| Command | Result |" in kwargs["rich_message"]["markdown"]
@@ -195,7 +204,7 @@ def test_telegram_send_patch_keeps_expect_edits_messages_legacy():
         )
 
         assert result.success is True
-        adapter._bot.do_api_request.assert_not_awaited()
+        adapter.rich_request.assert_not_awaited()
         assert adapter.legacy_sent
         assert "**__Tools__**" in adapter.legacy_sent[-1][1]
         assert "| Command | Result |" not in adapter.legacy_sent[-1][1]
@@ -230,7 +239,7 @@ def test_telegram_renderer_skips_rich_preparation_after_adapter_latch():
             force=True,
         )
 
-        adapter._bot.do_api_request.assert_not_awaited()
+        adapter.rich_request.assert_not_awaited()
         assert adapter.legacy_sent
         assert "**__Tools__**" in adapter.legacy_sent[-1][1]
         assert "| Command | Result |" not in adapter.legacy_sent[-1][1]
@@ -254,12 +263,11 @@ def test_telegram_edit_capability_latch_disables_later_send_rich_preparation(mon
     assert install_telegram_format_monkeypatch(ProgressTailPatchedTelegramAdapter) is True
     try:
         adapter = ProgressTailPatchedTelegramAdapter()
-        adapter._bot.do_api_request = AsyncMock(side_effect=AttributeError("no rich endpoint"))
+        adapter.set_rich_request_mock(AsyncMock(side_effect=AttributeError("no rich endpoint")))
         edit_result = asyncio.run(adapter.edit_message("123", "456", "progress **bold**"))
         assert edit_result.success is True
         assert adapter._hermes_progress_tail_rich_disabled is True
-        adapter._bot.do_api_request.reset_mock(side_effect=True)
-        adapter._bot.do_api_request.side_effect = None
+        adapter.set_rich_request_mock(AsyncMock(return_value={"result": {"message_id": 999}}))
 
         async def run_send():
             renderer = ProgressRenderer(
@@ -282,7 +290,7 @@ def test_telegram_edit_capability_latch_disables_later_send_rich_preparation(mon
             )
 
         asyncio.run(run_send())
-        adapter._bot.do_api_request.assert_not_awaited()
+        adapter.rich_request.assert_not_awaited()
         assert adapter.legacy_sent
         assert "**__Tools__**" in adapter.legacy_sent[-1][1]
         assert "| Command | Result |" not in adapter.legacy_sent[-1][1]
