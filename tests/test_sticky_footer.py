@@ -114,7 +114,7 @@ def test_focused_footer_shows_github_latest_release_update_only_when_newer(monke
         monkeypatch.setattr(
             footer_module,
             "_latest_release_info",
-            lambda: {"tag_name": "v0.1.77", "html_url": "https://example.test/v0.1.77"},
+            lambda: {"tag_name": "v0.1.78", "html_url": "https://example.test/v0.1.78"},
             raising=False,
         )
         adapter = EditableAdapter()
@@ -138,14 +138,14 @@ def test_focused_footer_shows_github_latest_release_update_only_when_newer(monke
         content = adapter.sent[-1][1]
 
         assert "**__Status__**" in content
-        assert "⬆️ update `v0.1.77`" in content
-        assert "https://example.test/v0.1.77" in content
+        assert "⬆️ update `v0.1.78`" in content
+        assert "https://example.test/v0.1.78" in content
         assert content.rfind("**__Status__**") > content.rfind("**__Tools__**")
 
         monkeypatch.setattr(
             footer_module,
             "_latest_release_info",
-            lambda: {"tag_name": "v0.1.76", "html_url": "https://example.test/v0.1.76"},
+            lambda: {"tag_name": "v0.1.77", "html_url": "https://example.test/v0.1.77"},
             raising=False,
         )
         adapter2 = EditableAdapter()
@@ -159,7 +159,7 @@ def test_focused_footer_shows_github_latest_release_update_only_when_newer(monke
         current_content = adapter2.sent[-1][1]
 
         assert "⬆️ update" not in current_content
-        assert "v0.1.76" not in current_content
+        assert "v0.1.77" not in current_content
 
     asyncio.run(run())
 
