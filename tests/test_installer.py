@@ -6,6 +6,7 @@ import yaml
 from hermes_progress_tail.installer import (
     DEFAULT_CONFIG,
     _builtin_reasoning_conflict,
+    _copy_plugin,
     _core_notifier_conflict,
     _default_source_dir,
     _generated_plugin_yaml,
@@ -58,6 +59,32 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert "finalization" not in config["progress_tail"]
     assert "progress_tail" in config
     assert (hermes_home / "hermes-progress-tail" / "backups").exists()
+
+
+def test_copy_plugin_ignores_local_generated_artifacts(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    generated_files = ["uv.lock", ".ruff_cache", ".venv", "build", "dist", "pkg.egg-info"]
+    for name in generated_files:
+        path = source / name
+        if "." in name and not name.endswith(".lock"):
+            path.mkdir()
+            (path / "cache").write_text("generated\n", encoding="utf-8")
+        elif name in {"build", "dist"} or name.endswith(".egg-info"):
+            path.mkdir()
+            (path / "artifact").write_text("generated\n", encoding="utf-8")
+        else:
+            path.write_text("generated\n", encoding="utf-8")
+    (source / "hermes_progress_tail").mkdir()
+    (source / "hermes_progress_tail" / "__init__.py").write_text("", encoding="utf-8")
+
+    target = tmp_path / "target"
+    _copy_plugin(source, target)
+
+    assert (target / "plugin.yaml").exists()
+    for name in generated_files:
+        assert not (target / name).exists()
 
 
 def test_install_preserves_builtin_reasoning_when_plugin_reasoning_disabled(tmp_path):

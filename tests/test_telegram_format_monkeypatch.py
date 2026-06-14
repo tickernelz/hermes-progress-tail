@@ -46,6 +46,133 @@ class FakeTelegramAdapter:
         return SendResult(True, message_id=message_id)
 
 
+def test_telegram_format_monkeypatch_uses_rich_edit_when_supported(monkeypatch):
+    parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.telegram",
+        SimpleNamespace(ParseMode=parse_mode),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=SendResult, utf16_len=len),
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+    assert install_telegram_format_monkeypatch(FakeTelegramAdapter) is True
+    adapter = FakeTelegramAdapter()
+    adapter._bot.do_api_request = AsyncMock(return_value={"result": {"message_id": 456}})
+
+    result = asyncio.run(
+        adapter.edit_message(
+            "123",
+            "456",
+            "**__Tools__**\n✅ terminal: pytest -q · done · 0.4s",
+            metadata={"thread_id": "99"},
+        )
+    )
+
+    assert result.success is True
+    adapter._bot.edit_message_text.assert_not_awaited()
+    adapter._bot.do_api_request.assert_awaited_once()
+    (method,) = adapter._bot.do_api_request.await_args.args
+    kwargs = adapter._bot.do_api_request.await_args.kwargs["api_kwargs"]
+    assert method == "editMessageText"
+    assert kwargs["chat_id"] == 123
+    assert kwargs["message_id"] == 456
+    assert "text" not in kwargs
+    assert "parse_mode" not in kwargs
+    assert kwargs["rich_message"]["markdown"].startswith("## Tools")
+    assert "| Command | Result |" in kwargs["rich_message"]["markdown"]
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+
+
+def test_telegram_format_monkeypatch_falls_back_to_markdownv2_when_rich_unsupported(monkeypatch):
+    parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.telegram",
+        SimpleNamespace(ParseMode=parse_mode),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=SendResult, utf16_len=len),
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+    assert install_telegram_format_monkeypatch(FakeTelegramAdapter) is True
+    adapter = FakeTelegramAdapter()
+    adapter._bot.do_api_request = AsyncMock(side_effect=AttributeError("no rich endpoint"))
+
+    result = asyncio.run(adapter.edit_message("123", "456", "progress **bold**"))
+
+    assert result.success is True
+    adapter._bot.do_api_request.assert_awaited_once()
+    adapter._bot.edit_message_text.assert_awaited_once_with(
+        chat_id=123,
+        message_id=456,
+        text="progress *bold*",
+        parse_mode="MarkdownV2",
+    )
+    assert adapter._hermes_progress_tail_rich_disabled is True
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+
+
+def test_telegram_format_monkeypatch_parse_error_falls_back_without_latching(monkeypatch):
+    parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.telegram",
+        SimpleNamespace(ParseMode=parse_mode),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=SendResult, utf16_len=len),
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+    assert install_telegram_format_monkeypatch(FakeTelegramAdapter) is True
+    adapter = FakeTelegramAdapter()
+    adapter._bot.do_api_request = AsyncMock(
+        side_effect=RuntimeError("Bad Request: can't parse rich message")
+    )
+
+    result = asyncio.run(adapter.edit_message("123", "456", "progress **bold**"))
+
+    assert result.success is True
+    adapter._bot.do_api_request.assert_awaited_once()
+    adapter._bot.edit_message_text.assert_awaited_once()
+    assert not getattr(adapter, "_hermes_progress_tail_rich_disabled", False)
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+
+
+def test_telegram_format_monkeypatch_transient_rich_error_does_not_duplicate_fallback(monkeypatch):
+    parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.telegram",
+        SimpleNamespace(ParseMode=parse_mode),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=SendResult, utf16_len=len),
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+    assert install_telegram_format_monkeypatch(FakeTelegramAdapter) is True
+    adapter = FakeTelegramAdapter()
+    adapter._bot.do_api_request = AsyncMock(side_effect=RuntimeError("Bad Gateway"))
+
+    result = asyncio.run(adapter.edit_message("123", "456", "progress **bold**"))
+
+    assert result.success is False
+    assert result.retryable is True
+    assert "Bad Gateway" in result.error
+    adapter._bot.edit_message_text.assert_not_awaited()
+    assert not getattr(adapter, "_hermes_progress_tail_rich_disabled", False)
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+
+
 def test_telegram_format_monkeypatch_renders_focused_titles_and_italic_body(monkeypatch):
     parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
     monkeypatch.setitem(

@@ -87,6 +87,16 @@ DEFAULT_CONFIG = {
         "density": "normal",
         "max_path_chars": 56,
     },
+    "telegram": {
+        "rich_messages": True,
+        "verification_table": True,
+        "collapsible_details": True,
+        "thinking_blocks": True,
+        "max_table_rows": 8,
+        "details_open_on_failure": True,
+        "compact_success": True,
+        "max_detail_items": 8,
+    },
     "renderer": {
         "strategy": "auto",
         "edit_interval": 1.5,
@@ -138,7 +148,23 @@ def _backup_config(hermes_home: Path) -> Path | None:
 def _copy_plugin(source_dir: Path, target_dir: Path) -> None:
     if target_dir.exists():
         shutil.rmtree(target_dir)
-    ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.pyc")
+    ignore = shutil.ignore_patterns(
+        ".git",
+        ".hermes",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".superpowers",
+        ".venv",
+        "__pycache__",
+        "*.egg-info",
+        "*.pyc",
+        ".eggs",
+        "build",
+        "dist",
+        "env",
+        "uv.lock",
+        "venv",
+    )
     shutil.copytree(source_dir, target_dir, ignore=ignore)
     if not (target_dir / "plugin.yaml").exists() and _is_package_source_dir(source_dir):
         (target_dir / "plugin.yaml").write_text(_generated_plugin_yaml(), encoding="utf-8")

@@ -261,6 +261,13 @@ def _prepare_message(self, ctx: SessionContext, content: str) -> str:
     return self._fit_message(content, self._message_limit(ctx))
 
 
+def _prepare_telegram_rich_message(self, ctx: SessionContext, content: str) -> str:
+    # Telegram rich preparation is owned by the Telegram send/edit monkeypatch.
+    # Pre-transforming here is unsafe because legacy send fallbacks would receive
+    # rich-markdown tables/details as plain MarkdownV2 text.
+    return content
+
+
 def _fit_message(content: str, limit: int) -> str:
     if limit <= 0 or len(content) <= limit:
         return content

@@ -168,6 +168,16 @@ progress_tail:
     density: normal # compact|normal|debug
     max_path_chars: 56
 
+  telegram:
+    rich_messages: true # default-on; falls back to MarkdownV2 if Bot API rich edit/send is unavailable
+    verification_table: true
+    collapsible_details: true
+    thinking_blocks: true
+    max_table_rows: 8
+    details_open_on_failure: true
+    compact_success: true
+    max_detail_items: 8
+
   renderer:
     strategy: auto
     edit_interval: 1.5
@@ -195,6 +205,8 @@ progress_tail:
 ```
 
 `platforms.<name>` overrides support `enabled`, `strategy`, line/preview/edit timing fields, `show_completed`, feature toggles (`tools_enabled`, `assistant_enabled`, `reasoning_enabled`, `delegates_enabled`, `background_jobs_enabled`), and timestamps.
+
+Telegram rich progress is default-on. When Bot API 10.1 rich messages are available, progress bubbles are prepared as Rich Markdown so Telegram can render headings, status tables, verification tables, collapsible tool details, and thinking/details blocks natively. Failed terminal gates are promoted above generic details and open the details block by default; success-only cards stay compact unless `compact_success` is disabled. If rich edit/send is unsupported or Telegram rejects a rich payload, the plugin falls back to the existing MarkdownV2 live-edit path and latches rich edits off for that adapter on capability failures.
 
 Turn lifecycle is internal: completed progress bubbles stay visible, but new user turns get new progress bubbles after the prior final answer. If a background job is still visible, its progress bubble can keep updating.
 

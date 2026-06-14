@@ -105,6 +105,18 @@ class FooterSettings:
 
 
 @dataclass(frozen=True)
+class TelegramSettings:
+    rich_messages: bool = True
+    verification_table: bool = True
+    collapsible_details: bool = True
+    thinking_blocks: bool = True
+    max_table_rows: int = 8
+    details_open_on_failure: bool = True
+    compact_success: bool = True
+    max_detail_items: int = 8
+
+
+@dataclass(frozen=True)
 class LegacyDefaultSettings:
     lines: int = 3
     preview_length: int = 120
@@ -165,6 +177,7 @@ class Settings:
     background_jobs: BackgroundJobSettings = BackgroundJobSettings()
     cleanup: CleanupSettings = CleanupSettings()
     footer: FooterSettings = FooterSettings()
+    telegram: TelegramSettings = TelegramSettings()
     renderer: RendererSettings = RendererSettings()
     no_edit: NoEditSettings = NoEditSettings()
     platforms: dict[str, dict[str, Any]] | None = None
@@ -369,6 +382,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     )
     cleanup_raw = section.get("cleanup") if isinstance(section.get("cleanup"), dict) else {}
     footer_raw = section.get("footer") if isinstance(section.get("footer"), dict) else {}
+    telegram_raw = section.get("telegram") if isinstance(section.get("telegram"), dict) else {}
     tools = ToolSettings(
         enabled=_bool(tools_raw.get("enabled"), True),
         lines=_int(tools_raw.get("lines"), 3),
@@ -444,6 +458,16 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         density=_footer_density(footer_raw.get("density"), "normal"),
         max_path_chars=_int(footer_raw.get("max_path_chars"), 56, min_value=16),
     )
+    telegram = TelegramSettings(
+        rich_messages=_bool(telegram_raw.get("rich_messages"), True),
+        verification_table=_bool(telegram_raw.get("verification_table"), True),
+        collapsible_details=_bool(telegram_raw.get("collapsible_details"), True),
+        thinking_blocks=_bool(telegram_raw.get("thinking_blocks"), True),
+        max_table_rows=_int(telegram_raw.get("max_table_rows"), 8),
+        details_open_on_failure=_bool(telegram_raw.get("details_open_on_failure"), True),
+        compact_success=_bool(telegram_raw.get("compact_success"), True),
+        max_detail_items=_int(telegram_raw.get("max_detail_items"), 8, min_value=0),
+    )
     renderer_mode, renderer_density = _renderer_mode_and_density(renderer_raw)
     renderer = RendererSettings(
         strategy=_strategy(renderer_raw.get("strategy"), "auto"),
@@ -473,6 +497,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         background_jobs=background_jobs,
         cleanup=cleanup,
         footer=footer,
+        telegram=telegram,
         renderer=renderer,
         no_edit=no_edit,
         platforms=platforms,

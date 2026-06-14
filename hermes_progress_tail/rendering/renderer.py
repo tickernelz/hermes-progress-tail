@@ -33,6 +33,7 @@ from .delivery import (
     _fit_message,
     _message_limit,
     _prepare_message,
+    _prepare_telegram_rich_message,
     _render_live,
     _render_snapshot,
     _schedule_auto_delete,
@@ -545,6 +546,7 @@ ProgressRenderer._cancel_delete = staticmethod(_cancel_delete)
 ProgressRenderer._schedule_auto_delete = _schedule_auto_delete
 ProgressRenderer._render_snapshot = _render_snapshot
 ProgressRenderer._prepare_message = _prepare_message
+ProgressRenderer._prepare_telegram_rich_message = _prepare_telegram_rich_message
 ProgressRenderer._fit_message = staticmethod(_fit_message)
 ProgressRenderer._message_limit = staticmethod(_message_limit)
 ProgressRenderer._classify_edit_error = staticmethod(_classify_edit_error)

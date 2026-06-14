@@ -7,6 +7,13 @@ def test_config_contract_reports_unknown_keys_without_flagging_platform_names():
             "progress_tail": {
                 "mystery": True,
                 "tools": {"enabled": True, "typo_lines": 4},
+                "telegram": {
+                    "rich_messages": True,
+                    "max_table_rows": 6,
+                    "details_open_on_failure": True,
+                    "compact_success": True,
+                    "max_detail_items": 4,
+                },
                 "platforms": {
                     "telegram": {
                         "strategy": "live_tail",
@@ -19,6 +26,12 @@ def test_config_contract_reports_unknown_keys_without_flagging_platform_names():
 
     assert "progress_tail.mystery" in unknown
     assert "progress_tail.tools.typo_lines" in unknown
+    assert "progress_tail.telegram" not in unknown
+    assert "progress_tail.telegram.rich_messages" not in unknown
+    assert "progress_tail.telegram.max_table_rows" not in unknown
+    assert "progress_tail.telegram.details_open_on_failure" not in unknown
+    assert "progress_tail.telegram.compact_success" not in unknown
+    assert "progress_tail.telegram.max_detail_items" not in unknown
     assert "progress_tail.platforms.telegram.bogus" in unknown
     assert "progress_tail.platforms.telegram" not in unknown
 

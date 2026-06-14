@@ -73,6 +73,16 @@ PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
         "density": None,
         "max_path_chars": None,
     },
+    "telegram": {
+        "rich_messages": None,
+        "verification_table": None,
+        "collapsible_details": None,
+        "thinking_blocks": None,
+        "max_table_rows": None,
+        "details_open_on_failure": None,
+        "compact_success": None,
+        "max_detail_items": None,
+    },
     "renderer": {
         "strategy": None,
         "edit_interval": None,

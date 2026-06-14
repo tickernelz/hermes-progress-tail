@@ -227,7 +227,8 @@ def register(ctx):
     settings = load_settings(runtime_config)
     logger.info(
         "hermes-progress-tail plugin loaded: version=%s enabled=%s mode=%s density=%s style=%s "
-        "strategy=%s tools=%s assistant=%s reasoning=%s delegates=%s background_jobs=%s cleanup_auto_delete=%s",
+        "strategy=%s tools=%s assistant=%s reasoning=%s delegates=%s background_jobs=%s "
+        "telegram_rich=%s cleanup_auto_delete=%s",
         VERSION,
         settings.enabled,
         settings.renderer.mode,
@@ -239,6 +240,7 @@ def register(ctx):
         settings.reasoning.enabled,
         settings.delegates.enabled,
         settings.background_jobs.enabled,
+        settings.telegram.rich_messages,
         settings.cleanup.auto_delete,
     )
     if _builtin_interim_conflict(runtime_config):
