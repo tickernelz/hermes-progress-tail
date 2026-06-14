@@ -10,7 +10,6 @@ def test_config_contract_reports_unknown_keys_without_flagging_platform_names():
                 "telegram": {
                     "rich_messages": True,
                     "max_table_rows": 6,
-                    "details_open_on_failure": True,
                     "compact_success": True,
                     "max_detail_items": 4,
                 },
@@ -29,7 +28,6 @@ def test_config_contract_reports_unknown_keys_without_flagging_platform_names():
     assert "progress_tail.telegram" not in unknown
     assert "progress_tail.telegram.rich_messages" not in unknown
     assert "progress_tail.telegram.max_table_rows" not in unknown
-    assert "progress_tail.telegram.details_open_on_failure" not in unknown
     assert "progress_tail.telegram.compact_success" not in unknown
     assert "progress_tail.telegram.max_detail_items" not in unknown
     assert "progress_tail.platforms.telegram.bogus" in unknown
@@ -41,12 +39,15 @@ def test_config_contract_reports_retired_keys_separately_from_unknown_keys():
         "progress_tail": {
             "finalization": {"delete_on_success": True},
             "background_jobs": {"default_notify_on_complete": False},
+            "telegram": {"collapsible_details": True, "details_open_on_failure": True},
         }
     }
 
     assert find_retired_config_keys(config) == [
         "progress_tail.finalization",
         "progress_tail.background_jobs.default_notify_on_complete",
+        "progress_tail.telegram.collapsible_details",
+        "progress_tail.telegram.details_open_on_failure",
     ]
     assert find_unknown_config_keys(config) == []
 

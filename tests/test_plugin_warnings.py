@@ -2,6 +2,7 @@ import logging
 
 import hermes_progress_tail.plugin as plugin
 from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.runtime import commands
 
 
 class Ctx:
@@ -24,24 +25,70 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
     }
     monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
     monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
+    monkeypatch.setattr(commands, "_latest_release_info", lambda: None)
 
     status = plugin._command("status")
 
-    assert "hermes-progress-tail 0.1.75" in status
+    assert "hermes-progress-tail 0.1.76" in status
+    assert "## Hermes Progress Tail" in status
+    assert "| Version | `0.1.76` |" in status
+    assert "## Runtime" in status
     assert "tools=enabled" in status
     assert "completed=True" in status
     assert "duration=True" in status
     assert "todo=sticky:True hide_tool_line:True" in status
     assert "patch=detail:smart preview_chars:48 max_files:3" in status
     assert "delegates=enabled max=4 lines=2 ttl=5s thinking=off" in status
-    assert (
-        "background_jobs=enabled list_running=True show_completed=True max=4 "
-        "ttl=5s head=2 tail=3 update=3s suppress_native_notify=True suppress_watch=True"
-    ) in status
+    assert "background_jobs=enabled list_running=True show_completed=True max=4" in status
     assert "renderer=mode:sectioned strategy:auto style:emoji density:normal" in status
     assert "code_fence" not in status
     assert "agent_label:-" in status
     assert "display.show_reasoning=True" in status
+    assert "Update available" not in status
+
+
+def test_status_reports_update_only_when_newer_release_exists(monkeypatch):
+    plugin._renderer = None
+    config = {
+        "plugins": {"enabled": ["hermes-progress-tail"]},
+        "display": {"tool_progress": "off", "show_reasoning": False},
+        "agent": {"gateway_notify_interval": 0},
+        "progress_tail": {"enabled": True},
+    }
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
+    monkeypatch.setattr(
+        commands,
+        "_latest_release_info",
+        lambda: {"tag_name": "v0.1.77", "html_url": "https://example.test/v0.1.77"},
+    )
+
+    status = plugin._command("status")
+
+    assert "## Update available" in status
+    assert "v0.1.76 → v0.1.77" in status
+    assert "https://example.test/v0.1.77" in status
+
+
+def test_status_hides_update_when_latest_release_is_not_newer(monkeypatch):
+    plugin._renderer = None
+    config = {
+        "plugins": {"enabled": ["hermes-progress-tail"]},
+        "display": {"tool_progress": "off", "show_reasoning": False},
+        "agent": {"gateway_notify_interval": 0},
+        "progress_tail": {"enabled": True},
+    }
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
+    monkeypatch.setattr(
+        commands,
+        "_latest_release_info",
+        lambda: {"tag_name": "v0.1.76", "html_url": "https://example.test/v0.1.76"},
+    )
+
+    status = plugin._command("status")
+
+    assert "Update available" not in status
 
 
 def test_register_logs_warning_once_for_reasoning_conflict(monkeypatch, caplog):
@@ -125,6 +172,7 @@ def test_doctor_reports_unknown_and_retired_config_keys(monkeypatch):
             "enabled": True,
             "tools": {"enabled": True, "typo_lines": 4},
             "renderer": {"code_fence": "on"},
+            "telegram": {"collapsible_details": True, "details_open_on_failure": True},
             "background_jobs": {"default_notify_on_complete": False},
             "finalization": {"delete_on_success": True},
             "platforms": {"telegram": {"bogus": "value", "code_fence": "on"}},
@@ -140,6 +188,8 @@ def test_doctor_reports_unknown_and_retired_config_keys(monkeypatch):
         "warning: retired config key progress_tail.background_jobs.default_notify_on_complete"
         in doctor
     )
+    assert "warning: retired config key progress_tail.telegram.collapsible_details" in doctor
+    assert "warning: retired config key progress_tail.telegram.details_open_on_failure" in doctor
     assert "warning: unknown config key progress_tail.tools.typo_lines" in doctor
     assert "warning: unknown config key progress_tail.renderer.code_fence" in doctor
     assert "warning: unknown config key progress_tail.platforms.telegram.bogus" in doctor

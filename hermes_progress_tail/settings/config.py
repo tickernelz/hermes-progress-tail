@@ -108,10 +108,8 @@ class FooterSettings:
 class TelegramSettings:
     rich_messages: bool = True
     verification_table: bool = True
-    collapsible_details: bool = True
     thinking_blocks: bool = True
     max_table_rows: int = 8
-    details_open_on_failure: bool = True
     compact_success: bool = True
     max_detail_items: int = 8
 
@@ -264,6 +262,12 @@ def find_retired_config_keys(config: dict[str, Any] | None) -> list[str]:
     background_jobs = section.get("background_jobs")
     if isinstance(background_jobs, dict) and "default_notify_on_complete" in background_jobs:
         retired.append("progress_tail.background_jobs.default_notify_on_complete")
+    telegram = section.get("telegram")
+    if isinstance(telegram, dict):
+        if "collapsible_details" in telegram:
+            retired.append("progress_tail.telegram.collapsible_details")
+        if "details_open_on_failure" in telegram:
+            retired.append("progress_tail.telegram.details_open_on_failure")
     return retired
 
 
@@ -461,10 +465,8 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     telegram = TelegramSettings(
         rich_messages=_bool(telegram_raw.get("rich_messages"), True),
         verification_table=_bool(telegram_raw.get("verification_table"), True),
-        collapsible_details=_bool(telegram_raw.get("collapsible_details"), True),
         thinking_blocks=_bool(telegram_raw.get("thinking_blocks"), True),
         max_table_rows=_int(telegram_raw.get("max_table_rows"), 8),
-        details_open_on_failure=_bool(telegram_raw.get("details_open_on_failure"), True),
         compact_success=_bool(telegram_raw.get("compact_success"), True),
         max_detail_items=_int(telegram_raw.get("max_detail_items"), 8, min_value=0),
     )

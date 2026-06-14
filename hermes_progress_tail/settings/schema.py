@@ -7,6 +7,8 @@ BATCH_DEFAULT_OFF = {"email", "sms", "webhook", "homeassistant"}
 RETIRED_CONFIG_KEYS = {
     "progress_tail.finalization",
     "progress_tail.background_jobs.default_notify_on_complete",
+    "progress_tail.telegram.collapsible_details",
+    "progress_tail.telegram.details_open_on_failure",
 }
 PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
     "enabled": None,
@@ -76,10 +78,8 @@ PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
     "telegram": {
         "rich_messages": None,
         "verification_table": None,
-        "collapsible_details": None,
         "thinking_blocks": None,
         "max_table_rows": None,
-        "details_open_on_failure": None,
         "compact_success": None,
         "max_detail_items": None,
     },

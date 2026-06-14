@@ -409,6 +409,7 @@ def test_default_sectioned_renderer_shows_footer_when_enabled():
 
 def test_status_command_reports_footer_config(monkeypatch):
     import hermes_progress_tail.plugin as plugin
+    from hermes_progress_tail.runtime import commands
 
     plugin._renderer = None
     monkeypatch.setattr(
@@ -416,6 +417,7 @@ def test_status_command_reports_footer_config(monkeypatch):
         "_load_runtime_settings",
         lambda: load_settings({"progress_tail": {"footer": {"density": "compact"}}}),
     )
+    monkeypatch.setattr(commands, "_latest_release_info", lambda: None)
 
     status = plugin._command("status")
 

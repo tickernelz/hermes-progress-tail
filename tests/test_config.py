@@ -43,10 +43,10 @@ def test_load_settings_defaults():
     assert settings.cleanup.delete_background_active is False
     assert settings.telegram.rich_messages is True
     assert settings.telegram.verification_table is True
-    assert settings.telegram.collapsible_details is True
+    assert not hasattr(settings.telegram, "collapsible_details")
     assert settings.telegram.thinking_blocks is True
     assert settings.telegram.max_table_rows == 8
-    assert settings.telegram.details_open_on_failure is True
+    assert not hasattr(settings.telegram, "details_open_on_failure")
     assert settings.telegram.compact_success is True
     assert settings.telegram.max_detail_items == 8
     assert not hasattr(settings, "finalization")
@@ -72,10 +72,10 @@ def test_load_settings_accepts_telegram_rich_config():
 
     assert settings.telegram.rich_messages is False
     assert settings.telegram.verification_table is False
-    assert settings.telegram.collapsible_details is False
+    assert not hasattr(settings.telegram, "collapsible_details")
     assert settings.telegram.thinking_blocks is False
     assert settings.telegram.max_table_rows == 3
-    assert settings.telegram.details_open_on_failure is False
+    assert not hasattr(settings.telegram, "details_open_on_failure")
     assert settings.telegram.compact_success is False
     assert settings.telegram.max_detail_items == 2
 

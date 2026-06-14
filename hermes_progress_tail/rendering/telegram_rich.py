@@ -85,29 +85,15 @@ class RichTable:
 
 
 @dataclass(frozen=True)
-class RichDetails:
-    summary: str
-    blocks: Sequence[RichBlock]
-    open: bool = False
-
-    def to_markdown(self) -> str:
-        summary = strip_control_markdown(self.summary) or "Details"
-        body = "\n\n".join(
-            block.to_markdown().strip() for block in self.blocks if block.to_markdown().strip()
-        ).strip()
-        tag = "<details open>" if self.open else "<details>"
-        return f"{tag}<summary>{summary}</summary>\n\n{body}\n\n</details>"
-
-
-@dataclass(frozen=True)
 class RichThinking:
     text: str
 
     def to_markdown(self) -> str:
-        body = normalize_rich_text(self.text)
+        body = normalize_thinking_text(self.text)
         if not body:
             return ""
-        return RichDetails("Thinking", [RichParagraph(body)], open=True).to_markdown()
+        heading = RichHeading("Thinking", level=3).to_markdown()
+        return f"{heading}\n\n{body}"
 
 
 @dataclass(frozen=True)
@@ -135,9 +121,7 @@ def format_progress_tail_telegram_rich_markdown(
     *,
     max_table_rows: int = 8,
     verification_table: bool = True,
-    collapsible_details: bool = True,
     thinking_blocks: bool = True,
-    details_open_on_failure: bool = True,
     compact_success: bool = True,
     max_detail_items: int = 8,
 ) -> str:
@@ -148,9 +132,7 @@ def format_progress_tail_telegram_rich_markdown(
         text,
         max_table_rows=max_table_rows,
         verification_table=verification_table,
-        collapsible_details=collapsible_details,
         thinking_blocks=thinking_blocks,
-        details_open_on_failure=details_open_on_failure,
         compact_success=compact_success,
         max_detail_items=max_detail_items,
     )
@@ -162,9 +144,7 @@ def rich_doc_from_progress_tail(
     *,
     max_table_rows: int = 8,
     verification_table: bool = True,
-    collapsible_details: bool = True,
     thinking_blocks: bool = True,
-    details_open_on_failure: bool = True,
     compact_success: bool = True,
     max_detail_items: int = 8,
 ) -> RichDoc:
@@ -205,9 +185,7 @@ def rich_doc_from_progress_tail(
             body_lines,
             max_table_rows=max_table_rows,
             verification_table=verification_table,
-            collapsible_details=collapsible_details,
             thinking_blocks=thinking_blocks,
-            details_open_on_failure=details_open_on_failure,
             compact_success=compact_success,
             max_detail_items=max_detail_items,
         )
@@ -263,9 +241,7 @@ def section_to_blocks(
     *,
     max_table_rows: int,
     verification_table: bool,
-    collapsible_details: bool,
     thinking_blocks: bool,
-    details_open_on_failure: bool,
     compact_success: bool,
     max_detail_items: int,
 ) -> list[RichBlock]:
@@ -274,7 +250,8 @@ def section_to_blocks(
         return []
     title = strip_control_markdown(title)
     if title.lower() == "reasoning" and thinking_blocks:
-        return [RichHeading(title, level=2), RichThinking("\n".join(body))]
+        rich_body = clean_body_lines_preserve_rich(body_lines)
+        return [RichHeading(title, level=2), RichThinking("\n".join(rich_body))]
     if title.lower() == "tools":
         blocks: list[RichBlock] = [RichHeading(title, level=2)]
         signals = tool_signals(body)
@@ -300,16 +277,13 @@ def section_to_blocks(
         if compact_success and signals and not failed:
             detail_lines = []
         detail_lines = clamp_detail_lines(detail_lines, max_detail_items)
-        if collapsible_details and detail_lines:
-            blocks.append(
-                RichDetails(
-                    "Recent tool details",
-                    [RichList(detail_lines)],
-                    open=bool(failed and details_open_on_failure),
-                )
+        if detail_lines:
+            blocks.extend(
+                [
+                    RichHeading("Recent tool details", level=3),
+                    RichList(detail_lines),
+                ]
             )
-        elif detail_lines:
-            blocks.append(RichList(detail_lines))
         return blocks
     return [RichHeading(title, level=2), RichParagraph("\n".join(body))]
 
@@ -339,6 +313,16 @@ def clean_body_lines(lines: Sequence[str]) -> list[str]:
     cleaned = []
     for line in lines:
         text = strip_control_markdown(line)
+        text = shorten_paths(text)
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def clean_body_lines_preserve_rich(lines: Sequence[str]) -> list[str]:
+    cleaned = []
+    for line in lines:
+        text = str(line or "").strip()
         text = shorten_paths(text)
         if text:
             cleaned.append(text)
@@ -455,6 +439,25 @@ def strip_control_markdown(text: str) -> str:
 def normalize_rich_text(text: str) -> str:
     lines = [shorten_paths(strip_control_markdown(line)) for line in str(text or "").splitlines()]
     return "\n".join(line for line in lines if line.strip()).strip()
+
+
+def normalize_thinking_text(text: str) -> str:
+    separated = separate_inline_reasoning_headings(str(text or ""))
+    lines = [shorten_paths(line.strip()) for line in separated.splitlines()]
+    return "\n".join(line for line in lines if line.strip()).strip()
+
+
+def separate_inline_reasoning_headings(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        heading = match.group("heading").strip()
+        body = match.group("body").lstrip()
+        return f"{heading}\n{body}" if body else heading
+
+    return re.sub(
+        r"(?m)^(?P<heading>(?:\*\*\*[^*\n][^\n]*?\*\*\*|\*\*[^*\n][^\n]*?\*\*|__[^_\n][^\n]*?__))(?P<body>[ \t]*\S.*)$",
+        replace,
+        text,
+    )
 
 
 def table_cell(value: str) -> str:

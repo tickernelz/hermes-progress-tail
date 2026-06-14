@@ -409,6 +409,7 @@ def test_pre_tool_call_does_not_emit_fake_assistant_progress(monkeypatch):
 
 def test_status_reports_assistant_capture_diagnostics(monkeypatch):
     import hermes_progress_tail.plugin as plugin
+    from hermes_progress_tail.runtime import commands
 
     plugin._renderer = None
     plugin._record_assistant_capture(
@@ -422,6 +423,7 @@ def test_status_reports_assistant_capture_diagnostics(monkeypatch):
         plugin, "_load_runtime_config", lambda: {"plugins": {"enabled": ["hermes-progress-tail"]}}
     )
     monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings({}))
+    monkeypatch.setattr(commands, "_latest_release_info", lambda: None)
 
     status = plugin._command("status")
 

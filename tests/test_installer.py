@@ -138,6 +138,7 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
                 "progress_tail": {
                     "enabled": True,
                     "tools": {"lines": 5, "timestamp": False},
+                    "telegram": {"collapsible_details": True, "details_open_on_failure": True},
                     "finalization": {"policy": "delete"},
                     "renderer": {"strategy": "live_tail"},
                 }
@@ -155,6 +156,8 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     assert config["progress_tail"]["delegates"]["enabled"] is True
     assert config["progress_tail"]["delegates"]["max_delegates"] == 4
     assert config["progress_tail"]["todo"]["hide_tool_line"] is True
+    assert "collapsible_details" not in config["progress_tail"]["telegram"]
+    assert "details_open_on_failure" not in config["progress_tail"]["telegram"]
     assert "default_notify_on_complete" not in config["progress_tail"]["background_jobs"]
     assert config["progress_tail"]["patch"]["detail"] == "smart"
     assert "finalization" not in config["progress_tail"]
@@ -164,6 +167,8 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     assert any("progress_tail.todo" in message for message in result.messages)
     assert any(
         "Removed retired config keys: progress_tail.finalization" in message
+        and "progress_tail.telegram.collapsible_details" in message
+        and "progress_tail.telegram.details_open_on_failure" in message
         for message in result.messages
     )
 

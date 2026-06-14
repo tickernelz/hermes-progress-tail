@@ -82,9 +82,7 @@ def _telegram_rich_markdown(content: str) -> str:
         content,
         max_table_rows=getattr(settings, "max_table_rows", 8),
         verification_table=getattr(settings, "verification_table", True),
-        collapsible_details=getattr(settings, "collapsible_details", True),
         thinking_blocks=getattr(settings, "thinking_blocks", True),
-        details_open_on_failure=getattr(settings, "details_open_on_failure", True),
         compact_success=getattr(settings, "compact_success", True),
         max_detail_items=getattr(settings, "max_detail_items", 8),
     )

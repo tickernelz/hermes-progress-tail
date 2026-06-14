@@ -22,7 +22,7 @@ Compact Hermes gateway plugin for live progress tails.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.75/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.76/install.sh | bash
 ```
 
 Restart Hermes manually after install/update:
@@ -34,7 +34,7 @@ Restart Hermes manually after install/update:
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.75/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.76/uninstall.sh | bash
 ```
 
 By default, the installer is interactive and asks for target profile plus setup depth. It never restarts Hermes automatically.
@@ -49,16 +49,16 @@ Use environment variables for automation:
 - `HPT_ALL_PROFILES=1` — install/update default plus every discovered profile.
 - `HERMES_HOME=/path/to/.hermes` — target a custom Hermes home.
 - `HPT_REPO=owner/repo` — download from another GitHub repo.
-- `HPT_REF=v0.1.75` — download a specific tag/branch/ref.
+- `HPT_REF=v0.1.76` — download a specific tag/branch/ref.
 - `HPT_SOURCE_DIR=/path/to/repo` — install from a local checkout instead of downloading.
 
 Examples:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.75/install.sh | env HPT_INTERACTIVE=0 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.75/install.sh | env HPT_DRY_RUN=1 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.75/install.sh | env HPT_PROFILES=work,personal bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.75/install.sh | env HPT_ALL_PROFILES=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.76/install.sh | env HPT_INTERACTIVE=0 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.76/install.sh | env HPT_DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.76/install.sh | env HPT_PROFILES=work,personal bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.76/install.sh | env HPT_ALL_PROFILES=1 bash
 ```
 
 Local checkout install:
@@ -171,10 +171,8 @@ progress_tail:
   telegram:
     rich_messages: true # default-on; falls back to MarkdownV2 if Bot API rich edit/send is unavailable
     verification_table: true
-    collapsible_details: true
     thinking_blocks: true
     max_table_rows: 8
-    details_open_on_failure: true
     compact_success: true
     max_detail_items: 8
 
@@ -206,7 +204,7 @@ progress_tail:
 
 `platforms.<name>` overrides support `enabled`, `strategy`, line/preview/edit timing fields, `show_completed`, feature toggles (`tools_enabled`, `assistant_enabled`, `reasoning_enabled`, `delegates_enabled`, `background_jobs_enabled`), and timestamps.
 
-Telegram rich progress is default-on. When Bot API 10.1 rich messages are available, progress bubbles are prepared as Rich Markdown so Telegram can render headings, status tables, verification tables, collapsible tool details, and thinking/details blocks natively. Failed terminal gates are promoted above generic details and open the details block by default; success-only cards stay compact unless `compact_success` is disabled. If rich edit/send is unsupported or Telegram rejects a rich payload, the plugin falls back to the existing MarkdownV2 live-edit path and latches rich edits off for that adapter on capability failures.
+Telegram rich progress is default-on. When Bot API 10.1 rich messages are available, progress bubbles are prepared as Rich Markdown so Telegram can render headings, status tables, verification tables, visible tool details, and non-collapsible thinking blocks natively. Failed terminal gates are promoted above generic details; success-only cards stay compact unless `compact_success` is disabled. `/progresstail status` uses the same readable Markdown styling and shows an update notice only when a newer GitHub release exists. If rich edit/send is unsupported or Telegram rejects a rich payload, the plugin falls back to the existing MarkdownV2 live-edit path and latches rich edits off for that adapter on capability failures.
 
 Turn lifecycle is internal: completed progress bubbles stay visible, but new user turns get new progress bubbles after the prior final answer. If a background job is still visible, its progress bubble can keep updating.
 

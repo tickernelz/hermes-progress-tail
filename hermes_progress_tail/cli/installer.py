@@ -90,10 +90,8 @@ DEFAULT_CONFIG = {
     "telegram": {
         "rich_messages": True,
         "verification_table": True,
-        "collapsible_details": True,
         "thinking_blocks": True,
         "max_table_rows": 8,
-        "details_open_on_failure": True,
         "compact_success": True,
         "max_detail_items": 8,
     },
@@ -318,6 +316,14 @@ def _prune_removed_defaults(target: dict[str, Any]) -> list[str]:
     if isinstance(background_jobs, dict) and "default_notify_on_complete" in background_jobs:
         background_jobs.pop("default_notify_on_complete", None)
         removed.append("progress_tail.background_jobs.default_notify_on_complete")
+    telegram = target.get("telegram")
+    if isinstance(telegram, dict):
+        if "collapsible_details" in telegram:
+            telegram.pop("collapsible_details", None)
+            removed.append("progress_tail.telegram.collapsible_details")
+        if "details_open_on_failure" in telegram:
+            telegram.pop("details_open_on_failure", None)
+            removed.append("progress_tail.telegram.details_open_on_failure")
     return removed
 
 

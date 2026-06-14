@@ -1,6 +1,5 @@
 from hermes_progress_tail.monkeypatches import format_progress_tail_telegram_rich_markdown
 from hermes_progress_tail.rendering.telegram_rich import (
-    RichDetails,
     RichDoc,
     RichHeading,
     RichParagraph,
@@ -10,7 +9,7 @@ from hermes_progress_tail.rendering.telegram_rich import (
 )
 
 
-def test_telegram_rich_document_renders_markdown_blocks():
+def test_telegram_rich_document_renders_markdown_blocks_without_collapsible_details():
     doc = RichDoc(
         [
             RichHeading("Verification evidence", level=2),
@@ -19,11 +18,8 @@ def test_telegram_rich_document_renders_markdown_blocks():
                 headers=("Command", "Result"),
                 rows=(("`pytest -q`", "✅ pass"), ("`make verify`", "❌ fail")),
             ),
-            RichDetails(
-                "Raw command output",
-                [RichPreformatted("FAIL tests/test_demo.py", language="text")],
-                open=False,
-            ),
+            RichHeading("Raw command output", level=3),
+            RichPreformatted("FAIL tests/test_demo.py", language="text"),
         ]
     )
 
@@ -32,7 +28,8 @@ def test_telegram_rich_document_renders_markdown_blocks():
     assert payload == {"markdown": doc.to_markdown()}
     assert "## Verification evidence" in payload["markdown"]
     assert "| Command | Result |" in payload["markdown"]
-    assert "<details><summary>Raw command output</summary>" in payload["markdown"]
+    assert "### Raw command output" in payload["markdown"]
+    assert "<details" not in payload["markdown"]
     assert "```text\nFAIL tests/test_demo.py\n```" in payload["markdown"]
 
 
@@ -55,14 +52,31 @@ def test_telegram_rich_formatter_adds_verification_table_details_and_short_paths
     rich = format_progress_tail_telegram_rich_markdown(content, max_table_rows=4)
 
     assert "## Hermes is working" in rich
-    assert "<details open><summary>Thinking</summary>" in rich
+    assert "### Thinking" in rich
+    assert "<details" not in rich
     assert "| Command | Result |" in rich
     assert "`python -m pytest tests/test_telegram_format_monkeypatch.py -q`" in rich
     assert "| `make verify` | ❌ failed · 12s |" in rich
     assert "| `git diff --check` | → running |" in rich
-    assert "<details open><summary>Recent tool details</summary>" in rich
+    assert "### Recent tool details" in rich
     assert "…/telegram_rich.py:1+240" in rich
     assert "/home/zhafron/Projects/hermes-progress-tail" not in rich
+
+
+def test_telegram_rich_reasoning_keeps_inner_heading_on_its_own_line():
+    content = "\n".join(
+        [
+            "**__Reasoning__**",
+            "**Considering visibility options**I think the composer should remain visible.",
+        ]
+    )
+
+    rich = format_progress_tail_telegram_rich_markdown(content)
+
+    assert "### Thinking" in rich
+    assert "**Considering visibility options**\nI think the composer should remain visible." in rich
+    assert "**Considering visibility options**I think" not in rich
+    assert "<details" not in rich
 
 
 def test_telegram_rich_formatter_builds_status_table_and_failure_first_tools():
@@ -85,7 +99,6 @@ def test_telegram_rich_formatter_builds_status_table_and_failure_first_tools():
     rich = format_progress_tail_telegram_rich_markdown(
         content,
         max_table_rows=8,
-        details_open_on_failure=True,
         compact_success=True,
         max_detail_items=2,
     )
@@ -96,13 +109,13 @@ def test_telegram_rich_formatter_builds_status_table_and_failure_first_tools():
     assert "## Failed tools" in rich
     assert rich.index("## Failed tools") < rich.index("## Verification evidence")
     assert "| `ruff check .` | ❌ failed · 0.2s |" in rich
-    assert "<details open><summary>Recent tool details</summary>" in rich
+    assert "### Recent tool details" in rich
     assert "- ✅ terminal: pytest -q · done · 1.1s" in rich
     assert "- ❌ terminal: ruff check . · failed · 0.2s" in rich
     assert "2 more tool events" in rich
 
 
-def test_telegram_rich_formatter_compacts_success_details_by_default_but_can_show_them():
+def test_telegram_rich_formatter_compacts_success_details_by_default_but_can_show_visible_details():
     content = "\n".join(
         [
             "**__Tools__**",
@@ -115,5 +128,7 @@ def test_telegram_rich_formatter_compacts_success_details_by_default_but_can_sho
     verbose = format_progress_tail_telegram_rich_markdown(content, compact_success=False)
 
     assert "| `pytest -q` | ✅ done · 1.1s |" in compact
-    assert "<details><summary>Recent tool details</summary>" not in compact
-    assert "<details><summary>Recent tool details</summary>" in verbose
+    assert "### Recent tool details" not in compact
+    assert "### Recent tool details" in verbose
+    assert "<details" not in compact
+    assert "<details" not in verbose
