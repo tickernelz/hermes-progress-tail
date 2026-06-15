@@ -263,6 +263,44 @@ def test_telegram_send_patch_renders_plan_items_as_rich_bullets(monkeypatch):
     asyncio.run(run())
 
 
+def test_telegram_send_patch_unwraps_whole_card_fence_without_flattening_paragraphs(monkeypatch):
+    install_fake_gateway_base(monkeypatch)
+
+    async def run():
+        uninstall_telegram_format_monkeypatch(GatewayLikeTelegramAdapter)
+        assert install_telegram_format_monkeypatch(GatewayLikeTelegramAdapter) is True
+        adapter = GatewayLikeTelegramAdapter()
+
+        result = await adapter.send(
+            "123",
+            "\n".join(
+                [
+                    "## Progress",
+                    "",
+                    "```text",
+                    "First paragraph.",
+                    "",
+                    "Second paragraph.",
+                    "",
+                    "**__Tools__**",
+                    "✅ terminal: pytest -q · done · 0.3s",
+                    "```",
+                ]
+            ),
+        )
+
+        assert result.success is True
+        kwargs = adapter.rich_request.await_args.kwargs["api_kwargs"]
+        rich_markdown = kwargs["rich_message"]["markdown"]
+        assert "```" not in rich_markdown
+        assert "## Tools" in rich_markdown
+        assert "| `pytest -q` | ✅ done · 0.3s |" in rich_markdown
+        assert "## Progress\n\nFirst paragraph.\n\nSecond paragraph." in rich_markdown
+        adapter._bot.send_message.assert_not_awaited()
+
+    asyncio.run(run())
+
+
 def test_telegram_send_patch_keeps_expect_edits_messages_legacy(monkeypatch):
     install_fake_gateway_base(monkeypatch)
 

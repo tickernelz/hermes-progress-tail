@@ -39,7 +39,7 @@ class RichParagraph:
     text: str
 
     def to_markdown(self) -> str:
-        return normalize_rich_text(self.text)
+        return hard_break_rich_lines(normalize_rich_text(self.text))
 
 
 @dataclass(frozen=True)
@@ -87,7 +87,7 @@ class RichThinking:
     text: str
 
     def to_markdown(self) -> str:
-        return normalize_thinking_text(self.text)
+        return hard_break_rich_lines(normalize_thinking_text(self.text))
 
 
 @dataclass(frozen=True)
@@ -300,7 +300,8 @@ def progress_section_title(line: str) -> str:
 
 
 def _is_code_fence(line: str) -> bool:
-    return str(line or "").strip().startswith("```")
+    text = strip_control_markdown(str(line or "").strip())
+    return text.startswith("```")
 
 
 def _is_retired_rich_subheading(line: str) -> bool:
@@ -511,6 +512,11 @@ def normalize_rich_text(text: str) -> str:
     separated = separate_inline_rich_headings(str(text or ""))
     lines = [shorten_paths(strip_control_markdown(line)) for line in separated.splitlines()]
     return "\n".join(line for line in lines if line.strip()).strip()
+
+
+def hard_break_rich_lines(text: str) -> str:
+    """Use paragraph breaks for lines Telegram rich Markdown may treat as soft wraps."""
+    return "\n\n".join(line.strip() for line in str(text or "").splitlines() if line.strip())
 
 
 def normalize_thinking_text(text: str) -> str:

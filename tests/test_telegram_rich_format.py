@@ -144,6 +144,77 @@ def test_telegram_rich_reformats_embedded_progress_sections_without_code_block_w
     assert "| `pytest -q` | ✅ done · 1.1s |" in rich
 
 
+def test_telegram_rich_reasoning_keeps_visible_line_and_paragraph_breaks():
+    content = "\n".join(
+        [
+            "**__Reasoning__**",
+            "***Security & ops*** - install scripts, CI, config, dependencies, .gitignore hygiene",
+            "Let me also check some things myself:",
+            "- Is build/ directory committed or gitignored?",
+            "- Is .venv/ committed or gitignored?",
+            "",
+            "Let me dispatch 3 subagents in parallel.",
+        ]
+    )
+
+    rich = format_progress_tail_telegram_rich_markdown(content)
+
+    assert "## Reasoning" in rich
+    assert "### Security & ops" in rich
+    assert "- install scripts, CI, config, dependencies, .gitignore hygiene" in rich
+    assert "hygiene\nLet me also check" not in rich
+    assert "hygiene\n\nLet me also check" in rich
+    assert "gitignored?\nLet me dispatch" not in rich
+    assert "gitignored?\n\nLet me dispatch" in rich
+
+
+def test_telegram_rich_strips_italic_wrapped_code_fence_markers_from_progress():
+    content = "\n".join(
+        [
+            "**__Progress__**",
+            "*Aku baca tests dulu, lalu implement fix.*",
+            "*```python*",
+            '*return [RichHeading(title, level=2), RichParagraph("\\n".join(body))]*',
+            "*```*",
+            "**__Tools__**",
+            "✅ terminal: pytest -q · done · 1.1s",
+        ]
+    )
+
+    rich = format_progress_tail_telegram_rich_markdown(content)
+
+    assert "## Progress" in rich
+    assert "```" not in rich
+    assert "return [RichHeading" in rich
+    assert "## Tools" in rich
+    assert "| `pytest -q` | ✅ done · 1.1s |" in rich
+
+
+def test_telegram_rich_embedded_progress_card_preserves_paragraph_breaks_after_unwrap():
+    content = "\n".join(
+        [
+            "## Progress",
+            "",
+            "```text",
+            "First paragraph line 1.",
+            "First paragraph line 2.",
+            "",
+            "Second paragraph starts here.",
+            "```",
+        ]
+    )
+
+    rich = format_progress_tail_telegram_rich_markdown(content)
+
+    assert "```" not in rich
+    assert (
+        "## Progress\n\n"
+        "First paragraph line 1.\n\n"
+        "First paragraph line 2.\n\n"
+        "Second paragraph starts here."
+    ) in rich
+
+
 def test_telegram_rich_formatter_builds_status_table_and_failure_first_tools():
     content = "\n".join(
         [
