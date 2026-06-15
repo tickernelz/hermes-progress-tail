@@ -101,10 +101,50 @@ def test_focused_footer_renders_normal_environment_snapshot(monkeypatch):
 
         content = adapter.sent[-1][1]
         assert "**__Status__**" in content
-        assert "ctx 82k/256k est · custom:gpt-5.5 · profile default · live_tail" in content
+        assert (
+            "ctx 82k/256k est · compacted 0x · custom:gpt-5.5 · profile default · live_tail"
+            in content
+        )
         assert "git main* +1 · worktree main · cwd " in content
         assert "cwd ." not in content
         assert "hermes-progress-tail" in content
+
+    asyncio.run(run())
+
+
+def test_footer_renders_per_progress_compaction_count_and_resets_on_new_context(monkeypatch):
+    async def run():
+        monkeypatch.setattr(footer_module, "_latest_release_info", lambda: None, raising=False)
+        env = EnvironmentSnapshot(
+            context_tokens=82_000,
+            context_window=256_000,
+            context_kind="est",
+            model="gpt-5.5",
+            provider="custom",
+            profile="default",
+            cwd="/home/example/Projects/hermes-progress-tail",
+        )
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        ctx = make_ctx(adapter, env=env)
+        renderer.register_context(ctx)
+
+        assert ctx.compaction_count == 0
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "first"), force=True)
+        assert "compacted 0x" in adapter.sent[-1][1]
+
+        ctx.compaction_count = 2
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "second"), force=True)
+        assert "compacted 2x" in adapter.edits[-1][2]
+
+        adapter2 = EditableAdapter()
+        compact_renderer = make_renderer({"footer": {"density": "compact"}})
+        fresh_ctx = make_ctx(adapter2, env=env)
+        compact_renderer.register_context(fresh_ctx)
+        await compact_renderer.handle_event(ToolEvent("s1", "k1", "telegram", "fresh"), force=True)
+
+        assert fresh_ctx.compaction_count == 0
+        assert "compacted 0x" in adapter2.sent[-1][1]
 
     asyncio.run(run())
 
@@ -295,7 +335,10 @@ def test_runtime_hook_updates_footer_environment_from_agent(monkeypatch):
         await asyncio.sleep(0.05)
 
         content = adapter.sent[-1][1]
-        assert "ctx 82k/256k est · custom:gpt-5.5 · profile default · live_tail" in content
+        assert (
+            "ctx 82k/256k est · compacted 0x · custom:gpt-5.5 · profile default · live_tail"
+            in content
+        )
         assert "git feature/footer* +2 -1 · worktree hermes-progress-tail · cwd " in content
         assert "cwd ." not in content
         assert "hermes-progress-tail" in content
@@ -355,7 +398,10 @@ def test_terminal_post_tool_updates_footer_cwd_from_live_terminal_env(monkeypatc
 
         assert ctx.environment.cwd == "/tmp/project/subdir"
         content = adapter.sent[-1][1]
-        assert "ctx 82k/256k est · custom:gpt-5.5 · profile dev_profile · live_tail" in content
+        assert (
+            "ctx 82k/256k est · compacted 0x · custom:gpt-5.5 · profile dev_profile · live_tail"
+            in content
+        )
         assert "cwd /tmp/project/subdir" in content
         assert "profiles/dev_profile" not in content
 
@@ -452,7 +498,7 @@ def test_tool_hooks_refresh_footer_context_from_current_agent(monkeypatch):
         assert ctx.environment.context_window == 256_000
         assert ctx.environment.model == "custom/gpt-5.5"
         assert ctx.environment.provider == "custom:local"
-        assert "ctx 125k/256k est · custom:gpt-5.5" in adapter.sent[-1][1]
+        assert "ctx 125k/256k est · compacted 0x · custom:gpt-5.5" in adapter.sent[-1][1]
 
     asyncio.run(run())
 

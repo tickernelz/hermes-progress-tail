@@ -38,6 +38,7 @@ def register_context(self, ctx: SessionContext) -> None:
             ctx.last_reasoning_source = existing.last_reasoning_source
             ctx.last_reasoning_chars = existing.last_reasoning_chars
             ctx.last_reasoning_at = existing.last_reasoning_at
+            ctx.compaction_count = existing.compaction_count
         ctx.background_jobs = existing.background_jobs
         ctx.background_order = existing.background_order
         ctx.progress_state = "active"

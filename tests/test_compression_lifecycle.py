@@ -82,6 +82,7 @@ def test_renderer_migrates_active_context_across_compression_session_rotation():
             force=True,
         )
         assert ctx.message_id == "m1"
+        ctx.compaction_count = 2
 
         migrated = renderer.migrate_context("old-session", "new-session", session_key="stable-key")
         assert migrated is True
@@ -90,6 +91,7 @@ def test_renderer_migrates_active_context_across_compression_session_rotation():
         assert renderer.find_context("", "stable-key") is ctx
         assert ctx.session_id == "new-session"
         assert ctx.message_id == "m1"
+        assert ctx.compaction_count == 2
 
         await renderer.handle_event(
             ToolEvent("new-session", "stable-key", "telegram", "after compression"),
@@ -117,12 +119,14 @@ def test_renderer_migration_cancels_pending_delete_for_reactivated_progress():
         await renderer.finalize(session_id="old-session", success=True)
         assert ctx.delete_task is not None
         assert not ctx.delete_task.done()
+        ctx.compaction_count = 2
 
         renderer.migrate_context("old-session", "new-session", session_key="stable-key")
 
         assert ctx.progress_state == "active"
         assert ctx.delete_task is None or ctx.delete_task.cancelled()
         assert ctx.message_id == "m1"
+        assert ctx.compaction_count == 2
 
     asyncio.run(run())
 
@@ -176,6 +180,7 @@ def test_compression_lifecycle_monkeypatch_migrates_progress_context_and_reports
         assert result[0] == [{"role": "user", "content": "compressed"}]
         assert renderer.find_context("new-session", "stable-key") is ctx
         assert renderer.find_context("old-session", "") is None
+        assert ctx.compaction_count == 1
         latest = adapter.edits[-1][2]
         assert "Context compacted" in latest
         assert "357 → 1 messages" in latest

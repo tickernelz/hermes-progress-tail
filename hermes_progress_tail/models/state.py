@@ -162,6 +162,7 @@ class SessionContext:
     source_message_id: str | None = None
     lock: Any = field(default_factory=asyncio.Lock)
     environment: EnvironmentSnapshot = field(default_factory=EnvironmentSnapshot)
+    compaction_count: int = 0
 
     @property
     def line_buffer(self) -> deque[str]:

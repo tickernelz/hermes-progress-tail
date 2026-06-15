@@ -67,6 +67,7 @@ def _normal_footer(
     first = _clean_parts(
         [
             _context_label(env),
+            _compaction_label(ctx),
             _model_label(env),
             _profile_label(env),
             _strategy_label(ctx, env),
@@ -95,6 +96,7 @@ def _compact_footer(
     parts = _clean_parts(
         [
             _context_percent_label(env) or _context_label(env),
+            _compaction_label(ctx),
             _short_model_label(env),
             _git_label(env),
             _short_cwd_label(env, settings=settings),
@@ -130,6 +132,14 @@ def _context_percent_label(env: EnvironmentSnapshot) -> str:
         return ""
     percent = round((env.context_tokens / env.context_window) * 100)
     return f"ctx {percent}%"
+
+
+def _compaction_label(ctx: SessionContext) -> str:
+    try:
+        count = max(0, int(getattr(ctx, "compaction_count", 0)))
+    except (TypeError, ValueError):
+        count = 0
+    return f"compacted {count}x"
 
 
 def _model_label(env: EnvironmentSnapshot) -> str:

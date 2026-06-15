@@ -113,6 +113,7 @@ def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> 
     if phase == "started":
         text = "Compacting context — summarizing earlier conversation"
     elif phase == "completed":
+        ctx.compaction_count = max(0, int(getattr(ctx, "compaction_count", 0))) + 1
         text = _compression_lifecycle_completed_text(data)
     elif phase == "failed":
         text = "Context compaction failed — continuing unchanged"
