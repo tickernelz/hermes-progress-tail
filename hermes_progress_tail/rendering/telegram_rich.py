@@ -249,7 +249,7 @@ def section_to_blocks(
     title = strip_control_markdown(title)
     if title.lower() == "reasoning" and thinking_blocks:
         rich_body = clean_body_lines_preserve_rich(body_lines)
-        return [RichHeading(title, level=2), RichThinking("\n".join(rich_body))]
+        return [RichHeading(title, level=2), *reasoning_rich_blocks(rich_body)]
     if title.lower() == "tools":
         blocks: list[RichBlock] = [RichHeading(title, level=2)]
         signals = tool_signals(body)
@@ -332,6 +332,48 @@ def clean_body_lines_preserve_rich(lines: Sequence[str]) -> list[str]:
         if text:
             cleaned.append(text)
     return cleaned
+
+
+def reasoning_rich_blocks(lines: Sequence[str]) -> list[RichBlock]:
+    text = separate_inline_rich_headings("\n".join(lines))
+    blocks: list[RichBlock] = []
+    paragraph_lines: list[str] = []
+
+    def flush_paragraph() -> None:
+        nonlocal paragraph_lines
+        paragraph = "\n".join(line for line in paragraph_lines if line.strip()).strip()
+        if paragraph:
+            blocks.append(RichThinking(paragraph))
+        paragraph_lines = []
+
+    for raw_line in text.splitlines():
+        line = str(raw_line or "").strip()
+        if not line:
+            flush_paragraph()
+            continue
+        title = inline_rich_heading_title(line)
+        if title:
+            flush_paragraph()
+            blocks.append(RichHeading(title, level=3))
+            continue
+        paragraph_lines.append(line)
+    flush_paragraph()
+    return blocks or [RichParagraph("\n".join(lines))]
+
+
+def inline_rich_heading_title(line: str) -> str:
+    text = str(line or "").strip()
+    patterns = (
+        r"^\*\*\*([^*\n][\s\S]*?)\*\*\*$",
+        r"^\*\*([^*\n][\s\S]*?)\*\*$",
+        r"^__([^_\n][\s\S]*?)__$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, text)
+        if match:
+            title = strip_control_markdown(match.group(1)).strip("*_ ").strip()
+            return title
+    return ""
 
 
 def verification_rows(lines: Sequence[str], *, max_rows: int) -> tuple[tuple[str, str], ...]:

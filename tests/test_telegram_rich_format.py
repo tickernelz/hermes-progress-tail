@@ -45,7 +45,7 @@ def test_telegram_rich_formatter_adds_verification_table_details_and_short_paths
             "✅ terminal: python -m pytest tests/test_telegram_format_monkeypatch.py -q · done · 1.2s",
             "❌ terminal: make verify · failed · 12s",
             "→ terminal: git diff --check · running",
-            "✅ read_file: /home/zhafron/Projects/hermes-progress-tail/hermes_progress_tail/rendering/telegram_rich.py:1+240 · done · 0.1s",
+            "✅ read_file: /workspace/hermes-progress-tail/hermes_progress_tail/rendering/telegram_rich.py:1+240 · done · 0.1s",
         ]
     )
 
@@ -61,14 +61,15 @@ def test_telegram_rich_formatter_adds_verification_table_details_and_short_paths
     assert "### Recent tool details" not in rich
     assert "- ✅ read_file: …/telegram_rich.py:1+240 · done · 0.1s" in rich
     assert "…/telegram_rich.py:1+240" in rich
-    assert "/home/zhafron/Projects/hermes-progress-tail" not in rich
+    assert "/workspace/hermes-progress-tail" not in rich
 
 
-def test_telegram_rich_reasoning_keeps_inner_heading_on_its_own_line_without_extra_subheading():
+def test_telegram_rich_reasoning_promotes_inner_titles_to_heading_blocks():
     content = "\n".join(
         [
             "**__Reasoning__**",
             "**Considering visibility options**I think the composer should remain visible.",
+            "***Planning the commit message***Before committing, I am checking the diff scope.",
             "***Designing footer options****I should keep status metadata separate.*",
         ]
     )
@@ -77,9 +78,16 @@ def test_telegram_rich_reasoning_keeps_inner_heading_on_its_own_line_without_ext
 
     assert "## Reasoning" in rich
     assert "### Thinking" not in rich
-    assert "**Considering visibility options**\nI think the composer should remain visible." in rich
-    assert "***Designing footer options***\n*I should keep status metadata separate.*" in rich
+    assert (
+        "### Considering visibility options\n\nI think the composer should remain visible." in rich
+    )
+    assert (
+        "### Planning the commit message\n\nBefore committing, I am checking the diff scope."
+        in rich
+    )
+    assert "### Designing footer options\n\n*I should keep status metadata separate.*" in rich
     assert "**Considering visibility options**I think" not in rich
+    assert "***Planning the commit message***" not in rich
     assert "***Designing footer options****I" not in rich
     assert "<details" not in rich
 
@@ -124,7 +132,7 @@ def test_telegram_rich_reformats_embedded_progress_sections_without_code_block_w
     assert "### Thinking" not in rich
     assert "### Recent tool details" not in rich
     assert "## Reasoning" in rich
-    assert "***Designing footer options***\n*I should fix footer status.*" in rich
+    assert "### Designing footer options\n\n*I should fix footer status.*" in rich
     assert "## Tools" in rich
     assert "| `pytest -q` | ✅ done · 1.1s |" in rich
 

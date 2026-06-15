@@ -201,6 +201,36 @@ def test_telegram_renderer_uses_raw_rich_send_for_initial_capable_messages(monke
     asyncio.run(run())
 
 
+def test_telegram_send_patch_promotes_reasoning_titles_in_rich_payload(monkeypatch):
+    install_fake_gateway_base(monkeypatch)
+
+    async def run():
+        uninstall_telegram_format_monkeypatch(GatewayLikeTelegramAdapter)
+        assert install_telegram_format_monkeypatch(GatewayLikeTelegramAdapter) is True
+        adapter = GatewayLikeTelegramAdapter()
+
+        result = await adapter.send(
+            "123",
+            "\n".join(
+                [
+                    "**__Reasoning__**",
+                    "***Planning the commit message***Before committing, I am checking the diff scope.",
+                ]
+            ),
+        )
+
+        assert result.success is True
+        adapter.rich_request.assert_awaited_once()
+        kwargs = adapter.rich_request.await_args.kwargs["api_kwargs"]
+        rich_markdown = kwargs["rich_message"]["markdown"]
+        assert "## Reasoning" in rich_markdown
+        assert "### Planning the commit message\n\nBefore committing" in rich_markdown
+        assert "***Planning the commit message***" not in rich_markdown
+        adapter._bot.send_message.assert_not_awaited()
+
+    asyncio.run(run())
+
+
 def test_telegram_send_patch_keeps_expect_edits_messages_legacy(monkeypatch):
     install_fake_gateway_base(monkeypatch)
 
