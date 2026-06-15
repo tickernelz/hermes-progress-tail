@@ -231,6 +231,38 @@ def test_telegram_send_patch_promotes_reasoning_titles_in_rich_payload(monkeypat
     asyncio.run(run())
 
 
+def test_telegram_send_patch_renders_plan_items_as_rich_bullets(monkeypatch):
+    install_fake_gateway_base(monkeypatch)
+
+    async def run():
+        uninstall_telegram_format_monkeypatch(GatewayLikeTelegramAdapter)
+        assert install_telegram_format_monkeypatch(GatewayLikeTelegramAdapter) is True
+        adapter = GatewayLikeTelegramAdapter()
+
+        result = await adapter.send(
+            "123",
+            "\n".join(
+                [
+                    "**__Plan__**",
+                    "✓ Inspect renderer output",
+                    "→ **Add RED tests**for Plan bullet rendering · 2 queued",
+                ]
+            ),
+        )
+
+        assert result.success is True
+        adapter.rich_request.assert_awaited_once()
+        kwargs = adapter.rich_request.await_args.kwargs["api_kwargs"]
+        rich_markdown = kwargs["rich_message"]["markdown"]
+        assert "## Plan" in rich_markdown
+        assert "- ✓ Inspect renderer output" in rich_markdown
+        assert "- → **Add RED tests**\n  for Plan bullet rendering · 2 queued" in rich_markdown
+        assert "\n→ **Add RED tests**" not in rich_markdown
+        adapter._bot.send_message.assert_not_awaited()
+
+    asyncio.run(run())
+
+
 def test_telegram_send_patch_keeps_expect_edits_messages_legacy(monkeypatch):
     install_fake_gateway_base(monkeypatch)
 

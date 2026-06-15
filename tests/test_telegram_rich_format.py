@@ -92,18 +92,25 @@ def test_telegram_rich_reasoning_promotes_inner_titles_to_heading_blocks():
     assert "<details" not in rich
 
 
-def test_telegram_rich_plan_keeps_inner_heading_on_its_own_line():
+def test_telegram_rich_plan_renders_items_as_bullets_with_continuation_lines():
     content = "\n".join(
         [
             "**__Plan__**",
+            "✓ Inspect renderer output",
             "→ **Add RED tests**for prompt cache and footer update rendering · 2 queued",
+            "… 2 queued",
         ]
     )
 
     rich = format_progress_tail_telegram_rich_markdown(content)
 
     assert "## Plan" in rich
-    assert "→ **Add RED tests**\nfor prompt cache and footer update rendering · 2 queued" in rich
+    assert "- ✓ Inspect renderer output" in rich
+    assert (
+        "- → **Add RED tests**\n  for prompt cache and footer update rendering · 2 queued" in rich
+    )
+    assert "- … 2 queued" in rich
+    assert "\n→ **Add RED tests**" not in rich
     assert "**Add RED tests**for prompt" not in rich
 
 

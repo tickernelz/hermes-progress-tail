@@ -57,9 +57,7 @@ class RichList:
     items: Sequence[str]
 
     def to_markdown(self) -> str:
-        return "\n".join(
-            f"- {normalize_rich_text(item)}" for item in self.items if str(item).strip()
-        )
+        return "\n".join(rich_list_item_markdown(item) for item in self.items if str(item).strip())
 
 
 @dataclass(frozen=True)
@@ -250,6 +248,8 @@ def section_to_blocks(
     if title.lower() == "reasoning" and thinking_blocks:
         rich_body = clean_body_lines_preserve_rich(body_lines)
         return [RichHeading(title, level=2), *reasoning_rich_blocks(rich_body)]
+    if title.lower() == "plan":
+        return [RichHeading(title, level=2), RichList(plan_detail_lines(body_lines))]
     if title.lower() == "tools":
         blocks: list[RichBlock] = [RichHeading(title, level=2)]
         signals = tool_signals(body)
@@ -332,6 +332,25 @@ def clean_body_lines_preserve_rich(lines: Sequence[str]) -> list[str]:
         if text:
             cleaned.append(text)
     return cleaned
+
+
+def plan_detail_lines(lines: Sequence[str]) -> list[str]:
+    return [
+        _strip_list_marker(shorten_paths(str(line or "").strip()))
+        for line in lines
+        if str(line or "").strip()
+    ]
+
+
+def rich_list_item_markdown(item: str) -> str:
+    body = normalize_rich_text(item)
+    if not body:
+        return ""
+    lines = body.splitlines()
+    first, *rest = lines
+    if not rest:
+        return f"- {first}"
+    return "\n".join([f"- {first}", *(f"  {line}" for line in rest)])
 
 
 def reasoning_rich_blocks(lines: Sequence[str]) -> list[RichBlock]:
