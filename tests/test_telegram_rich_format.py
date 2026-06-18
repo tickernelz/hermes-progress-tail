@@ -119,7 +119,7 @@ def test_telegram_rich_reformats_embedded_progress_sections_without_code_block_w
         [
             "## Progress",
             "",
-            "⬆️ update v0.1.81",
+            "⬆️ update v0.1.82",
             "",
             "```text",
             "But raw focused content with MarkdownV2.",
