@@ -306,14 +306,14 @@ def focused_plan(items: tuple[TodoItem, ...], *, settings: Settings) -> str:
     pending = [item for item in items if item.status == "pending"]
     cancelled = [item for item in items if item.status == "cancelled"]
 
-    for item in completed[:2]:
-        lines.append("✓ " + truncate_text(item.content, settings.todo.max_item_chars))
-    for item in in_progress[:1]:
-        lines.append("→ " + truncate_text(item.content, settings.todo.max_item_chars))
-    if pending:
-        lines.append(f"… {len(pending)} queued")
-    for item in cancelled[:1]:
-        lines.append("× " + truncate_text(item.content, settings.todo.max_item_chars))
+    for item in completed:
+        lines.append("✓ " + item.content.strip())
+    for item in in_progress:
+        lines.append("→ " + item.content.strip())
+    for item in pending:
+        lines.append("… " + item.content.strip())
+    for item in cancelled:
+        lines.append("× " + item.content.strip())
     return "\n".join(lines)
 
 

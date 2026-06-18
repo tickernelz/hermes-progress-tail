@@ -244,7 +244,8 @@ def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():
         assert "**Planning task execution**" in content
         assert "**__Plan__**\n✓ inspect adapter contract" in content
         assert "→ implement plain-live sanitizer" in content
-        assert "… 2 queued" in content
+        assert "… verify targeted tests" in content
+        assert "… run full suite" in content
         assert "**__Delegates__**\n" in content
         assert "**__Background__**\n" in content
         assert "**__Tools__**\n✓ read_file · telegram.py:3108" in content

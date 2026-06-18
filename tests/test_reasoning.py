@@ -440,7 +440,7 @@ third chunk is newest"""
 
     rendered = render_reasoning_tail(text, max_lines=4, max_chars=55, redact=False)
 
-    assert rendered == "be old\nsecond chunk should remain\nthird chunk is newest"
+    assert rendered == "... second chunk should remain\nthird chunk is newest"
     assert "Need inspect hooks" not in rendered
 
 

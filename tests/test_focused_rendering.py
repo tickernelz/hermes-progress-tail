@@ -107,3 +107,25 @@ def test_focused_plain_platform_keeps_plain_titles_and_body():
         assert "_Thinking_" not in content
 
     asyncio.run(run())
+
+
+def test_focused_plan_renders_all_items_without_truncating_text():
+    from hermes_progress_tail.rendering.focused import focused_plan
+    from hermes_progress_tail.state import TodoItem
+
+    settings = load_settings({"progress_tail": {"todo": {"max_item_chars": 12}}})
+    items = (
+        TodoItem("completed item with readable full sentence", "completed"),
+        TodoItem("current item with readable full sentence", "in_progress"),
+        TodoItem("first pending item with readable full sentence", "pending"),
+        TodoItem("second pending item with readable full sentence", "pending"),
+        TodoItem("cancelled item with readable full sentence", "cancelled"),
+    )
+
+    assert focused_plan(items, settings=settings) == (
+        "✓ completed item with readable full sentence\n"
+        "→ current item with readable full sentence\n"
+        "… first pending item with readable full sentence\n"
+        "… second pending item with readable full sentence\n"
+        "× cancelled item with readable full sentence"
+    )

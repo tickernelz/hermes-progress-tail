@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 from ..utils.redaction import redact_text
+from ..utils.text import truncate_tail_text
 
 _REASONING_TAG_NAMES = r"think|thinking|reasoning|thought|analysis|REASONING_SCRATCHPAD"
 _CODE_FENCE_RE = re.compile(r"^`{3,}")
@@ -276,10 +277,10 @@ def _cap_chars(text: str, max_chars: int, *, preserve_first_line: bool = False) 
         heading = lines[0].strip()
         budget = max_chars - len(heading) - 1
         if budget <= 3:
-            return text[-max_chars:].lstrip()
+            return truncate_tail_text(text, max_chars)
         body = "\n".join(lines[1:]).strip()
         return heading + "\n" + truncate_to_sentence_boundary(body, budget)
-    return text[-max_chars:].lstrip()
+    return truncate_tail_text(text, max_chars)
 
 
 def truncate_to_sentence_boundary(text: str, max_chars: int) -> str:

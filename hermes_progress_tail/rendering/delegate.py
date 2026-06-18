@@ -49,6 +49,7 @@ class DelegateProgressRenderer:
                 branch.duration_seconds = 0.0
                 branch.tool_count = 0
                 branch.lifecycle_started = False
+                branch.thinking_text = ""
             branch.task_index = event.task_index
             branch.task_count = event.task_count or branch.task_count
             branch.goal = event.goal or branch.goal
@@ -78,14 +79,7 @@ class DelegateProgressRenderer:
                 return
             text = event.preview or event.tool_name or event.summary
             if text:
-                branch.lines.append(
-                    DelegateLine(
-                        "update",
-                        self._delegate_line(
-                            f"thinking: {text}", self.settings.delegates.max_line_chars
-                        ),
-                    )
-                )
+                self._apply_delegate_thinking(branch, text)
             return
         branch.status = event.status or (
             "running" if branch.status in {"", "pending"} else branch.status
@@ -135,6 +129,36 @@ class DelegateProgressRenderer:
         if not text:
             return None
         return DelegateLine("update", text)
+
+    def _apply_delegate_thinking(self, branch: DelegateBranch, text: str) -> None:
+        merged = self._merge_thinking_text(branch.thinking_text, text)
+        branch.thinking_text = merged
+        line = DelegateLine(
+            "thinking",
+            self._delegate_line(
+                merged, max(1, self.settings.delegates.max_line_chars - len("thinking: "))
+            ),
+        )
+        for idx in range(len(branch.lines) - 1, -1, -1):
+            if branch.lines[idx].kind == "thinking":
+                branch.lines[idx] = line
+                return
+        branch.lines.append(line)
+
+    @staticmethod
+    def _merge_thinking_text(previous: str, current: str) -> str:
+        prior = re.sub(r"\s+", " ", str(previous or "")).strip()
+        text = re.sub(r"\s+", " ", str(current or "")).strip()
+        if not prior:
+            return text
+        if not text or text == prior:
+            return prior
+        if text.startswith(prior):
+            return text
+        if prior.endswith(text):
+            return prior
+        joiner = "" if prior[-1:].isspace() or text[:1].isspace() else " "
+        return prior + joiner + text
 
     def _format_delegate_tool_line(self, event: DelegateEvent) -> DelegateLine | None:
         args = event_preview_args(event)
@@ -552,6 +576,8 @@ class DelegateProgressRenderer:
             return f"debug: {item.text}"
         if item.kind == "summary":
             return item.text
+        if item.kind == "thinking":
+            return f"thinking: {item.text}"
         return f"update: {item.text}"
 
     @staticmethod

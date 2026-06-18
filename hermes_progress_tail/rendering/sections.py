@@ -6,7 +6,7 @@ from collections.abc import Callable
 from ..models.state import AssistantLine, SessionContext, TodoItem, ToolEvent
 from ..settings.config import Settings
 from ..utils.redaction import redact_text
-from ..utils.text import truncate_text
+from ..utils.text import truncate_tail_text, truncate_text
 from .focused import compose_focused_content
 from .footer import sectioned_footer
 
@@ -57,7 +57,7 @@ def assistant_tail(lines: tuple[AssistantLine, ...], *, max_lines: int, max_char
         visible = visible[-max_lines:]
     rendered = "\n".join(visible).strip()
     if max_chars > 0 and len(rendered) > max_chars:
-        rendered = truncate_text(rendered[-max_chars:].lstrip(), max_chars)
+        rendered = truncate_tail_text(rendered, max_chars)
     return rendered
 
 

@@ -30,6 +30,7 @@ def install_delegate_monkeypatches(delegate_module: Any | None = None) -> bool:
     def patched_build_child_progress_callback(*args, **kwargs):
         original_cb = original(*args, **kwargs)
         task_index, goal, parent_agent = _extract_delegate_builder_args(args, kwargs)
+        builder_identity = _delegate_builder_identity(args, kwargs, task_index, goal)
 
         def progress_tail_delegate_callback(
             event_type,
@@ -49,6 +50,8 @@ def install_delegate_monkeypatches(delegate_module: Any | None = None) -> bool:
             try:
                 from ..runtime.plugin import on_delegate_progress_from_agent
 
+                for key, value in builder_identity.items():
+                    event_kwargs.setdefault(key, value)
                 if "task_index" not in event_kwargs:
                     event_kwargs["task_index"] = task_index
                 if "goal" not in event_kwargs and goal:
@@ -88,6 +91,19 @@ def _extract_delegate_builder_args(args, kwargs) -> tuple[int, str, Any]:
     except (TypeError, ValueError):
         task_index = 0
     return task_index, str(goal or ""), parent_agent
+
+
+def _delegate_builder_identity(args, kwargs, task_index: int, goal: str) -> dict[str, Any]:
+    identity: dict[str, Any] = {"task_index": task_index, "goal": goal}
+    task_count = kwargs.get("task_count")
+    if task_count is None and len(args) > 3:
+        task_count = args[3]
+    if task_count is not None:
+        identity["task_count"] = task_count
+    for key in ("subagent_id", "parent_id", "depth", "model", "toolsets"):
+        if key in kwargs and kwargs[key] is not None:
+            identity[key] = kwargs[key]
+    return identity
 
 
 def uninstall_delegate_monkeypatches(delegate_module: Any | None = None) -> bool:

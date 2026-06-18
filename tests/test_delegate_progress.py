@@ -227,6 +227,51 @@ def test_delegate_monkeypatch_preserves_original_callback_and_flush(monkeypatch)
     asyncio.run(run())
 
 
+def test_delegate_monkeypatch_preserves_current_builder_identity_kwargs(monkeypatch):
+    async def run():
+        adapter = EditableAdapter()
+        plugin._renderer = None
+        monkeypatch.setattr(
+            plugin,
+            "_load_runtime_settings",
+            lambda: load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "delegates": {"show_model": True},
+                    }
+                }
+            ),
+        )
+        _on_pre_gateway_dispatch(Event(), Gateway(adapter), SessionStore())
+
+        def original_builder(*args, **kwargs):
+            _ = args, kwargs
+            return None
+
+        delegate_module = SimpleNamespace(_build_child_progress_callback=original_builder)
+        uninstall_delegate_monkeypatches(delegate_module)
+        assert install_delegate_monkeypatches(delegate_module) is True
+
+        cb = delegate_module._build_child_progress_callback(
+            task_index=1,
+            goal="check current Hermes delegate identity kwargs",
+            parent_agent=ParentAgent(),
+            task_count=3,
+            subagent_id="current-sa",
+            model="custom/current-model",
+        )
+        cb("subagent.start")
+        await asyncio.sleep(0.05)
+
+        content = adapter.sent[0][1]
+        assert "[2/3] → running · check current Hermes delegate identity kwargs" in content
+        assert "custom/current-model" in content
+        uninstall_delegate_monkeypatches(delegate_module)
+
+    asyncio.run(run())
+
+
 def make_ctx(adapter):
     return SessionContext(
         "s1",
@@ -297,6 +342,55 @@ def test_completed_delegate_cleanup_uses_default_five_second_ttl():
         assert "sa-running" in renderer.sessions["s1"].delegate_branches
         assert "done delegate" not in adapter.edits[-1][2]
         assert "running delegate" in adapter.edits[-1][2]
+
+    asyncio.run(run())
+
+
+def test_delegate_thinking_updates_replace_fragmented_text():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "delegates": {"thinking": "summary", "max_line_chars": 58},
+                    }
+                }
+            )
+        )
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-thinking",
+                event_type="subagent.thinking",
+                goal="review truncation",
+                preview="I need to inspect the renderer",
+            ),
+            force=True,
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "s1",
+                "k1",
+                "discord",
+                "sa-thinking",
+                event_type="subagent.thinking",
+                goal="review truncation",
+                preview="I need to inspect the renderer and verify the truncation boundary stays readable",
+            ),
+            force=True,
+        )
+
+        content = adapter.edits[-1][2]
+        assert content.count("thinking:") == 1
+        assert "thinking: I need to inspect the renderer and..." not in content
+        assert "thinking: I need to inspect the renderer and verify..." in content
 
     asyncio.run(run())
 

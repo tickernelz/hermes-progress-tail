@@ -136,7 +136,8 @@ def test_delegate_thinking_summary_uses_structured_line():
         )
 
         content = adapter.sent[0][1]
-        assert "update: thinking: checking files" in content
+        assert "thinking: checking files" in content
+        assert "update: thinking:" not in content
         assert "DelegateLine(" not in content
 
     asyncio.run(run())
