@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 import threading
+import time
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from ..models.state import (
@@ -279,6 +281,8 @@ def _context_for_non_background_thread(
             session_id,
             bool(session_key),
         )
+    else:
+        _reactivate_foreground_context(renderer, ctx)
     return ctx
 
 
@@ -316,6 +320,32 @@ def _resolve_tool_agent(
     return context.get("agent"), context.get("messages")
 
 
+def _tool_context_lookup_ids(
+    tool_name: str, session_id: str = "", task_id: str = "", tool_call_id: str = ""
+) -> tuple[str, str]:
+    context = _tool_agent_context(tool_name, session_id, task_id, tool_call_id)
+    session_key = str(context.get("session_key") or "")
+    if session_key:
+        return "", session_key
+    return str(session_id or context.get("session_id") or task_id or ""), str(task_id or "")
+
+
+def _reactivate_foreground_context(renderer: ProgressRenderer, ctx: SessionContext) -> None:
+    if ctx.progress_state == "active":
+        return
+    if ctx.progress_state not in {"finalized", "deleted"}:
+        return
+    was_deleted = ctx.progress_state == "deleted"
+    with suppress(Exception):
+        renderer._cancel_delete(ctx)
+    ctx.progress_state = "active"
+    ctx.finalized_at = 0.0
+    ctx.started_at = time.monotonic()
+    if was_deleted:
+        ctx.message_id = None
+        ctx.can_edit = False
+
+
 def _on_pre_tool_call(
     tool_name: str,
     args: dict | None = None,
@@ -329,8 +359,11 @@ def _on_pre_tool_call(
     from . import plugin as runtime_plugin
 
     renderer = runtime_plugin._get_renderer()
+    lookup_session_id, lookup_session_key = runtime_plugin._tool_context_lookup_ids(
+        tool_name, session_id, task_id, tool_call_id
+    )
     ctx = runtime_plugin._context_for_non_background_thread(
-        renderer, session_id or task_id, task_id
+        renderer, lookup_session_id, lookup_session_key
     )
     if ctx is None:
         return None
@@ -392,8 +425,11 @@ def _on_post_tool_call(
     from . import plugin as runtime_plugin
 
     renderer = runtime_plugin._get_renderer()
+    lookup_session_id, lookup_session_key = runtime_plugin._tool_context_lookup_ids(
+        tool_name, session_id, task_id, tool_call_id
+    )
     ctx = runtime_plugin._context_for_non_background_thread(
-        renderer, session_id or task_id, task_id
+        renderer, lookup_session_id, lookup_session_key
     )
     if ctx is None:
         return None

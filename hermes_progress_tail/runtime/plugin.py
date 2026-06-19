@@ -96,6 +96,7 @@ from .tool_events import (
     _json_obj,
     _on_post_tool_call,
     _on_pre_tool_call,
+    _reactivate_foreground_context,
     _resolve_tool_agent,
     _schedule_background_job_cleanup,
     _schedule_background_job_poll,
@@ -103,6 +104,7 @@ from .tool_events import (
     _suppress_native_background_notify,
     _terminal_background_requested,
     _tool_agent_context,
+    _tool_context_lookup_ids,
 )
 
 __all__ = [
@@ -166,6 +168,7 @@ __all__ = [
     "_positive_int_kw",
     "_pre_gateway_session_context",
     "_progress_tail_enabled",
+    "_reactivate_foreground_context",
     "_reasoning_conflict_warning",
     "_record_assistant_capture",
     "_register_context",
@@ -185,6 +188,7 @@ __all__ = [
     "_terminal_live_cwd",
     "_timestamp_seconds",
     "_tool_agent_context",
+    "_tool_context_lookup_ids",
     "_topic_recovered_source",
     "_update_environment_from_agent",
     "_update_environment_from_terminal",
