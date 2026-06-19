@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO="${HPT_REPO:-tickernelz/hermes-progress-tail}"
-REF="${HPT_REF:-v0.1.82}"
+REF="${HPT_REF:-v0.1.83}"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 DRY_RUN="${HPT_DRY_RUN:-0}"
 SOURCE_DIR="${HPT_SOURCE_DIR:-}"
