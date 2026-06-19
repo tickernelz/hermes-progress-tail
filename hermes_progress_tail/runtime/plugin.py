@@ -85,13 +85,17 @@ from .environment import (
     _update_environment_from_agent,
     _update_environment_from_terminal,
 )
+from .origin import (
+    _is_background_review_agent,
+    _is_background_review_thread,
+    _should_suppress_agent_progress,
+)
 from .tool_events import (
     _background_job_event_is_terminal,
     _compact_result_status,
     _context_for_non_background_thread,
     _context_owned_by_current_thread,
     _duration_text,
-    _is_background_review_thread,
     _is_context_owner_thread,
     _json_obj,
     _on_post_tool_call,
@@ -150,6 +154,7 @@ __all__ = [
     "_git_snapshot",
     "_int_kw",
     "_interim_conflict_warning",
+    "_is_background_review_agent",
     "_is_background_review_thread",
     "_is_context_owner_thread",
     "_is_telegram_dm_source",
@@ -180,6 +185,7 @@ __all__ = [
     "_schedule_finalize",
     "_schedule_render",
     "_session_key",
+    "_should_suppress_agent_progress",
     "_source_with_thread_id",
     "_suppress_native_background_notify",
     "_telegram_general_topic_ids",

@@ -277,11 +277,16 @@ def _wrap_stream_delta_callback(agent: Any, callback: Any) -> Any:
 
 def _agent_reasoning_enabled(agent: Any) -> bool:
     try:
-        from ..runtime.plugin import _get_renderer
+        from ..runtime.plugin import (
+            _agent_session_id,
+            _agent_session_key,
+            _get_renderer,
+            _should_suppress_agent_progress,
+        )
 
+        if _should_suppress_agent_progress(agent):
+            return False
         renderer = _get_renderer()
-        from ..runtime.plugin import _agent_session_id, _agent_session_key
-
         session_id = _agent_session_id(agent)
         session_key = _agent_session_key(agent)
         ctx = renderer.find_context(session_id, session_key)

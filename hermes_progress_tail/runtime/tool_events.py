@@ -18,6 +18,7 @@ from ..models.state import (
 )
 from ..rendering.formatter import extract_todo_items, format_tool_line
 from .context import _context_for
+from .origin import _is_background_review_thread
 
 logger = logging.getLogger(__name__)
 
@@ -251,11 +252,6 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
         job.poll_task = task
 
 
-def _is_background_review_thread() -> bool:
-    thread_name = threading.current_thread().name
-    return thread_name == "bg-review" or thread_name.startswith("bg-review:")
-
-
 def _is_context_owner_thread(ctx: SessionContext) -> bool:
     owner_thread_id = int(getattr(ctx, "owner_thread_id", 0) or 0)
     return not owner_thread_id or owner_thread_id == threading.get_ident()
@@ -359,6 +355,16 @@ def _on_pre_tool_call(
     from . import plugin as runtime_plugin
 
     renderer = runtime_plugin._get_renderer()
+    agent, messages = runtime_plugin._resolve_tool_agent(
+        agent, tool_name, session_id, task_id, tool_call_id
+    )
+    if runtime_plugin._should_suppress_agent_progress(agent):
+        logger.debug(
+            "hermes-progress-tail ignored background-review tool event: tool=%s thread=%s",
+            tool_name,
+            threading.current_thread().name,
+        )
+        return None
     lookup_session_id, lookup_session_key = runtime_plugin._tool_context_lookup_ids(
         tool_name, session_id, task_id, tool_call_id
     )
@@ -380,9 +386,6 @@ def _on_pre_tool_call(
         bool(ctx.session_key),
         threading.current_thread().name,
         tool_call_id,
-    )
-    agent, messages = runtime_plugin._resolve_tool_agent(
-        agent, tool_name, session_id, task_id, tool_call_id
     )
     runtime_plugin._update_environment_from_agent(ctx, agent, messages=messages)
     if tool_name == "terminal":
@@ -425,6 +428,16 @@ def _on_post_tool_call(
     from . import plugin as runtime_plugin
 
     renderer = runtime_plugin._get_renderer()
+    agent, messages = runtime_plugin._resolve_tool_agent(
+        agent, tool_name, session_id, task_id, tool_call_id
+    )
+    if runtime_plugin._should_suppress_agent_progress(agent):
+        logger.debug(
+            "hermes-progress-tail ignored background-review post-tool event: tool=%s thread=%s",
+            tool_name,
+            threading.current_thread().name,
+        )
+        return None
     lookup_session_id, lookup_session_key = runtime_plugin._tool_context_lookup_ids(
         tool_name, session_id, task_id, tool_call_id
     )
@@ -449,9 +462,6 @@ def _on_post_tool_call(
         _compact_result_status(result),
         duration_ms,
         tool_call_id,
-    )
-    agent, messages = runtime_plugin._resolve_tool_agent(
-        agent, tool_name, session_id, task_id, tool_call_id
     )
     runtime_plugin._update_environment_from_agent(ctx, agent, messages=messages)
     if tool_name == "terminal":

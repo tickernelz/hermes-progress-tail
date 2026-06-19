@@ -45,6 +45,8 @@ def on_reasoning_delta_from_agent(
     if not text:
         return
     runtime_plugin = _runtime_plugin()
+    if runtime_plugin._should_suppress_agent_progress(agent):
+        return
     renderer = runtime_plugin._get_renderer()
     session_id = runtime_plugin._agent_session_id(agent)
     session_key = runtime_plugin._agent_session_key(agent)
@@ -62,6 +64,8 @@ def on_compression_status_from_agent(agent: Any, text: str) -> bool:
     if not clean:
         return False
     runtime_plugin = _runtime_plugin()
+    if runtime_plugin._should_suppress_agent_progress(agent):
+        return False
     renderer = runtime_plugin._get_renderer()
     session_id = runtime_plugin._agent_session_id(agent)
     session_key = runtime_plugin._agent_session_key(agent)
@@ -94,6 +98,8 @@ def _compression_status_tail_text(text: str) -> str:
 
 def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> bool:
     runtime_plugin = _runtime_plugin()
+    if runtime_plugin._should_suppress_agent_progress(agent):
+        return False
     renderer = runtime_plugin._get_renderer()
     old_session_id = str(data.get("old_session_id") or "")
     new_session_id = str(
@@ -165,6 +171,11 @@ def on_assistant_progress_from_agent(
 ) -> bool:
     clean = str(text or "").strip()
     runtime_plugin = _runtime_plugin()
+    if runtime_plugin._should_suppress_agent_progress(agent):
+        runtime_plugin._record_assistant_capture(
+            "background_review", text=clean, already_streamed=already_streamed
+        )
+        return False
     if not clean:
         runtime_plugin._record_assistant_capture("empty", already_streamed=already_streamed)
         return False
@@ -221,6 +232,8 @@ def on_delegate_progress_from_agent(
 ) -> None:
     _ = args
     runtime_plugin = _runtime_plugin()
+    if runtime_plugin._should_suppress_agent_progress(parent_agent):
+        return
     renderer = runtime_plugin._get_renderer()
     session_id = runtime_plugin._agent_session_id(parent_agent)
     session_key = runtime_plugin._agent_session_key(parent_agent)
@@ -356,6 +369,8 @@ def _reset_inline_reasoning(agent: Any) -> None:
 def _on_post_llm_call(session_id: str = "", agent: Any = None, **_: Any):
     runtime_plugin = _runtime_plugin()
     _reset_inline_reasoning(agent)
+    if runtime_plugin._should_suppress_agent_progress(agent):
+        return None
     runtime_plugin._schedule_finalize(
         session_id=session_id, session_key=runtime_plugin._agent_session_key(agent)
     )
@@ -372,6 +387,8 @@ def _on_session_reset(session_id: str = "", platform: str = "", agent: Any = Non
 def _on_session_finalize(session_id: str = "", platform: str = "", agent: Any = None, **_: Any):
     _reset_inline_reasoning(agent)
     runtime_plugin = _runtime_plugin()
+    if runtime_plugin._should_suppress_agent_progress(agent):
+        return None
     runtime_plugin._schedule_finalize(
         session_id=session_id,
         platform=platform,
