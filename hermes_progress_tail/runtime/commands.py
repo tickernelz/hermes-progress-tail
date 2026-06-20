@@ -269,7 +269,7 @@ def _update_command(args: str) -> str:
         return _update_usage()
     explicit_ref = _validate_update_ref(str(parsed["ref"] or ""))
     if parsed["ref"] and not explicit_ref:
-        return "Invalid update ref. Use a tag/branch/ref like v0.1.87."
+        return "Invalid update ref. Use a tag/branch/ref like vX.Y.Z."
     from . import plugin as runtime_plugin
 
     latest = None if explicit_ref else _fresh_latest_release_info()
