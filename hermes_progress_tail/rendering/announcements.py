@@ -8,7 +8,7 @@ from ..utils.text import truncate_text
 
 OFFICIAL_ANNOUNCEMENTS_URL = "https://hackmd.io/@egoi_TW8Qk-ZUxVvQJS6Bg/Syy_KzNMMx/download"
 DEFAULT_TIMEOUT_SECONDS = 2.0
-DEFAULT_TTL_SECONDS = 900.0
+DEFAULT_TTL_SECONDS = 180.0
 DEFAULT_MAX_CHARS = 900
 _ANNOUNCEMENTS_CACHE: dict[str, object] = {"checked_at": 0.0, "text": ""}
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)

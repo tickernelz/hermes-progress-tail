@@ -62,6 +62,12 @@ def make_ctx(adapter, *, env=None, platform="telegram"):
     )
 
 
+def test_announcement_refresh_interval_is_three_minutes():
+    from hermes_progress_tail.rendering.announcements import DEFAULT_TTL_SECONDS
+
+    assert DEFAULT_TTL_SECONDS == 180.0
+
+
 def test_announcement_markdown_sanitizer_keeps_markdown_but_removes_empty_noise():
     from hermes_progress_tail.rendering.announcements import sanitize_announcement_markdown
 
