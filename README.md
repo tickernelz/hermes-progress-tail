@@ -22,7 +22,7 @@ Compact Hermes gateway plugin for live progress tails.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.90/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.91/install.sh | bash
 ```
 
 Restart Hermes manually after install/update:
@@ -34,7 +34,7 @@ Restart Hermes manually after install/update:
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.90/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.91/uninstall.sh | bash
 ```
 
 By default, the installer is interactive and asks for target profile plus setup depth. It never restarts Hermes automatically.
@@ -49,16 +49,16 @@ Use environment variables for automation:
 - `HPT_ALL_PROFILES=1` — install/update default plus every discovered profile.
 - `HERMES_HOME=/path/to/.hermes` — target a custom Hermes home.
 - `HPT_REPO=owner/repo` — download from another GitHub repo.
-- `HPT_REF=v0.1.90` — download a specific tag/branch/ref.
+- `HPT_REF=v0.1.91` — download a specific tag/branch/ref.
 - `HPT_SOURCE_DIR=/path/to/repo` — install from a local checkout instead of downloading.
 
 Examples:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.90/install.sh | env HPT_INTERACTIVE=0 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.90/install.sh | env HPT_DRY_RUN=1 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.90/install.sh | env HPT_PROFILES=work,personal bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.90/install.sh | env HPT_ALL_PROFILES=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.91/install.sh | env HPT_INTERACTIVE=0 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.91/install.sh | env HPT_DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.91/install.sh | env HPT_PROFILES=work,personal bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.1.91/install.sh | env HPT_ALL_PROFILES=1 bash
 ```
 
 Local checkout install:
@@ -210,7 +210,7 @@ Turn lifecycle is internal: completed progress bubbles stay visible, but new use
 /progresstail jobs
 /progresstail update --dry-run
 /progresstail update --apply
-/progresstail update --apply --ref v0.1.90
+/progresstail update --apply --ref v0.1.91
 /progresstail config cleanup --dry-run
 /progresstail config cleanup --apply
 /progresstail demo
