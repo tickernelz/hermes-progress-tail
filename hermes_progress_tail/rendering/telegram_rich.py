@@ -283,18 +283,36 @@ def section_to_blocks(
     return [RichHeading(title, level=2), RichParagraph("\n".join(body))]
 
 
+_PROGRESS_SECTION_TITLES = {
+    "progress",
+    "reasoning",
+    "plan",
+    "delegates",
+    "background",
+    "background jobs",
+    "tools",
+    "debug",
+    "announcements",
+    "status",
+    "failed tools",
+    "verification evidence",
+}
+
+
 def progress_section_title(line: str) -> str:
     text = str(line or "").strip()
     patterns = (
-        r"^\*\*__([^*\n]+)__\*\*$",
-        r"^##\s+(.+?)\s*$",
-        r"^▰\s*(?:[\w\W]️?\s+)?(.+?)$",
+        (r"^\*\*__([^*\n]+)__\*\*$", False),
+        (r"^##\s+(.+?)\s*$", True),
+        (r"^▰\s*(?:[\w\W]️?\s+)?(.+?)$", False),
     )
-    for pattern in patterns:
+    for pattern, require_known_title in patterns:
         match = re.match(pattern, text)
         if match:
             title = strip_control_markdown(match.group(1))
             title = re.sub(r"^[^A-Za-z0-9]+\s*", "", title).strip()
+            if require_known_title and title.lower() not in _PROGRESS_SECTION_TITLES:
+                continue
             return title
     return ""
 

@@ -251,6 +251,29 @@ def test_telegram_rich_formatter_builds_status_table_and_failure_first_tools():
     assert "2 more tool events" in rich
 
 
+def test_telegram_rich_preserves_markdown_heading_inside_announcements_body():
+    content = "\n".join(
+        [
+            "**Hermes is working**",
+            "────────────────",
+            "**Now** working",
+            "**Why** collecting progress signals",
+            "**State** 1 tools · 0 done · 1 running",
+            "**Time** just now",
+            "**__Announcements__**",
+            "## Semangat!!, dikit lagi rilis HMX",
+            "**__Status__**",
+            "🧠 compacted 0x · custom:gpt-5.5 · profile default · live_tail · reasoning_effort=auto",
+        ]
+    )
+
+    rich = format_progress_tail_telegram_rich_markdown(content)
+
+    assert "## Announcements" in rich
+    assert "Semangat!!, dikit lagi rilis HMX" in rich
+    assert rich.index("## Announcements") < rich.index("## Status")
+
+
 def test_telegram_rich_formatter_compacts_success_details_by_default_but_can_show_visible_details():
     content = "\n".join(
         [
