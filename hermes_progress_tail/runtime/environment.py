@@ -61,6 +61,7 @@ def _update_environment_from_agent(
             git_behind=int(git.get("behind") or 0),
             worktree=str(git.get("worktree") or ""),
             strategy=ctx.strategy,
+            reasoning_effort=_agent_reasoning_effort(agent),
         )
     except Exception:
         logger.debug("hermes-progress-tail environment snapshot update failed", exc_info=True)
@@ -133,6 +134,39 @@ def _agent_string(agent: Any, *attrs: str) -> str:
         if value:
             return str(value)
     return ""
+
+
+def _agent_reasoning_effort(agent: Any) -> str:
+    for attr in (
+        "reasoning_effort",
+        "_reasoning_effort",
+        "reasoningEffort",
+        "reasoning_effort_level",
+    ):
+        value = getattr(agent, attr, None)
+        if value:
+            return str(value).strip()
+    for container_attr in ("reasoning", "reasoning_config", "model_kwargs", "request_kwargs"):
+        value = _nested_reasoning_effort(getattr(agent, container_attr, None))
+        if value:
+            return value
+    return ""
+
+
+def _nested_reasoning_effort(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        direct = value.get("effort") or value.get("reasoning_effort")
+        if direct:
+            return str(direct).strip()
+        nested = value.get("reasoning")
+        if nested is not value:
+            nested_effort = _nested_reasoning_effort(nested)
+            if nested_effort:
+                return nested_effort
+    direct = getattr(value, "effort", None) or getattr(value, "reasoning_effort", None)
+    return str(direct).strip() if direct else ""
 
 
 def _positive_attr(obj: Any, *attrs: str) -> int:

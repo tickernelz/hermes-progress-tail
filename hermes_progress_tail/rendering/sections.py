@@ -7,6 +7,7 @@ from ..models.state import AssistantLine, SessionContext, TodoItem, ToolEvent
 from ..settings.config import Settings
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_tail_text, truncate_text
+from . import announcements
 from .focused import compose_focused_content
 from .footer import sectioned_footer
 
@@ -36,6 +37,9 @@ def compose_content(renderer, ctx: SessionContext) -> str:
         debug = renderer._debug_section(ctx)
         if debug:
             parts.append(debug)
+    announcement = announcements.official_announcements_markdown()
+    if announcement:
+        parts.append(renderer._section("Announcements", "📣", announcement))
     footer = sectioned_footer(ctx, settings=renderer.settings)
     if footer:
         parts.append(footer)

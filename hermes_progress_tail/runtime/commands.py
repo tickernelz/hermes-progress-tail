@@ -83,6 +83,30 @@ def _markdown_table(rows: list[tuple[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _config_reasoning_effort(config: dict) -> str:
+    for path in (
+        ("reasoning", "effort"),
+        ("reasoning", "reasoning_effort"),
+        ("agent", "reasoning", "effort"),
+        ("agent", "reasoning_effort"),
+        ("model", "reasoning", "effort"),
+        ("model", "reasoning_effort"),
+    ):
+        value = _nested_config_value(config, path)
+        if value:
+            return str(value).strip()
+    return "auto"
+
+
+def _nested_config_value(config: dict, path: tuple[str, ...]) -> object:
+    value: object = config
+    for key in path:
+        if not isinstance(value, dict):
+            return ""
+        value = value.get(key)
+    return value or ""
+
+
 def _status_markdown(
     *,
     version: str,
@@ -380,6 +404,7 @@ def _command(raw_args: str = "") -> str:
             f"assistant={'enabled' if settings.assistant.enabled else 'disabled'} max_lines={settings.assistant.max_lines} max_chars={settings.assistant.max_chars}",
             f"assistant_capture={runtime_plugin._ASSISTANT_CAPTURE.get('status', 'never')} already_streamed={runtime_plugin._ASSISTANT_CAPTURE.get('already_streamed', False)} session={runtime_plugin._ASSISTANT_CAPTURE.get('session_id') or '-'} key_present={runtime_plugin._ASSISTANT_CAPTURE.get('session_key_present', False)} at={capture_when}",
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
+            f"reasoning_effort={_config_reasoning_effort(runtime_config)}",
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
             f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} ttl={settings.delegates.completed_ttl_seconds}s thinking={settings.delegates.thinking}",
             f"background_jobs={'enabled' if settings.background_jobs.enabled else 'disabled'} list_running={settings.background_jobs.list_running} show_completed={settings.background_jobs.show_completed} max={settings.background_jobs.max_jobs} ttl={settings.background_jobs.completed_ttl_seconds}s head={settings.background_jobs.head_lines} tail={settings.background_jobs.tail_lines} update={settings.background_jobs.update_interval_seconds}s suppress_native_notify={settings.background_jobs.suppress_native_notify} suppress_watch={settings.background_jobs.suppress_watch_notifications}",

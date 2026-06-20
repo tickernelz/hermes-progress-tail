@@ -89,6 +89,7 @@ class EnvironmentSnapshot:
     git_behind: int = 0
     worktree: str = ""
     strategy: str = ""
+    reasoning_effort: str = ""
 
 
 @dataclass

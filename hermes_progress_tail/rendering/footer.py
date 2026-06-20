@@ -71,6 +71,7 @@ def _normal_footer(
             _model_label(env),
             _profile_label(env),
             _strategy_label(ctx, env),
+            _reasoning_effort_label(env),
         ]
     )
     second = _clean_parts(
@@ -101,6 +102,7 @@ def _compact_footer(
             _git_label(env),
             _short_cwd_label(env, settings=settings),
             _strategy_label(ctx, env),
+            _reasoning_effort_label(env),
         ]
     )
     body = " · ".join(parts)
@@ -157,6 +159,11 @@ def _short_model_label(env: EnvironmentSnapshot) -> str:
 def _provider_label(env: EnvironmentSnapshot) -> str:
     provider = _short_provider(env.provider)
     return f"provider {provider}" if provider else ""
+
+
+def _reasoning_effort_label(env: EnvironmentSnapshot) -> str:
+    effort = str(getattr(env, "reasoning_effort", "") or "").strip()
+    return f"reasoning_effort={effort or 'auto'}"
 
 
 def _profile_label(env: EnvironmentSnapshot) -> str:

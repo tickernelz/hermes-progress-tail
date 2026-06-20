@@ -47,6 +47,7 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
     assert "agent_label:-" in status
     assert "native_gateway=suppress:True" in status
     assert "display.show_reasoning=True" in status
+    assert "reasoning_effort=auto" in status
     assert "warning: display.show_reasoning=true" not in status
     assert "Update available" not in status
 
