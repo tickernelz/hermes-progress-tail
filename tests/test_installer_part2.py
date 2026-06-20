@@ -100,8 +100,7 @@ def test_interactive_cli_selects_profiles_and_features(tmp_path):
         "45\n"  # no_edit.interval_seconds
         "4\n"  # no_edit.min_new_events
         "y\n"  # no_edit.final_summary
-        "6\n"  # no_edit.max_snapshots_per_turn
-        "y\n",  # set_display_off
+        "6\n",  # no_edit.max_snapshots_per_turn
         encoding="utf-8",
     )
     result = subprocess.run(
@@ -178,9 +177,8 @@ def test_interactive_cli_selects_profiles_and_features(tmp_path):
     assert progress_tail["no_edit"]["min_new_events"] == 4
     assert progress_tail["no_edit"]["final_summary"] is True
     assert progress_tail["no_edit"]["max_snapshots_per_turn"] == 6
-    assert config["display"]["tool_progress"] == "off"
-    assert config["display"]["streaming"] is False
-    assert config["streaming"]["enabled"] is False
+    assert "display" not in config
+    assert "streaming" not in config
     assert not (hermes_home / "plugins" / "hermes-progress-tail").exists()
 
 

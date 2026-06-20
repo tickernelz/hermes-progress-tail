@@ -1,5 +1,7 @@
 import logging
 
+import yaml
+
 import hermes_progress_tail.plugin as plugin
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.runtime import commands
@@ -43,7 +45,9 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
     assert "renderer=mode:sectioned strategy:auto style:emoji density:normal" in status
     assert "code_fence" not in status
     assert "agent_label:-" in status
+    assert "native_gateway=suppress:True" in status
     assert "display.show_reasoning=True" in status
+    assert "warning: display.show_reasoning=true" not in status
     assert "Update available" not in status
 
 
@@ -91,7 +95,9 @@ def test_status_hides_update_when_latest_release_is_not_newer(monkeypatch):
     assert "Update available" not in status
 
 
-def test_register_logs_warning_once_for_reasoning_conflict(monkeypatch, caplog):
+def test_register_does_not_warn_for_reasoning_when_native_gateway_suppression_handles_it(
+    monkeypatch, caplog
+):
     plugin._renderer = None
     config = {
         "agent": {"gateway_notify_interval": 0},
@@ -105,12 +111,15 @@ def test_register_logs_warning_once_for_reasoning_conflict(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         plugin.register(ctx)
 
-    assert any("display.show_reasoning=true" in record.message for record in caplog.records)
+    assert not any("display.show_reasoning=true" in record.message for record in caplog.records)
     assert len(ctx.hooks) == 6
     assert ctx.commands[0][0] == "progresstail"
+    assert "config cleanup --dry-run" in ctx.commands[0][2]["args_hint"]
 
 
-def test_register_logs_warning_for_core_notifier_conflict(monkeypatch, caplog):
+def test_register_does_not_warn_for_core_notifier_when_native_gateway_suppression_handles_it(
+    monkeypatch, caplog
+):
     plugin._renderer = None
     config = {
         "agent": {"gateway_notify_interval": 180},
@@ -124,14 +133,15 @@ def test_register_logs_warning_for_core_notifier_conflict(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         plugin.register(ctx)
 
-    assert any(
+    assert not any(
         "agent.gateway_notify_interval is enabled" in record.message for record in caplog.records
     )
     assert len(ctx.hooks) == 6
     assert ctx.commands[0][0] == "progresstail"
+    assert "config cleanup --dry-run" in ctx.commands[0][2]["args_hint"]
 
 
-def test_doctor_reports_display_warning_and_session_errors(monkeypatch):
+def test_doctor_does_not_warn_when_native_gateway_config_is_normal(monkeypatch):
     plugin._renderer = None
     config = {
         "plugins": {"enabled": ["hermes-progress-tail"]},
@@ -156,11 +166,103 @@ def test_doctor_reports_display_warning_and_session_errors(monkeypatch):
 
     doctor = plugin._command("doctor")
 
-    assert "warning: display.tool_progress is not off" in doctor
-    assert "warning: agent.gateway_notify_interval is enabled" in doctor
+    assert "warning: display.tool_progress" not in doctor
+    assert "warning: agent.gateway_notify_interval" not in doctor
     assert "agent.gateway_notify_interval=180" in doctor
     assert "session key: strategy=snapshot" in doctor
     assert "downgraded=edit not supported" in doctor
+
+
+def test_doctor_warns_about_legacy_global_suppression_keys(monkeypatch):
+    plugin._renderer = None
+    config = {
+        "plugins": {"enabled": ["hermes-progress-tail"]},
+        "agent": {"gateway_notify_interval": 0},
+        "display": {
+            "tool_progress": "off",
+            "streaming": False,
+            "show_reasoning": False,
+            "interim_assistant_messages": False,
+        },
+        "streaming": {"enabled": False},
+        "progress_tail": {"enabled": True},
+    }
+    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config)
+    monkeypatch.setattr(plugin, "_load_runtime_settings", lambda: load_settings(config))
+
+    doctor = plugin._command("doctor")
+
+    assert (
+        "warning: display.tool_progress is globally off; progress-tail suppresses native gateway progress plugin-side now"
+        in doctor
+    )
+    assert (
+        "warning: display.streaming is globally false; restore it if you want native streaming outside progress-tail-owned gateway updates"
+        in doctor
+    )
+    assert (
+        "warning: streaming.enabled is globally false; restore it if you want native streaming outside progress-tail-owned gateway updates"
+        in doctor
+    )
+    assert (
+        "warning: display.show_reasoning is globally false; progress-tail suppresses native gateway reasoning plugin-side now"
+        in doctor
+    )
+    assert (
+        "warning: display.interim_assistant_messages is globally false; progress-tail suppresses native gateway interim assistant messages plugin-side now"
+        in doctor
+    )
+    assert (
+        "warning: agent.gateway_notify_interval is globally disabled; progress-tail suppresses native gateway long-running notices plugin-side now"
+        in doctor
+    )
+
+
+def test_config_cleanup_command_dry_run_reports_without_writing(monkeypatch, tmp_path):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    config_path = hermes_home / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "display": {"tool_progress": "off", "show_reasoning": False},
+                "agent": {"gateway_notify_interval": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = config_path.read_text(encoding="utf-8")
+    monkeypatch.setattr(commands, "_hermes_home", lambda: hermes_home)
+
+    output = plugin._command("config cleanup --dry-run")
+
+    assert "Would remove legacy global suppression keys" in output
+    assert "display.tool_progress" in output
+    assert config_path.read_text(encoding="utf-8") == before
+
+
+def test_config_cleanup_command_apply_removes_legacy_values(monkeypatch, tmp_path):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    config_path = hermes_home / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "display": {"tool_progress": "off", "show_reasoning": False, "keep_me": "yes"},
+                "agent": {"gateway_notify_interval": 0, "other": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(commands, "_hermes_home", lambda: hermes_home)
+
+    output = plugin._command("config cleanup --apply")
+
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert "Removed legacy global suppression keys" in output
+    assert config["display"] == {"keep_me": "yes"}
+    assert config["agent"] == {"other": True}
+    assert (hermes_home / "hermes-progress-tail" / "backups").exists()
 
 
 def test_doctor_reports_unknown_and_retired_config_keys(monkeypatch):

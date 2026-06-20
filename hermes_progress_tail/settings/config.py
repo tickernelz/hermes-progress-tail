@@ -89,6 +89,11 @@ class BackgroundJobSettings:
 
 
 @dataclass(frozen=True)
+class NativeGatewaySettings:
+    suppress: bool = True
+
+
+@dataclass(frozen=True)
 class CleanupSettings:
     auto_delete: bool = True
     delay_seconds: int = 5
@@ -173,6 +178,7 @@ class Settings:
     assistant: AssistantSettings = AssistantSettings()
     reasoning: ReasoningSettings = ReasoningSettings()
     background_jobs: BackgroundJobSettings = BackgroundJobSettings()
+    native_gateway: NativeGatewaySettings = NativeGatewaySettings()
     cleanup: CleanupSettings = CleanupSettings()
     footer: FooterSettings = FooterSettings()
     telegram: TelegramSettings = TelegramSettings()
@@ -384,6 +390,9 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     background_raw = (
         section.get("background_jobs") if isinstance(section.get("background_jobs"), dict) else {}
     )
+    native_gateway_raw = (
+        section.get("native_gateway") if isinstance(section.get("native_gateway"), dict) else {}
+    )
     cleanup_raw = section.get("cleanup") if isinstance(section.get("cleanup"), dict) else {}
     footer_raw = section.get("footer") if isinstance(section.get("footer"), dict) else {}
     telegram_raw = section.get("telegram") if isinstance(section.get("telegram"), dict) else {}
@@ -450,6 +459,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         ),
         default_notify_on_complete=_bool(background_raw.get("default_notify_on_complete"), False),
     )
+    native_gateway = NativeGatewaySettings(suppress=_bool(native_gateway_raw.get("suppress"), True))
     cleanup = CleanupSettings(
         auto_delete=_bool(cleanup_raw.get("auto_delete"), True),
         delay_seconds=_int(cleanup_raw.get("delay_seconds"), 5, min_value=0),
@@ -497,6 +507,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         assistant=assistant,
         reasoning=reasoning,
         background_jobs=background_jobs,
+        native_gateway=native_gateway,
         cleanup=cleanup,
         footer=footer,
         telegram=telegram,

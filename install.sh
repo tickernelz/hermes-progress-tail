@@ -64,7 +64,7 @@ if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR" ]]; then
   exit 1
 fi
 
-ARGS=(install --hermes-home "$HERMES_HOME" --source-dir "$SRC_DIR" --set-display-off)
+ARGS=(install --hermes-home "$HERMES_HOME" --source-dir "$SRC_DIR" --native-gateway-suppress)
 ARGS+=("${INSTALL_ARGS[@]}")
 if [[ "$DRY_RUN" == "1" || "$DRY_RUN" == "true" ]]; then
   ARGS+=(--dry-run)

@@ -75,6 +75,9 @@ DEFAULT_CONFIG = {
         "suppress_native_notify": True,
         "suppress_watch_notifications": True,
     },
+    "native_gateway": {
+        "suppress": True,
+    },
     "cleanup": {
         "auto_delete": True,
         "delay_seconds": 5,
@@ -238,6 +241,7 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
             "assistant": copy.deepcopy(DEFAULT_CONFIG["assistant"]),
             "reasoning": copy.deepcopy(DEFAULT_CONFIG["reasoning"]),
             "background_jobs": copy.deepcopy(DEFAULT_CONFIG["background_jobs"]),
+            "native_gateway": copy.deepcopy(DEFAULT_CONFIG["native_gateway"]),
             "renderer": {
                 "strategy": "auto",
                 "edit_interval": defaults.get("edit_interval", 1.5),
@@ -410,38 +414,12 @@ def _update_config(
     if removed_defaults:
         added_defaults.extend(f"removed:{path}" for path in removed_defaults)
     if set_display_off:
-        display = config.setdefault("display", {})
-        if not isinstance(display, dict):
-            config["display"] = display = {}
+        native_gateway = config["progress_tail"].get("native_gateway")
+        if not isinstance(native_gateway, dict):
+            config["progress_tail"]["native_gateway"] = {"suppress": True}
             changed = True
-        if display.get("tool_progress") != "off":
-            display["tool_progress"] = "off"
-            changed = True
-        if display.get("streaming") is not False:
-            display["streaming"] = False
-            changed = True
-        if (
-            _assistant_tail_enabled(config)
-            and display.get("interim_assistant_messages") is not False
-        ):
-            display["interim_assistant_messages"] = False
-            changed = True
-        if _reasoning_tail_enabled(config) and display.get("show_reasoning") is not False:
-            display["show_reasoning"] = False
-            changed = True
-        streaming = config.setdefault("streaming", {})
-        if not isinstance(streaming, dict):
-            config["streaming"] = streaming = {}
-            changed = True
-        if streaming.get("enabled") is not False:
-            streaming["enabled"] = False
-            changed = True
-        agent = config.setdefault("agent", {})
-        if not isinstance(agent, dict):
-            config["agent"] = agent = {}
-            changed = True
-        if agent.get("gateway_notify_interval") != 0:
-            agent["gateway_notify_interval"] = 0
+        elif "suppress" not in native_gateway:
+            native_gateway["suppress"] = True
             changed = True
     return config, changed, added_defaults
 
@@ -461,27 +439,13 @@ def install(
     legacy_dir = hermes_home / "plugins" / LEGACY_PLUGIN_NAME
     config_path = hermes_home / "config.yaml"
     config = _read_yaml(config_path)
-    had_builtin_reasoning_conflict = _builtin_reasoning_conflict(config)
-    had_core_notifier_conflict = _core_notifier_conflict(config)
     updated, _config_changed, added_defaults = _update_config(
         config,
         set_display_off=set_display_off,
         feature_overrides=feature_overrides,
         force_default_config=force_default_config,
     )
-    has_builtin_reasoning_conflict = _builtin_reasoning_conflict(updated)
-    has_core_notifier_conflict = _core_notifier_conflict(updated)
     result = InstallResult(changed=True)
-    if had_builtin_reasoning_conflict or has_builtin_reasoning_conflict:
-        result.messages.append(
-            "warning: display.show_reasoning=true while progress_tail.reasoning.enabled=true; "
-            "duplicate reasoning/final output may occur"
-        )
-    if had_core_notifier_conflict or has_core_notifier_conflict:
-        result.messages.append(
-            "warning: agent.gateway_notify_interval is enabled while progress_tail.enabled=true; "
-            "core Still working notifications use send() and can duplicate progress"
-        )
     if added_defaults:
         added = [item for item in added_defaults if not item.startswith("removed:")]
         removed = [

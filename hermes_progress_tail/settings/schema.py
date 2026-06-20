@@ -63,6 +63,9 @@ PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
         "suppress_native_notify": None,
         "suppress_watch_notifications": None,
     },
+    "native_gateway": {
+        "suppress": None,
+    },
     "cleanup": {
         "auto_delete": None,
         "delay_seconds": None,

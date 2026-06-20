@@ -33,16 +33,10 @@ from .commands import _command
 from .config_runtime import (
     _assistant_tail_enabled,
     _background_job_config_warnings,
-    _builtin_interim_conflict,
-    _builtin_reasoning_conflict,
-    _core_notifier_conflict,
-    _core_notifier_conflict_warning,
     _feature_enabled,
-    _interim_conflict_warning,
     _load_runtime_config,
     _load_runtime_settings,
     _progress_tail_enabled,
-    _reasoning_conflict_warning,
 )
 from .context import (
     _adapter_for,
@@ -130,8 +124,6 @@ __all__ = [
     "_binding_session_id",
     "_bound_telegram_topic_session_id",
     "_branch_count",
-    "_builtin_interim_conflict",
-    "_builtin_reasoning_conflict",
     "_compact_count",
     "_compact_result_status",
     "_compression_lifecycle_completed_text",
@@ -140,8 +132,6 @@ __all__ = [
     "_context_for_non_background_thread",
     "_context_owned_by_current_thread",
     "_context_tokens",
-    "_core_notifier_conflict",
-    "_core_notifier_conflict_warning",
     "_demo_command",
     "_duration_text",
     "_estimate_request_tokens",
@@ -153,7 +143,6 @@ __all__ = [
     "_git_command",
     "_git_snapshot",
     "_int_kw",
-    "_interim_conflict_warning",
     "_is_background_review_agent",
     "_is_background_review_thread",
     "_is_context_owner_thread",
@@ -174,7 +163,6 @@ __all__ = [
     "_pre_gateway_session_context",
     "_progress_tail_enabled",
     "_reactivate_foreground_context",
-    "_reasoning_conflict_warning",
     "_record_assistant_capture",
     "_register_context",
     "_replace_environment_cwd",
@@ -253,12 +241,6 @@ def register(ctx):
         settings.telegram.rich_messages,
         settings.cleanup.auto_delete,
     )
-    if _builtin_interim_conflict(runtime_config):
-        logger.warning(_interim_conflict_warning())
-    if _builtin_reasoning_conflict(runtime_config):
-        logger.warning(_reasoning_conflict_warning())
-    if _core_notifier_conflict(runtime_config):
-        logger.warning(_core_notifier_conflict_warning())
     monkeypatch_ok = install_monkeypatches()
     logger.info("hermes-progress-tail plugin hooks registered: monkeypatches=%s", monkeypatch_ok)
     ctx.register_hook("pre_gateway_dispatch", _on_pre_gateway_dispatch)
@@ -271,5 +253,5 @@ def register(ctx):
         "progresstail",
         _command,
         description="Show hermes-progress-tail plugin status",
-        args_hint="status|doctor|jobs|demo",
+        args_hint="status|doctor|jobs|config cleanup --dry-run|config cleanup --apply|demo",
     )

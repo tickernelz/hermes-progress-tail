@@ -32,11 +32,10 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert (hermes_home / "plugins" / "hermes-progress-tail" / "plugin.yaml").exists()
     config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
     assert "hermes-progress-tail" in config["plugins"]["enabled"]
-    assert config["display"]["tool_progress"] == "off"
-    assert config["display"]["streaming"] is False
-    assert config["display"]["show_reasoning"] is False
-    assert config["streaming"]["enabled"] is False
-    assert config["agent"]["gateway_notify_interval"] == 0
+    assert "display" not in config
+    assert "streaming" not in config
+    assert "agent" not in config
+    assert config["progress_tail"]["native_gateway"]["suppress"] is True
     assert config["progress_tail"]["tools"]["show_completed"] is True
     assert config["progress_tail"]["tools"]["show_duration"] is True
     assert config["progress_tail"]["tools"]["timestamp"] is True
@@ -59,6 +58,31 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert "finalization" not in config["progress_tail"]
     assert "progress_tail" in config
     assert (hermes_home / "hermes-progress-tail" / "backups").exists()
+
+
+def test_install_does_not_overwrite_explicit_native_gateway_opt_out(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    (source / "__init__.py").write_text("def register(ctx): pass\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "progress_tail": {
+                    "enabled": True,
+                    "native_gateway": {"suppress": False},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    install(hermes_home, source, set_display_off=True, dry_run=False)
+
+    config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
+    assert config["progress_tail"]["native_gateway"]["suppress"] is False
 
 
 def test_copy_plugin_ignores_local_generated_artifacts(tmp_path):
@@ -173,7 +197,7 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     )
 
 
-def test_install_disables_core_notifier_with_recommended_display_defaults(tmp_path):
+def test_install_preserves_core_notifier_with_recommended_display_defaults(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
@@ -188,11 +212,12 @@ def test_install_disables_core_notifier_with_recommended_display_defaults(tmp_pa
     result = install(hermes_home, source, set_display_off=True, dry_run=False)
 
     config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
-    assert config["agent"]["gateway_notify_interval"] == 0
-    assert any("gateway_notify_interval" in message for message in result.messages)
+    assert config["agent"]["gateway_notify_interval"] == 180
+    assert config["progress_tail"]["native_gateway"]["suppress"] is True
+    assert not any("gateway_notify_interval" in message for message in result.messages)
 
 
-def test_install_disables_native_streaming_with_recommended_display_defaults(tmp_path):
+def test_install_preserves_native_streaming_with_recommended_display_defaults(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
@@ -212,14 +237,17 @@ def test_install_disables_native_streaming_with_recommended_display_defaults(tmp
     install(hermes_home, source, set_display_off=True, dry_run=False)
 
     config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
-    assert config["display"]["streaming"] is False
-    assert config["display"]["tool_progress"] == "off"
+    assert config["display"]["streaming"] is True
+    assert config["display"]["tool_progress"] == "all"
     assert config["display"]["keep_me"] == "yes"
-    assert config["streaming"]["enabled"] is False
+    assert config["streaming"]["enabled"] is True
     assert config["streaming"]["chunk_delay"] == 0.2
+    assert config["progress_tail"]["native_gateway"]["suppress"] is True
 
 
-def test_install_warns_when_core_notifier_conflicts_without_recommended_defaults(tmp_path):
+def test_install_does_not_warn_for_core_notifier_when_native_gateway_suppression_is_default(
+    tmp_path,
+):
     source = tmp_path / "source"
     source.mkdir()
     (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
@@ -238,10 +266,10 @@ def test_install_warns_when_core_notifier_conflicts_without_recommended_defaults
     assert _core_notifier_conflict(
         yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
     )
-    assert any("gateway_notify_interval" in message for message in result.messages)
+    assert not any("gateway_notify_interval" in message for message in result.messages)
 
 
-def test_install_warns_when_builtin_reasoning_conflicts(tmp_path):
+def test_install_does_not_warn_when_builtin_reasoning_is_preserved(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
@@ -263,7 +291,7 @@ def test_install_warns_when_builtin_reasoning_conflicts(tmp_path):
     assert _builtin_reasoning_conflict(
         yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
     )
-    assert any("display.show_reasoning=true" in message for message in result.messages)
+    assert not any("display.show_reasoning=true" in message for message in result.messages)
 
 
 def test_install_many_targets_selected_profiles_and_updates_existing_plugin(tmp_path):
@@ -423,11 +451,10 @@ def test_interactive_cli_default_mode_applies_recommended_defaults_after_profile
     assert "Applying recommended defaults" in result.stdout
     config = yaml.safe_load((work_home / "config.yaml").read_text(encoding="utf-8"))
     assert config["progress_tail"] == DEFAULT_CONFIG
-    assert config["display"]["tool_progress"] == "off"
-    assert config["display"]["streaming"] is False
-    assert config["display"]["show_reasoning"] is False
-    assert config["streaming"]["enabled"] is False
-    assert config["agent"]["gateway_notify_interval"] == 0
+    assert config["display"]["tool_progress"] == "all"
+    assert config["display"]["show_reasoning"] is True
+    assert "streaming" not in config
+    assert "agent" not in config
 
 
 def test_interactive_cli_simple_mode_asks_core_questions_only(tmp_path):
@@ -447,8 +474,7 @@ def test_interactive_cli_simple_mode_asks_core_questions_only(tmp_path):
         "n\n"  # todo.sticky
         "y\n"  # reasoning.enabled
         "plain\n"  # renderer.style
-        "compact\n"  # renderer.density
-        "y\n",  # set_display_off
+        "compact\n",  # renderer.density
         encoding="utf-8",
     )
 
@@ -484,9 +510,8 @@ def test_interactive_cli_simple_mode_asks_core_questions_only(tmp_path):
     assert progress_tail["renderer"]["style"] == "plain"
     assert progress_tail["renderer"]["density"] == "compact"
     assert progress_tail["patch"] == DEFAULT_CONFIG["patch"]
-    assert config["display"]["tool_progress"] == "off"
-    assert config["display"]["streaming"] is False
-    assert config["streaming"]["enabled"] is False
+    assert "display" not in config
+    assert "streaming" not in config
 
 
 def test_interactive_cli_accepts_advanced_alias_for_full_setup(tmp_path):
@@ -540,8 +565,7 @@ def test_interactive_cli_accepts_advanced_alias_for_full_setup(tmp_path):
         "\n"  # no_edit.interval_seconds
         "\n"  # no_edit.min_new_events
         "\n"  # no_edit.final_summary
-        "\n"  # no_edit.max_snapshots_per_turn
-        "\n",  # set_display_off
+        "\n",  # no_edit.max_snapshots_per_turn
         encoding="utf-8",
     )
 

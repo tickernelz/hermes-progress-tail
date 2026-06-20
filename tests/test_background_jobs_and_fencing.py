@@ -3,6 +3,7 @@ import time
 import types
 
 from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.hooks import platform as platform_hooks
 from hermes_progress_tail.monkeypatches import (
     install_compression_status_monkeypatch,
     install_process_notification_monkeypatch,
@@ -442,7 +443,7 @@ def test_terminal_background_immediate_completed_result_does_not_stay_running(mo
     asyncio.run(run())
 
 
-def test_process_completion_notifications_are_suppressed_when_progress_tail_owns_them():
+def test_process_completion_notifications_stay_native_when_unowned_by_progress_tail():
     calls = []
 
     module = types.SimpleNamespace(
@@ -460,6 +461,47 @@ def test_process_completion_notifications_are_suppressed_when_progress_tail_owns
                 "command": "pytest -q",
                 "exit_code": 0,
                 "output": "312 passed",
+            }
+        )
+    finally:
+        uninstall_process_notification_monkeypatch(module)
+
+    assert text == "native notification"
+    assert calls and calls[0]["session_id"] == "proc_bg"
+
+
+def test_process_completion_notifications_are_suppressed_when_progress_tail_owns_them(
+    monkeypatch,
+):
+    calls = []
+    runtime_config = {
+        "progress_tail": {
+            "enabled": True,
+            "native_gateway": {"suppress": True},
+            "background_jobs": {"suppress_native_notify": True},
+        }
+    }
+    monkeypatch.setattr(
+        platform_hooks, "_process_notification_config", lambda config=None: runtime_config
+    )
+
+    module = types.SimpleNamespace(
+        format_process_notification=lambda evt: calls.append(evt) or "native notification",
+        _hermes_progress_tail_process_notification_patched=False,
+    )
+
+    install_process_notification_monkeypatch(module)
+
+    try:
+        text = module.format_process_notification(
+            {
+                "type": "completion",
+                "session_id": "proc_bg",
+                "command": "pytest -q",
+                "exit_code": 0,
+                "output": "312 passed",
+                "platform": "discord",
+                "chat_id": "chat",
             }
         )
     finally:

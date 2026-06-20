@@ -70,7 +70,7 @@ HPT_INTERACTIVE=0 HPT_SOURCE_DIR=/path/to/hermes-progress-tail bash install.sh
 Python installer entrypoint:
 
 ```bash
-python -m hermes_progress_tail.installer install --hermes-home ~/.hermes --set-display-off
+python -m hermes_progress_tail.installer install --hermes-home ~/.hermes
 ```
 
 ## Expected config
@@ -81,17 +81,6 @@ The installer merges missing defaults without overwriting existing user values.
 plugins:
   enabled:
     - hermes-progress-tail
-
-display:
-  tool_progress: off
-  streaming: false
-  show_reasoning: false
-
-streaming:
-  enabled: false
-
-agent:
-  gateway_notify_interval: 0
 
 progress_tail:
   enabled: true
@@ -156,6 +145,9 @@ progress_tail:
     suppress_native_notify: true
     suppress_watch_notifications: true
 
+  native_gateway:
+    suppress: true
+
   cleanup:
     auto_delete: true
     delay_seconds: 5
@@ -204,6 +196,8 @@ progress_tail:
 
 `platforms.<name>` overrides support `enabled`, `strategy`, line/preview/edit timing fields, `show_completed`, feature toggles (`tools_enabled`, `assistant_enabled`, `reasoning_enabled`, `delegates_enabled`, `background_jobs_enabled`), and timestamps.
 
+`native_gateway.suppress: true` is plugin-local suppression for Hermes gateway-native progress, reasoning, interim assistant chatter, streaming, and long-running notices on platforms where progress-tail owns the live progress bubble. The installer no longer writes global `display.*`, `streaming.enabled`, or `agent.gateway_notify_interval` suppression keys; keep those Hermes settings normal unless you explicitly want to change Hermes outside progress-tail.
+
 Telegram rich progress is default-on. When Bot API 10.1 rich messages are available, progress bubbles are prepared as Rich Markdown so Telegram can render headings, status tables, verification tables, visible tool details, and reasoning text natively without noisy nested `Thinking` / `Recent tool details` subheaders. Failed terminal gates are promoted above generic details; success-only cards stay compact unless `compact_success` is disabled. The sticky footer `Status` section shows runtime metadata and, when GitHub's latest release is newer than the running plugin version, a compact update notice. `/progresstail status` also uses readable Markdown styling and shows an update notice only when a newer GitHub release exists. If rich edit/send is unsupported or Telegram rejects a rich payload, the plugin falls back to the existing MarkdownV2 live-edit path and latches rich edits off for that adapter on capability failures.
 
 Turn lifecycle is internal: completed progress bubbles stay visible, but new user turns get new progress bubbles after the prior final answer. If a background job is still visible, its progress bubble can keep updating.
@@ -213,6 +207,8 @@ Turn lifecycle is internal: completed progress bubbles stay visible, but new use
 ```text
 /progresstail status
 /progresstail doctor
+/progresstail config cleanup --dry-run
+/progresstail config cleanup --apply
 /progresstail demo
 /progresstail demo plain
 /progresstail demo failed

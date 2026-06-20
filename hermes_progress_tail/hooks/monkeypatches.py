@@ -36,12 +36,18 @@ from .platform import (
     _compact_process_failure_notification,
     _extract_interrupt_reasons,
     _is_stop_interrupt,
+    _legacy_global_suppression_warnings,
+    _native_gateway_suppression_enabled,
     _process_output_tail,
+    _progress_tail_owns_platform,
+    _should_suppress_native_gateway_display,
     _should_suppress_native_process_notification,
     install_adapter_monkeypatches,
+    install_gateway_display_suppression_monkeypatch,
     install_gateway_interrupt_monkeypatch,
     install_process_notification_monkeypatch,
     uninstall_adapter_monkeypatches,
+    uninstall_gateway_display_suppression_monkeypatch,
     uninstall_gateway_interrupt_monkeypatch,
     uninstall_process_notification_monkeypatch,
 )
@@ -86,12 +92,18 @@ __all__ = [
     "_compact_process_failure_notification",
     "_extract_interrupt_reasons",
     "_is_stop_interrupt",
+    "_legacy_global_suppression_warnings",
+    "_native_gateway_suppression_enabled",
     "_process_output_tail",
+    "_progress_tail_owns_platform",
+    "_should_suppress_native_gateway_display",
     "_should_suppress_native_process_notification",
     "install_adapter_monkeypatches",
+    "install_gateway_display_suppression_monkeypatch",
     "install_gateway_interrupt_monkeypatch",
     "install_process_notification_monkeypatch",
     "uninstall_adapter_monkeypatches",
+    "uninstall_gateway_display_suppression_monkeypatch",
     "uninstall_gateway_interrupt_monkeypatch",
     "uninstall_process_notification_monkeypatch",
     "_escape_telegram_mdv2",
@@ -118,6 +130,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     telegram_ok = install_telegram_format_monkeypatch()
     telegram_topic_ok = install_telegram_topic_recovery_monkeypatch()
     gateway_interrupt_ok = install_gateway_interrupt_monkeypatch()
+    gateway_display_ok = install_gateway_display_suppression_monkeypatch()
     process_ok = install_process_notification_monkeypatch()
     compression_ok = install_compression_status_monkeypatch(agent_cls)
     compression_lifecycle_ok = install_compression_lifecycle_monkeypatch(agent_cls)
@@ -129,6 +142,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
             telegram_ok,
             telegram_topic_ok,
             gateway_interrupt_ok,
+            gateway_display_ok,
             process_ok,
             compression_ok,
             compression_lifecycle_ok,
@@ -137,13 +151,15 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     logger.info(
         "hermes-progress-tail monkeypatches installed: agent=%s adapter=%s delegate=%s "
         "telegram_format=%s telegram_topic_recovery=%s gateway_interrupt=%s "
-        "process_notifications=%s compression_status=%s compression_lifecycle=%s any=%s",
+        "gateway_display=%s process_notifications=%s compression_status=%s "
+        "compression_lifecycle=%s any=%s",
         agent_ok,
         adapter_ok,
         delegate_ok,
         telegram_ok,
         telegram_topic_ok,
         gateway_interrupt_ok,
+        gateway_display_ok,
         process_ok,
         compression_ok,
         compression_lifecycle_ok,
@@ -161,6 +177,7 @@ def uninstall_monkeypatches(agent_cls: type | None = None) -> bool:
             uninstall_telegram_format_monkeypatch(),
             uninstall_telegram_topic_recovery_monkeypatch(),
             uninstall_gateway_interrupt_monkeypatch(),
+            uninstall_gateway_display_suppression_monkeypatch(),
             uninstall_process_notification_monkeypatch(),
             uninstall_compression_status_monkeypatch(agent_cls),
             uninstall_compression_lifecycle_monkeypatch(agent_cls),

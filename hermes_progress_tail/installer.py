@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .cli.cleanup import cleanup_legacy_global_suppression
 from .cli.installer import (
     DEFAULT_CONFIG,
     LEGACY_PLUGIN_NAME,
@@ -63,6 +64,7 @@ __all__ = [
     "_merge_missing_defaults",
     "_apply_config_overrides",
     "_update_config",
+    "cleanup_legacy_global_suppression",
     "install",
     "install_many",
     "uninstall",

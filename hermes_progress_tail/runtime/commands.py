@@ -4,18 +4,12 @@ import json
 import re
 import time
 import urllib.request
+from pathlib import Path
 
+from ..hooks.platform import _legacy_global_suppression_warnings
 from ..settings.config import find_retired_config_keys, find_unknown_config_keys
 from ..utils.redaction import redact_text
-from .config_runtime import (
-    _background_job_config_warnings,
-    _builtin_interim_conflict,
-    _builtin_reasoning_conflict,
-    _core_notifier_conflict,
-    _core_notifier_conflict_warning,
-    _interim_conflict_warning,
-    _reasoning_conflict_warning,
-)
+from .config_runtime import _background_job_config_warnings
 from .demo import _demo_command
 
 _GITHUB_LATEST_RELEASE_URL = (
@@ -111,9 +105,36 @@ def _status_markdown(
     return "\n\n".join(blocks).strip()
 
 
+def _hermes_home() -> Path:
+    try:
+        from hermes_constants import get_hermes_home
+
+        return Path(get_hermes_home())
+    except Exception:
+        return Path.home() / ".hermes"
+
+
+def _config_cleanup_command(args: str) -> str:
+    tokens = {token for token in str(args or "").split() if token}
+    dry_run = "--dry-run" in tokens or "dry-run" in tokens
+    apply = "--apply" in tokens or "apply" in tokens or "--yes" in tokens
+    if not dry_run and not apply:
+        return (
+            "Usage: /progresstail config cleanup --dry-run\n"
+            "       /progresstail config cleanup --apply"
+        )
+    from hermes_progress_tail.installer import cleanup_legacy_global_suppression
+
+    result = cleanup_legacy_global_suppression(_hermes_home(), dry_run=dry_run)
+    return "\n".join(result.messages)
+
+
 def _command(raw_args: str = "") -> str:
     args = (raw_args or "").strip().lower()
     from . import plugin as runtime_plugin
+
+    if args.startswith("config cleanup"):
+        return _config_cleanup_command(args.removeprefix("config cleanup").strip())
 
     renderer = runtime_plugin._get_renderer()
     if args in {"jobs", "jobs all"}:
@@ -182,6 +203,7 @@ def _command(raw_args: str = "") -> str:
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
             f"delegates={'enabled' if settings.delegates.enabled else 'disabled'} max={settings.delegates.max_delegates} lines={settings.delegates.lines_per_delegate} ttl={settings.delegates.completed_ttl_seconds}s thinking={settings.delegates.thinking}",
             f"background_jobs={'enabled' if settings.background_jobs.enabled else 'disabled'} list_running={settings.background_jobs.list_running} show_completed={settings.background_jobs.show_completed} max={settings.background_jobs.max_jobs} ttl={settings.background_jobs.completed_ttl_seconds}s head={settings.background_jobs.head_lines} tail={settings.background_jobs.tail_lines} update={settings.background_jobs.update_interval_seconds}s suppress_native_notify={settings.background_jobs.suppress_native_notify} suppress_watch={settings.background_jobs.suppress_watch_notifications}",
+            f"native_gateway=suppress:{settings.native_gateway.suppress}",
             f"footer={'enabled' if settings.footer.enabled else 'disabled'} density:{settings.footer.density} max_path_chars:{settings.footer.max_path_chars}",
             f"telegram=rich:{settings.telegram.rich_messages} table:{settings.telegram.verification_table} thinking:{settings.telegram.thinking_blocks} max_table_rows:{settings.telegram.max_table_rows} compact_success:{settings.telegram.compact_success} max_detail_items:{settings.telegram.max_detail_items}",
             f"renderer=mode:{settings.renderer.mode} strategy:{settings.renderer.strategy} style:{settings.renderer.style} density:{settings.renderer.density} edit_interval:{settings.renderer.edit_interval} agent_label:{settings.renderer.agent_label or '-'}",
@@ -191,14 +213,7 @@ def _command(raw_args: str = "") -> str:
             f"delegate_monkeypatch={delegate_monkeypatch_active}",
         ]
         if args == "doctor":
-            if display.get("tool_progress") != "off":
-                lines.append("warning: display.tool_progress is not off; progress may duplicate")
-            if _builtin_interim_conflict(runtime_config):
-                lines.append(_interim_conflict_warning())
-            if _builtin_reasoning_conflict(runtime_config):
-                lines.append(_reasoning_conflict_warning())
-            if _core_notifier_conflict(runtime_config):
-                lines.append(_core_notifier_conflict_warning())
+            lines.extend(_legacy_global_suppression_warnings(runtime_config))
             lines.extend(_background_job_config_warnings(settings))
             for key in find_retired_config_keys(runtime_config):
                 lines.append(
@@ -226,12 +241,7 @@ def _command(raw_args: str = "") -> str:
                         f"session {label}: last_reasoning source={ctx.last_reasoning_source} chars={ctx.last_reasoning_chars} at={when}"
                     )
         else:
-            if _builtin_interim_conflict(runtime_config):
-                lines.append(_interim_conflict_warning())
-            if _builtin_reasoning_conflict(runtime_config):
-                lines.append(_reasoning_conflict_warning())
-            if _core_notifier_conflict(runtime_config):
-                lines.append(_core_notifier_conflict_warning())
+            lines.extend(_legacy_global_suppression_warnings(runtime_config))
         latest_release = None if args == "doctor" else _latest_release_info()
         return _status_markdown(
             version=runtime_plugin.VERSION,
@@ -243,4 +253,4 @@ def _command(raw_args: str = "") -> str:
         )
     if args in {"test", "demo", "demo plain", "demo failed"}:
         return _demo_command(plain=args == "demo plain", failed=args == "demo failed")
-    return "Usage: /progresstail status | doctor | jobs [all] | demo [plain|failed]"
+    return "Usage: /progresstail status | doctor | jobs [all] | config cleanup --dry-run|--apply | demo [plain|failed]"

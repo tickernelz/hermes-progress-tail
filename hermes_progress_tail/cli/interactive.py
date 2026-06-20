@@ -283,18 +283,8 @@ def _interactive_install_options(
         overrides: dict[str, Any] = {}
     elif setup_mode == "simple":
         overrides = _simple_install_overrides(input_stream)
-        set_display_off = _confirm(
-            "Disable Hermes built-in progress/reasoning/streaming display to avoid duplicates",
-            True,
-            input_stream,
-        )
     else:
         overrides = _advanced_install_overrides(input_stream)
-        set_display_off = _confirm(
-            "Disable Hermes built-in progress/reasoning/streaming display to avoid duplicates",
-            True,
-            input_stream,
-        )
     return profiles, all_profiles, set_display_off, overrides, force_default_config
 
 
@@ -305,7 +295,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("action", choices=["install", "uninstall"])
     parser.add_argument("--hermes-home", default=os.getenv("HERMES_HOME", "~/.hermes"))
     parser.add_argument("--source-dir", default=str(_default_source_dir()))
-    parser.add_argument("--set-display-off", action="store_true")
+    parser.add_argument(
+        "--native-gateway-suppress",
+        "--set-display-off",
+        dest="native_gateway_suppress",
+        action="store_true",
+        help=(
+            "Enable plugin-local gateway native display suppression. "
+            "--set-display-off is a backwards-compatible alias."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--profile", action="append", default=[])
     parser.add_argument("--all-profiles", action="store_true")
@@ -321,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     hermes_home = Path(args.hermes_home)
     profiles = _parse_profile_list(args.profile)
     all_profiles = args.all_profiles
-    set_display_off = args.set_display_off
+    set_display_off = args.native_gateway_suppress
     feature_overrides: dict[str, Any] = {}
     force_default_config = False
     prompt_stream = sys.stdin

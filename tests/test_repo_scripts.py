@@ -71,6 +71,8 @@ def test_readme_documents_assistant_platforms_and_config_doctor_warnings():
     assert "background_jobs_enabled" in readme
     assert "warning: unknown config key" in readme
     assert "warning: retired config key" in readme
+    assert "/progresstail config cleanup --dry-run" in readme
+    assert "/progresstail config cleanup --apply" in readme
     assert "Progress-tail owns background job visual status by default" in readme
     assert "suppress_native_notify" in readme
     assert "suppress_watch_notifications" in readme
@@ -109,6 +111,8 @@ def test_install_script_defaults_to_interactive_when_not_dry_run():
 
     assert "INTERACTIVE_DEFAULT=1" in script
     assert "--interactive --prompt-input /dev/tty" in script
+    assert "--native-gateway-suppress" in script
+    assert "--set-display-off" not in script
 
 
 def test_install_script_profiles_disable_default_interactive_prompting(tmp_path):
