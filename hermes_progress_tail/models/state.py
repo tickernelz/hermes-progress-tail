@@ -60,6 +60,7 @@ class DelegateBranch:
     cleanup_task: Any = None
     lifecycle_started: bool = False
     thinking_text: str = ""
+    response_text: str = ""
 
     def resize(self, lines_per_delegate: int) -> None:
         if self.lines.maxlen == lines_per_delegate:

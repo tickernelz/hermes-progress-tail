@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 import contextlib
-import os
 import re
 import time
-from contextlib import suppress
-from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from ..models.state import DelegateBranch, DelegateEvent, DelegateLine, SessionContext
 from ..settings.config import Settings
-from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
 from .delegate_formatting import duration, event_preview_args, middle_truncate_text, status_symbol
+from .delegate_helpers import (
+    delegate_cwd,
+    simplify_known_plugin_paths,
+    strip_tool_emoji,
+    terminal_first_line,
+)
 from .formatter import format_tool_line
 
 
@@ -50,6 +52,7 @@ class DelegateProgressRenderer:
                 branch.tool_count = 0
                 branch.lifecycle_started = False
                 branch.thinking_text = ""
+                branch.response_text = ""
             branch.task_index = event.task_index
             branch.task_count = event.task_count or branch.task_count
             branch.goal = event.goal or branch.goal
@@ -73,6 +76,14 @@ class DelegateProgressRenderer:
             branch.completion_summary = self._format_delegate_completion_summary(event)
             if event.summary and self.settings.delegates.show_completion:
                 branch.completion_line = self._format_delegate_completion_line(event)
+            if branch.completion_line:
+                branch.response_text = ""
+                self._remove_delegate_line(branch, "reply")
+            elif branch.response_text:
+                self._apply_delegate_response_text(branch, "", final=True)
+            return
+        if event_type == "subagent.text":
+            self._apply_delegate_response_text(branch, event.preview or event.summary)
             return
         if event_type in {"subagent.thinking", "delegate.task_thinking", "_thinking"}:
             if self.settings.delegates.thinking != "summary":
@@ -139,11 +150,47 @@ class DelegateProgressRenderer:
                 merged, max(1, self.settings.delegates.max_line_chars - len("thinking: "))
             ),
         )
+        self._replace_or_append_line(branch, line, "thinking")
+
+    def _apply_delegate_response_text(
+        self, branch: DelegateBranch, text: str, *, final: bool = False
+    ) -> None:
+        branch.response_text = self._merge_response_text(branch.response_text, text)
+        if not final and not self._should_render_response_text(branch.response_text):
+            return
+        line = DelegateLine(
+            "reply",
+            self._delegate_line(
+                branch.response_text,
+                max(1, self.settings.delegates.max_line_chars - len("reply: ")),
+            ),
+        )
+        self._replace_or_append_line(branch, line, "reply")
+
+    def _should_render_response_text(self, text: str) -> bool:
+        normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+        if len(normalized) >= max(24, self.settings.delegates.max_line_chars // 3):
+            return True
+        return len(normalized.split()) >= 4
+
+    @staticmethod
+    def _merge_response_text(previous: str, current: str) -> str:
+        return str(previous or "") + str(current or "")
+
+    @staticmethod
+    def _replace_or_append_line(branch: DelegateBranch, line: DelegateLine, kind: str) -> None:
         for idx in range(len(branch.lines) - 1, -1, -1):
-            if branch.lines[idx].kind == "thinking":
+            if branch.lines[idx].kind == kind:
                 branch.lines[idx] = line
                 return
         branch.lines.append(line)
+
+    @staticmethod
+    def _remove_delegate_line(branch: DelegateBranch, kind: str) -> None:
+        branch.lines = type(branch.lines)(
+            (line for line in branch.lines if line.kind != kind),
+            maxlen=branch.lines.maxlen,
+        )
 
     @staticmethod
     def _merge_thinking_text(previous: str, current: str) -> str:
@@ -186,7 +233,7 @@ class DelegateProgressRenderer:
             patch_max_files=self.settings.patch.max_files,
         )
         if self.settings.renderer.style != "emoji":
-            text = self._strip_tool_emoji(text)
+            text = strip_tool_emoji(text)
         text = self._delegate_line(text, self.settings.delegates.max_line_chars)
         if not text:
             return None
@@ -217,77 +264,11 @@ class DelegateProgressRenderer:
         details: list[str] = []
         cwd = args.get("workdir") or args.get("cwd")
         if cwd:
-            details.append(f"cwd: {self._delegate_cwd(cwd)}")
-        first = self._terminal_first_line(str(args.get("command") or event.preview or ""))
+            details.append(f"cwd: {delegate_cwd(cwd)}")
+        first = terminal_first_line(str(args.get("command") or event.preview or ""))
         if first:
             details.append(f"first: {first}")
         return tuple(details[:2])
-
-    @staticmethod
-    def _terminal_first_line(command: str) -> str:
-        lines = [line.strip() for line in str(command or "").splitlines() if line.strip()]
-        if not lines:
-            return ""
-        return truncate_text(redact_text(lines[0]), 80)
-
-    @staticmethod
-    def _delegate_cwd(value: Any) -> str:
-        raw = str(value or "").strip()
-        if not raw:
-            return ""
-        if raw in {".", "./"}:
-            return "."
-        normalized = raw.replace("\\", "/")
-        if normalized.endswith("/hermes-progress-tail"):
-            return "."
-        home_display = DelegateProgressRenderer._home_relative_path(raw)
-        if home_display:
-            return truncate_text(redact_text(home_display), 80)
-        return truncate_text(redact_text(raw), 80)
-
-    @staticmethod
-    def _home_relative_path(raw: str) -> str:
-        candidates = []
-        with suppress(Exception):
-            candidates.append(str(Path.home()))
-        env_home = os.environ.get("HOME")
-        if env_home:
-            candidates.append(env_home)
-        userprofile = os.environ.get("USERPROFILE")
-        if userprofile:
-            candidates.append(userprofile)
-        home_drive = os.environ.get("HOMEDRIVE")
-        home_path = os.environ.get("HOMEPATH")
-        if home_drive and home_path:
-            candidates.append(home_drive + home_path)
-        for home in dict.fromkeys(candidates):
-            display = DelegateProgressRenderer._relative_to_home(raw, home)
-            if display:
-                return display
-        return ""
-
-    @staticmethod
-    def _relative_to_home(raw: str, home: str) -> str:
-        home = str(home or "").strip()
-        if not home:
-            return ""
-        raw_norm = raw.replace("\\", "/").rstrip("/")
-        home_norm = home.replace("\\", "/").rstrip("/")
-        if not raw_norm or not home_norm:
-            return ""
-        if raw_norm == home_norm:
-            return "~"
-        if raw_norm.startswith(home_norm + "/"):
-            rel = raw_norm[len(home_norm) + 1 :].strip("/")
-            rel = re.sub(r"/+", "/", rel)
-            return "~/" + rel if rel else "~"
-        try:
-            raw_win = PureWindowsPath(raw)
-            home_win = PureWindowsPath(home)
-            rel = raw_win.relative_to(home_win)
-            return "~/" + rel.as_posix()
-        except Exception:
-            return ""
 
     def _format_delegate_completion_line(self, event: DelegateEvent) -> str:
         summary = self._brief_completion_summary(event.summary)
@@ -311,7 +292,7 @@ class DelegateProgressRenderer:
         )
         if self.settings.renderer.style == "emoji":
             label = f"{self._status_symbol(label)} {label}"
-        summary = self._simplify_known_plugin_paths(summary)
+        summary = simplify_known_plugin_paths(summary)
         summary = re.sub(
             r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail\b",
             "hermes-progress-tail",
@@ -321,10 +302,6 @@ class DelegateProgressRenderer:
         if limit > 0:
             return self._delegate_line(text, limit)
         return text
-
-    @staticmethod
-    def _strip_tool_emoji(text: str) -> str:
-        return re.sub(r"^[^\w\s]+\s+", "", str(text or "")).strip()
 
     @staticmethod
     def _brief_completion_summary(text: str) -> str:
@@ -423,7 +400,7 @@ class DelegateProgressRenderer:
         return [f"  {middle_truncate_text(line.strip(), line_limit)}" for line in raw_lines]
 
     def _prepare_completion_block_text(self, text: str) -> str:
-        value = self._simplify_known_plugin_paths(str(text or ""))
+        value = simplify_known_plugin_paths(str(text or ""))
         value = re.sub(
             r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail\b",
             "hermes-progress-tail",
@@ -493,7 +470,7 @@ class DelegateProgressRenderer:
         return [*lines[:head_count], "…", *lines[-tail_count:]]
 
     def _simplify_completion_line(self, text: str, *, branch: DelegateBranch | None = None) -> str:
-        value = self._simplify_known_plugin_paths(text)
+        value = simplify_known_plugin_paths(text)
         value = re.sub(
             r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail\b",
             "hermes-progress-tail",
@@ -578,18 +555,20 @@ class DelegateProgressRenderer:
             return item.text
         if item.kind == "thinking":
             return f"thinking: {item.text}"
+        if item.kind == "reply":
+            return f"reply: {item.text}"
         return f"update: {item.text}"
 
     @staticmethod
     def _delegate_tool_name(item: DelegateLine) -> str:
         if item.tool_name:
             return item.tool_name
-        text = DelegateProgressRenderer._strip_tool_emoji(item.text)
+        text = strip_tool_emoji(item.text)
         return text.split(":", 1)[0].strip() or "tool"
 
     def _simplify_delegate_tool_text(self, text: str) -> str:
-        cleaned = self._strip_tool_emoji(text)
-        cleaned = self._simplify_known_plugin_paths(cleaned)
+        cleaned = strip_tool_emoji(text)
+        cleaned = simplify_known_plugin_paths(cleaned)
         cleaned = re.sub(r"·\s+cwd\s+~/.hermes/plugins/hermes-progress-tail\b", "· cwd .", cleaned)
         cleaned = re.sub(
             r"·\s+cwd\s+/home/[^/]+/.hermes/plugins/hermes-progress-tail\b",
@@ -598,20 +577,10 @@ class DelegateProgressRenderer:
         )
         return cleaned
 
-    @staticmethod
-    def _simplify_known_plugin_paths(text: str) -> str:
-        return re.sub(
-            r"(?:~|/home/[^/]+)/.hermes/plugins/hermes-progress-tail/"
-            r"hermes_progress_tail/([\w./-]+?\.py)(:\d+(?:\+\d+)?)?",
-            lambda match: match.group(1) + (match.group(2) or ""),
-            str(text or ""),
-        )
-
-    @staticmethod
-    def _looks_like_progress_output(text: str) -> bool:
-        lowered = str(text or "").lower()
-        return any(token in lowered for token in ("<empty>", "stdout", "stderr", "exit_code"))
-
 
 DelegateProgressRenderer._status_symbol = staticmethod(status_symbol)
 DelegateProgressRenderer._duration = staticmethod(duration)
+DelegateProgressRenderer._delegate_cwd = staticmethod(delegate_cwd)
+DelegateProgressRenderer._terminal_first_line = staticmethod(terminal_first_line)
+DelegateProgressRenderer._strip_tool_emoji = staticmethod(strip_tool_emoji)
+DelegateProgressRenderer._simplify_known_plugin_paths = staticmethod(simplify_known_plugin_paths)
