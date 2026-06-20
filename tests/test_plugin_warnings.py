@@ -113,7 +113,16 @@ def test_register_does_not_warn_for_reasoning_when_native_gateway_suppression_ha
 
     assert not any("display.show_reasoning=true" in record.message for record in caplog.records)
     assert len(ctx.hooks) == 6
-    assert ctx.commands[0][0] == "progresstail"
+    command_names = [name for name, _fn, _kwargs in ctx.commands]
+    assert command_names == [
+        "progresstail",
+        "progresstail_update",
+        "progresstail_doctor",
+        "progresstail_jobs",
+        "progresstail_cleanup",
+        "progresstail_demo",
+    ]
+    assert "update --dry-run" in ctx.commands[0][2]["args_hint"]
     assert "config cleanup --dry-run" in ctx.commands[0][2]["args_hint"]
 
 
@@ -137,7 +146,16 @@ def test_register_does_not_warn_for_core_notifier_when_native_gateway_suppressio
         "agent.gateway_notify_interval is enabled" in record.message for record in caplog.records
     )
     assert len(ctx.hooks) == 6
-    assert ctx.commands[0][0] == "progresstail"
+    command_names = [name for name, _fn, _kwargs in ctx.commands]
+    assert command_names == [
+        "progresstail",
+        "progresstail_update",
+        "progresstail_doctor",
+        "progresstail_jobs",
+        "progresstail_cleanup",
+        "progresstail_demo",
+    ]
+    assert "update --dry-run" in ctx.commands[0][2]["args_hint"]
     assert "config cleanup --dry-run" in ctx.commands[0][2]["args_hint"]
 
 
@@ -239,6 +257,29 @@ def test_config_cleanup_command_dry_run_reports_without_writing(monkeypatch, tmp
     assert "Would remove legacy global suppression keys" in output
     assert "display.tool_progress" in output
     assert config_path.read_text(encoding="utf-8") == before
+
+
+def test_config_cleanup_alias_defaults_to_apply(monkeypatch, tmp_path):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    config_path = hermes_home / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "display": {"tool_progress": "off", "show_reasoning": False, "keep_me": "yes"},
+                "agent": {"gateway_notify_interval": 0, "other": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(commands, "_hermes_home", lambda: hermes_home)
+
+    output = plugin._progresstail_cleanup_alias("")
+
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert "Removed legacy global suppression keys" in output
+    assert config["display"] == {"keep_me": "yes"}
+    assert config["agent"] == {"other": True}
 
 
 def test_config_cleanup_command_apply_removes_legacy_values(monkeypatch, tmp_path):

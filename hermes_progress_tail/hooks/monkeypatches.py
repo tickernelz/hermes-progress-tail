@@ -20,6 +20,12 @@ from .agent import (
     install_agent_monkeypatches,
     uninstall_agent_monkeypatches,
 )
+from .command_menus import (
+    _pin_pairs,
+    command_menu_monkeypatch_active,
+    install_command_menu_monkeypatch,
+    uninstall_command_menu_monkeypatch,
+)
 from .compression import (
     _looks_like_compression_status,
     install_compression_lifecycle_monkeypatch,
@@ -81,6 +87,10 @@ __all__ = [
     "current_tool_agent_context",
     "install_agent_monkeypatches",
     "uninstall_agent_monkeypatches",
+    "_pin_pairs",
+    "command_menu_monkeypatch_active",
+    "install_command_menu_monkeypatch",
+    "uninstall_command_menu_monkeypatch",
     "_looks_like_compression_status",
     "install_compression_lifecycle_monkeypatch",
     "install_compression_status_monkeypatch",
@@ -129,6 +139,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     delegate_ok = install_delegate_monkeypatches()
     telegram_ok = install_telegram_format_monkeypatch()
     telegram_topic_ok = install_telegram_topic_recovery_monkeypatch()
+    command_menu_ok = install_command_menu_monkeypatch()
     gateway_interrupt_ok = install_gateway_interrupt_monkeypatch()
     gateway_display_ok = install_gateway_display_suppression_monkeypatch()
     process_ok = install_process_notification_monkeypatch()
@@ -141,6 +152,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
             delegate_ok,
             telegram_ok,
             telegram_topic_ok,
+            command_menu_ok,
             gateway_interrupt_ok,
             gateway_display_ok,
             process_ok,
@@ -150,7 +162,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
     )
     logger.info(
         "hermes-progress-tail monkeypatches installed: agent=%s adapter=%s delegate=%s "
-        "telegram_format=%s telegram_topic_recovery=%s gateway_interrupt=%s "
+        "telegram_format=%s telegram_topic_recovery=%s command_menu=%s gateway_interrupt=%s "
         "gateway_display=%s process_notifications=%s compression_status=%s "
         "compression_lifecycle=%s any=%s",
         agent_ok,
@@ -158,6 +170,7 @@ def install_monkeypatches(agent_cls: type | None = None) -> bool:
         delegate_ok,
         telegram_ok,
         telegram_topic_ok,
+        command_menu_ok,
         gateway_interrupt_ok,
         gateway_display_ok,
         process_ok,
@@ -176,6 +189,7 @@ def uninstall_monkeypatches(agent_cls: type | None = None) -> bool:
             uninstall_delegate_monkeypatches(),
             uninstall_telegram_format_monkeypatch(),
             uninstall_telegram_topic_recovery_monkeypatch(),
+            uninstall_command_menu_monkeypatch(),
             uninstall_gateway_interrupt_monkeypatch(),
             uninstall_gateway_display_suppression_monkeypatch(),
             uninstall_process_notification_monkeypatch(),

@@ -220,6 +220,55 @@ def _get_renderer() -> ProgressRenderer:
     return _renderer
 
 
+def _progresstail_update_alias(raw_args: str = "") -> str:
+    args = str(raw_args or "").strip()
+    return _command(f"update {args}".strip() if args else "update --apply")
+
+
+def _progresstail_cleanup_alias(raw_args: str = "") -> str:
+    args = str(raw_args or "").strip()
+    return _command(f"config cleanup {args}".strip() if args else "config cleanup --apply")
+
+
+def _progresstail_jobs_alias(raw_args: str = "") -> str:
+    args = str(raw_args or "").strip()
+    return _command(f"jobs {args}".strip() if args else "jobs")
+
+
+def _register_progress_tail_commands(ctx: Any) -> None:
+    ctx.register_command(
+        "progresstail",
+        _command,
+        description="Show hermes-progress-tail plugin status",
+        args_hint="status|doctor|jobs|update --dry-run|update --apply|config cleanup --dry-run|config cleanup --apply|demo",
+    )
+    ctx.register_command(
+        "progresstail_update",
+        _progresstail_update_alias,
+        description="Apply a hermes-progress-tail plugin update by default",
+    )
+    ctx.register_command(
+        "progresstail_doctor",
+        lambda raw_args="": _command("doctor"),
+        description="Diagnose hermes-progress-tail config and hooks",
+    )
+    ctx.register_command(
+        "progresstail_jobs",
+        _progresstail_jobs_alias,
+        description="Show hermes-progress-tail background jobs",
+    )
+    ctx.register_command(
+        "progresstail_cleanup",
+        _progresstail_cleanup_alias,
+        description="Apply progress-tail legacy config cleanup by default",
+    )
+    ctx.register_command(
+        "progresstail_demo",
+        lambda raw_args="": _command("demo"),
+        description="Show a hermes-progress-tail demo bubble",
+    )
+
+
 def register(ctx):
     runtime_config = _load_runtime_config()
     settings = load_settings(runtime_config)
@@ -249,9 +298,4 @@ def register(ctx):
     ctx.register_hook("post_llm_call", _on_post_llm_call)
     ctx.register_hook("on_session_reset", _on_session_reset)
     ctx.register_hook("on_session_finalize", _on_session_finalize)
-    ctx.register_command(
-        "progresstail",
-        _command,
-        description="Show hermes-progress-tail plugin status",
-        args_hint="status|doctor|jobs|config cleanup --dry-run|config cleanup --apply|demo",
-    )
+    _register_progress_tail_commands(ctx)

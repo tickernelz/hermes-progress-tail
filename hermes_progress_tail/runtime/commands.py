@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
+import tarfile
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -18,10 +21,10 @@ _GITHUB_LATEST_RELEASE_URL = (
 _LATEST_RELEASE_CACHE: dict[str, object] = {"checked_at": 0.0, "info": None}
 
 
-def _latest_release_info(timeout: float = 1.5) -> dict[str, str] | None:
+def _latest_release_info(timeout: float = 1.5, *, refresh: bool = False) -> dict[str, str] | None:
     now = time.time()
     cached_at = float(_LATEST_RELEASE_CACHE.get("checked_at") or 0.0)
-    if now - cached_at < 300:
+    if not refresh and now - cached_at < 300:
         cached = _LATEST_RELEASE_CACHE.get("info")
         return cached if isinstance(cached, dict) else None
     info: dict[str, str] | None = None
@@ -45,6 +48,13 @@ def _latest_release_info(timeout: float = 1.5) -> dict[str, str] | None:
     _LATEST_RELEASE_CACHE["checked_at"] = now
     _LATEST_RELEASE_CACHE["info"] = info
     return info
+
+
+def _fresh_latest_release_info() -> dict[str, str] | None:
+    try:
+        return _latest_release_info(refresh=True)
+    except TypeError:
+        return _latest_release_info()
 
 
 def _version_parts(value: str) -> tuple[int, ...]:
@@ -129,12 +139,176 @@ def _config_cleanup_command(args: str) -> str:
     return "\n".join(result.messages)
 
 
+def _update_usage() -> str:
+    return (
+        "Usage: /progresstail update --dry-run\n"
+        "       /progresstail update --apply\n"
+        "Options: --ref vX.Y.Z, --profile NAME, --all-profiles, --force"
+    )
+
+
+def _parse_update_tokens(args: str) -> dict[str, object] | str:
+    try:
+        tokens = shlex.split(str(args or ""))
+    except ValueError as exc:
+        return f"Invalid update arguments: {exc}"
+    opts: dict[str, object] = {
+        "dry_run": False,
+        "apply": False,
+        "force": False,
+        "ref": "",
+        "profiles": [],
+        "all_profiles": False,
+    }
+    idx = 0
+    while idx < len(tokens):
+        token = tokens[idx]
+        if token in {"--dry-run", "dry-run"}:
+            opts["dry_run"] = True
+        elif token in {"--apply", "apply", "--yes"}:
+            opts["apply"] = True
+        elif token == "--force":
+            opts["force"] = True
+        elif token == "--all-profiles":
+            opts["all_profiles"] = True
+        elif token == "--ref":
+            idx += 1
+            if idx >= len(tokens):
+                return "Invalid update arguments: --ref requires a value"
+            opts["ref"] = tokens[idx]
+        elif token.startswith("--ref="):
+            opts["ref"] = token.split("=", 1)[1]
+        elif token == "--profile":
+            idx += 1
+            if idx >= len(tokens):
+                return "Invalid update arguments: --profile requires a value"
+            opts["profiles"].extend(_split_csv(tokens[idx]))
+        elif token.startswith("--profile="):
+            opts["profiles"].extend(_split_csv(token.split("=", 1)[1]))
+        else:
+            return f"Invalid update arguments: unknown option {token}"
+        idx += 1
+    return opts
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def _validate_update_ref(value: str) -> str:
+    ref = str(value or "").strip()
+    if not ref:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9._/-]+", ref):
+        return ""
+    if ref.startswith(("/", ".", "-")) or ".." in ref or "//" in ref:
+        return ""
+    return ref
+
+
+def _is_safe_tar_member(destination: Path, member_name: str) -> bool:
+    target = (destination / member_name).resolve()
+    return target == destination or destination in target.parents
+
+
+def _extract_update_archive(archive_path: Path, destination: Path) -> None:
+    destination = destination.resolve()
+    with tarfile.open(archive_path, "r:gz") as archive:
+        for member in archive.getmembers():
+            if member.issym() or member.islnk():
+                raise ValueError(f"unsafe archive link: {member.name}")
+            if not (member.isfile() or member.isdir()):
+                raise ValueError(f"unsupported archive member: {member.name}")
+            if not _is_safe_tar_member(destination, member.name):
+                raise ValueError(f"unsafe archive member: {member.name}")
+        archive.extractall(destination)
+
+
+def _download_update_source(ref: str, destination: Path) -> Path:
+    archive_path = destination / "source.tar.gz"
+    url = f"https://github.com/tickernelz/hermes-progress-tail/archive/{ref}.tar.gz"
+    request = urllib.request.Request(url, headers={"User-Agent": "hermes-progress-tail-update"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        archive_path.write_bytes(response.read())
+    _extract_update_archive(archive_path, destination)
+    roots = [path for path in destination.iterdir() if path.is_dir()]
+    if not roots:
+        raise FileNotFoundError("downloaded archive did not contain a source directory")
+    return roots[0]
+
+
+def _run_update_install(
+    ref: str,
+    *,
+    dry_run: bool,
+    profiles: list[str] | None = None,
+    all_profiles: bool = False,
+) -> list[str]:
+    from hermes_progress_tail.installer import install_many
+
+    with tempfile.TemporaryDirectory(prefix="hpt-update-") as tmp_dir:
+        source_dir = _download_update_source(ref, Path(tmp_dir))
+        result = install_many(
+            _hermes_home(),
+            source_dir,
+            profiles=profiles,
+            all_profiles=all_profiles,
+            set_display_off=True,
+            dry_run=dry_run,
+        )
+    return result.messages
+
+
+def _update_command(args: str) -> str:
+    parsed = _parse_update_tokens(args)
+    if isinstance(parsed, str):
+        return parsed + "\n" + _update_usage()
+    dry_run = bool(parsed["dry_run"])
+    apply = bool(parsed["apply"])
+    if dry_run == apply:
+        return _update_usage()
+    explicit_ref = _validate_update_ref(str(parsed["ref"] or ""))
+    if parsed["ref"] and not explicit_ref:
+        return "Invalid update ref. Use a tag/branch/ref like v0.1.87."
+    from . import plugin as runtime_plugin
+
+    latest = None if explicit_ref else _fresh_latest_release_info()
+    ref = explicit_ref or str((latest or {}).get("tag_name") or "").strip()
+    if not ref:
+        return "Could not determine latest hermes-progress-tail release. Use --ref vX.Y.Z."
+    if not bool(parsed["force"]) and not _is_newer_version(runtime_plugin.VERSION, ref):
+        return (
+            f"Already up to date: v{runtime_plugin.VERSION}. Use --force with --ref to reinstall."
+        )
+    profiles = parsed["profiles"] or None
+    try:
+        messages = _run_update_install(
+            ref,
+            dry_run=dry_run,
+            profiles=profiles,
+            all_profiles=bool(parsed["all_profiles"]),
+        )
+    except Exception as exc:
+        return f"Update failed: {redact_text(str(exc))}"
+    verb = "dry-run" if dry_run else "applied"
+    lines = [f"Update {verb}: v{runtime_plugin.VERSION} → {ref}"]
+    lines.extend(messages)
+    if dry_run:
+        lines.append("No files changed. Re-run with --apply to update.")
+    else:
+        lines.append("Restart Hermes gateway for changes to take effect: /restart")
+    return "\n".join(lines)
+
+
 def _command(raw_args: str = "") -> str:
-    args = (raw_args or "").strip().lower()
+    raw = (raw_args or "").strip()
+    args = raw.lower()
     from . import plugin as runtime_plugin
 
     if args.startswith("config cleanup"):
-        return _config_cleanup_command(args.removeprefix("config cleanup").strip())
+        return _config_cleanup_command(raw[len("config cleanup") :].strip())
+    if args.startswith("update"):
+        return _update_command(raw[len("update") :].strip())
 
     renderer = runtime_plugin._get_renderer()
     if args in {"jobs", "jobs all"}:
@@ -172,6 +346,12 @@ def _command(raw_args: str = "") -> str:
             )
         except Exception:
             delegate_monkeypatch_active = False
+        try:
+            from ..hooks.monkeypatches import command_menu_monkeypatch_active
+
+            command_menu_active = command_menu_monkeypatch_active()
+        except Exception:
+            command_menu_active = False
         settings = renderer.settings
         runtime_config = runtime_plugin._load_runtime_config()
         display = (
@@ -211,6 +391,7 @@ def _command(raw_args: str = "") -> str:
             f"display.show_reasoning={display.get('show_reasoning', '<unset>')}",
             f"monkeypatch={monkeypatch_active}",
             f"delegate_monkeypatch={delegate_monkeypatch_active}",
+            f"command_menu_monkeypatch={command_menu_active}",
         ]
         if args == "doctor":
             lines.extend(_legacy_global_suppression_warnings(runtime_config))
@@ -253,4 +434,4 @@ def _command(raw_args: str = "") -> str:
         )
     if args in {"test", "demo", "demo plain", "demo failed"}:
         return _demo_command(plain=args == "demo plain", failed=args == "demo failed")
-    return "Usage: /progresstail status | doctor | jobs [all] | config cleanup --dry-run|--apply | demo [plain|failed]"
+    return "Usage: /progresstail status | doctor | jobs [all] | update --dry-run|--apply | config cleanup --dry-run|--apply | demo [plain|failed]"

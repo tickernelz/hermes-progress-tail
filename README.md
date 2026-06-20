@@ -13,7 +13,7 @@ Compact Hermes gateway plugin for live progress tails.
 - Keeps running background jobs visible after the parent turn finishes.
 - Falls back conservatively on no-edit platforms.
 - Redacts common secrets before rendering progress.
-- Disables conflicting Hermes built-in progress/reasoning display during recommended install.
+- Suppresses conflicting Hermes built-in gateway progress/reasoning display plugin-side on owned gateway sessions.
 
 ## Before / after
 
@@ -207,12 +207,25 @@ Turn lifecycle is internal: completed progress bubbles stay visible, but new use
 ```text
 /progresstail status
 /progresstail doctor
+/progresstail jobs
+/progresstail update --dry-run
+/progresstail update --apply
+/progresstail update --apply --ref v0.1.87
 /progresstail config cleanup --dry-run
 /progresstail config cleanup --apply
 /progresstail demo
 /progresstail demo plain
 /progresstail demo failed
+
+# Platform command-menu aliases where subcommands/args are awkward:
+/progresstail_update   # applies update by default
+/progresstail_doctor
+/progresstail_jobs
+/progresstail_cleanup  # applies cleanup by default
+/progresstail_demo
 ```
+
+`/progresstail update --dry-run` checks the latest GitHub Release and shows the install plan without writing files. `/progresstail update --apply` downloads the release archive, runs the same plugin installer used by `install.sh`, and updates plugin files/config for the current profile. `/progresstail_update` is a command-menu-friendly alias that defaults to `--apply`; pass `--dry-run` explicitly if you only want a plan. Use `--all-profiles` or `--profile work,personal` for broader installs. The command never restarts Hermes; run `/restart` manually after an applied update.
 
 `/progresstail doctor` also reports config drift. Unknown keys are likely typos or stale docs, for example `warning: unknown config key progress_tail.tools.typo_lines`. Retired keys are old public knobs that should be removed from config, for example `warning: retired config key progress_tail.finalization`.
 
