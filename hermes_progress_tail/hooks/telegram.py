@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import inspect
 import logging
 from contextlib import suppress
@@ -249,6 +250,35 @@ def _escape_telegram_mdv2(text: str) -> str:
     return "".join("\\" + char if char in specials else char for char in str(text or ""))
 
 
+def _import_first_attr(candidates: tuple[tuple[str, str], ...]) -> Any:
+    errors: list[str] = []
+    for module_name, attr_name in candidates:
+        try:
+            module = importlib.import_module(module_name)
+            return getattr(module, attr_name)
+        except Exception as exc:
+            errors.append(f"{module_name}.{attr_name}: {exc}")
+    raise ImportError("; ".join(errors))
+
+
+def _resolve_telegram_adapter_cls() -> type:
+    return _import_first_attr(
+        (
+            ("gateway.platforms.telegram", "TelegramAdapter"),
+            ("plugins.platforms.telegram.adapter", "TelegramAdapter"),
+        )
+    )
+
+
+def _resolve_telegram_parse_mode() -> Any:
+    return _import_first_attr(
+        (
+            ("gateway.platforms.telegram", "ParseMode"),
+            ("plugins.platforms.telegram.adapter", "ParseMode"),
+        )
+    )
+
+
 def install_telegram_topic_recovery_monkeypatch(gateway_runner_cls: type | None = None) -> bool:
     runner_cls = gateway_runner_cls
     if runner_cls is None:
@@ -303,7 +333,7 @@ def _should_preserve_telegram_topic_thread(gateway: Any, source: Any) -> bool:
 def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None) -> bool:
     if telegram_adapter_cls is None:
         try:
-            from gateway.platforms.telegram import TelegramAdapter as telegram_adapter_cls
+            telegram_adapter_cls = _resolve_telegram_adapter_cls()
         except Exception as exc:
             logger.debug("hermes-progress-tail could not import TelegramAdapter: %s", exc)
             return False
@@ -334,7 +364,8 @@ def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None
             )
         try:
             from gateway.platforms.base import SendResult, utf16_len
-            from gateway.platforms.telegram import ParseMode
+
+            ParseMode = _resolve_telegram_parse_mode()
         except Exception:
             return await original_edit(
                 self, chat_id, message_id, content, finalize=finalize, metadata=metadata
@@ -422,7 +453,7 @@ def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None
 def uninstall_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None) -> bool:
     if telegram_adapter_cls is None:
         try:
-            from gateway.platforms.telegram import TelegramAdapter as telegram_adapter_cls
+            telegram_adapter_cls = _resolve_telegram_adapter_cls()
         except Exception:
             return False
     original_edit = _TELEGRAM_ORIGINALS.pop(telegram_adapter_cls, None)

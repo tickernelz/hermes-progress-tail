@@ -1,5 +1,5 @@
 import asyncio
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from hermes_progress_tail.monkeypatches import (
@@ -44,6 +44,67 @@ class FakeTelegramAdapter:
             chat_id=int(chat_id), message_id=int(message_id), text=content
         )
         return SendResult(True, message_id=message_id)
+
+
+def _install_telegram_modules(monkeypatch, module_name, *, adapter_cls=FakeTelegramAdapter):
+    parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
+    for index in range(1, len(module_name.split("."))):
+        package_name = ".".join(module_name.split(".")[:index])
+        monkeypatch.setitem(__import__("sys").modules, package_name, ModuleType(package_name))
+    module = ModuleType(module_name)
+    module.ParseMode = parse_mode
+    module.TelegramAdapter = adapter_cls
+    monkeypatch.setitem(__import__("sys").modules, module_name, module)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=SendResult, utf16_len=len),
+    )
+    return module
+
+
+def test_telegram_format_monkeypatch_resolves_legacy_gateway_adapter_path(monkeypatch):
+    _install_telegram_modules(monkeypatch, "gateway.platforms.telegram")
+    monkeypatch.delitem(
+        __import__("sys").modules, "plugins.platforms.telegram.adapter", raising=False
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+    original = FakeTelegramAdapter.edit_message
+
+    assert install_telegram_format_monkeypatch() is True
+
+    assert FakeTelegramAdapter.edit_message is not original
+    adapter = FakeTelegramAdapter()
+    result = asyncio.run(adapter.edit_message("123", "456", "progress **bold**"))
+    assert result.success is True
+    adapter._bot.edit_message_text.assert_awaited_once_with(
+        chat_id=123,
+        message_id=456,
+        text="progress *bold*",
+        parse_mode="MarkdownV2",
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+
+
+def test_telegram_format_monkeypatch_resolves_new_plugin_adapter_path(monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "gateway.platforms.telegram", None)
+    _install_telegram_modules(monkeypatch, "plugins.platforms.telegram.adapter")
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+    original = FakeTelegramAdapter.edit_message
+
+    assert install_telegram_format_monkeypatch() is True
+
+    assert FakeTelegramAdapter.edit_message is not original
+    adapter = FakeTelegramAdapter()
+    result = asyncio.run(adapter.edit_message("123", "456", "progress **bold**"))
+    assert result.success is True
+    adapter._bot.edit_message_text.assert_awaited_once_with(
+        chat_id=123,
+        message_id=456,
+        text="progress *bold*",
+        parse_mode="MarkdownV2",
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
 
 
 def test_telegram_format_monkeypatch_uses_rich_edit_when_supported(monkeypatch):
