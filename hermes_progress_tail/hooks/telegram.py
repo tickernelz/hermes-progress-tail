@@ -264,6 +264,7 @@ def _import_first_attr(candidates: tuple[tuple[str, str], ...]) -> Any:
 def _resolve_telegram_adapter_cls() -> type:
     return _import_first_attr(
         (
+            ("hermes_plugins.telegram_platform.adapter", "TelegramAdapter"),
             ("gateway.platforms.telegram", "TelegramAdapter"),
             ("plugins.platforms.telegram.adapter", "TelegramAdapter"),
         )
@@ -273,6 +274,7 @@ def _resolve_telegram_adapter_cls() -> type:
 def _resolve_telegram_parse_mode() -> Any:
     return _import_first_attr(
         (
+            ("hermes_plugins.telegram_platform.adapter", "ParseMode"),
             ("gateway.platforms.telegram", "ParseMode"),
             ("plugins.platforms.telegram.adapter", "ParseMode"),
         )

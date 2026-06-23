@@ -66,6 +66,9 @@ def _install_telegram_modules(monkeypatch, module_name, *, adapter_cls=FakeTeleg
 def test_telegram_format_monkeypatch_resolves_legacy_gateway_adapter_path(monkeypatch):
     _install_telegram_modules(monkeypatch, "gateway.platforms.telegram")
     monkeypatch.delitem(
+        __import__("sys").modules, "hermes_plugins.telegram_platform.adapter", raising=False
+    )
+    monkeypatch.delitem(
         __import__("sys").modules, "plugins.platforms.telegram.adapter", raising=False
     )
     uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
@@ -87,6 +90,9 @@ def test_telegram_format_monkeypatch_resolves_legacy_gateway_adapter_path(monkey
 
 
 def test_telegram_format_monkeypatch_resolves_new_plugin_adapter_path(monkeypatch):
+    monkeypatch.delitem(
+        __import__("sys").modules, "hermes_plugins.telegram_platform.adapter", raising=False
+    )
     monkeypatch.setitem(__import__("sys").modules, "gateway.platforms.telegram", None)
     _install_telegram_modules(monkeypatch, "plugins.platforms.telegram.adapter")
     uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
