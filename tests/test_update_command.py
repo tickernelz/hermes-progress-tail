@@ -28,7 +28,7 @@ def test_update_command_dry_run_uses_latest_release_without_writing(monkeypatch)
     monkeypatch.setattr(
         commands,
         "_latest_release_info",
-        lambda: {"tag_name": "v0.1.96", "html_url": "https://example.test/v0.1.96"},
+        lambda: {"tag_name": "v0.1.97", "html_url": "https://example.test/v0.1.97"},
     )
 
     def fake_install(ref, *, dry_run, profiles=None, all_profiles=False):
@@ -47,8 +47,8 @@ def test_update_command_dry_run_uses_latest_release_without_writing(monkeypatch)
 
     output = plugin._command("update --dry-run")
 
-    assert calls == [{"ref": "v0.1.96", "dry_run": True, "profiles": None, "all_profiles": False}]
-    assert "Update dry-run: v0.1.95 → v0.1.96" in output
+    assert calls == [{"ref": "v0.1.97", "dry_run": True, "profiles": None, "all_profiles": False}]
+    assert "Update dry-run: v0.1.96 → v0.1.97" in output
     assert "[default] Would copy plugin" in output
     assert "No files changed" in output
     assert "--apply" in output
@@ -64,10 +64,10 @@ def test_update_command_apply_can_use_explicit_ref(monkeypatch):
 
     monkeypatch.setattr(commands, "_run_update_install", fake_install, raising=False)
 
-    output = plugin._command("update --apply --ref v0.1.96 --profile default")
+    output = plugin._command("update --apply --ref v0.1.97 --profile default")
 
-    assert calls == [("v0.1.96", False, ["default"], False)]
-    assert "Update applied: v0.1.95 → v0.1.96" in output
+    assert calls == [("v0.1.97", False, ["default"], False)]
+    assert "Update applied: v0.1.96 → v0.1.97" in output
     assert "Updated plugin" in output
     assert "Restart Hermes gateway" in output
 
@@ -77,7 +77,7 @@ def test_update_command_skips_when_latest_is_not_newer(monkeypatch):
     monkeypatch.setattr(
         commands,
         "_latest_release_info",
-        lambda: {"tag_name": "v0.1.95", "html_url": "https://example.test/v0.1.95"},
+        lambda: {"tag_name": "v0.1.96", "html_url": "https://example.test/v0.1.96"},
     )
 
     def fake_install(*args, **kwargs):
@@ -90,7 +90,7 @@ def test_update_command_skips_when_latest_is_not_newer(monkeypatch):
     output = plugin._command("update --dry-run")
 
     assert called is False
-    assert "Already up to date: v0.1.95" in output
+    assert "Already up to date: v0.1.96" in output
     assert "--force" in output
 
 
@@ -115,7 +115,7 @@ def test_update_command_alias_defaults_to_apply(monkeypatch):
     monkeypatch.setattr(
         commands,
         "_latest_release_info",
-        lambda: {"tag_name": "v0.1.96", "html_url": "https://example.test/v0.1.96"},
+        lambda: {"tag_name": "v0.1.97", "html_url": "https://example.test/v0.1.97"},
     )
 
     def fake_install(ref, *, dry_run, profiles=None, all_profiles=False):
@@ -126,7 +126,7 @@ def test_update_command_alias_defaults_to_apply(monkeypatch):
 
     output = plugin._progresstail_update_alias("")
 
-    assert calls == [("v0.1.96", False, None, False)]
+    assert calls == [("v0.1.97", False, None, False)]
     assert "Update applied" in output
     assert "Restart Hermes gateway" in output
 
