@@ -15,6 +15,8 @@ _INLINE_BOLD_HEADING_RE = re.compile(
     r"(?P<heading>(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__))"
     r"[ \t]*(?=\n|$|[A-Z])"
 )
+_MISSING_SENTENCE_SPACE_RE = re.compile(r"(?<=[a-z])([.])(?=[A-Z])")
+_GLUED_NUMBERED_LIST_RE = re.compile(r'(?<=[a-zA-Z):;\]}"\'])(?=\d{1,2}[.)]\s+[A-Z])')
 _CHANNEL_ARTIFACT_RE = re.compile(
     r"<\|(?:channel\|>\s*analysis|start\|>|end\|>|message\|>|assistant\|>|analysis\|>)",
     re.IGNORECASE,
@@ -54,6 +56,7 @@ def normalize_reasoning_text(text: str) -> str:
     text = text.replace("◁think▷", "<think>").replace("◁/think▷", "</think>")
     text = text.replace("<|begin_of_thought|>", "<think>").replace("<|end_of_thought|>", "</think>")
     text = _extract_reasoning_tag_bodies(text)
+    text = _normalize_streaming_glue(text)
     text = _normalize_inline_heading_boundaries(text)
     lines = []
     for raw_line in text.split("\n"):
@@ -151,6 +154,27 @@ def _normalize_inline_heading_boundaries(text: str) -> str:
         return f"{match.group('prefix')}\n\n{heading}\n"
 
     return _INLINE_BOLD_HEADING_RE.sub(replace, text)
+
+
+def _normalize_streaming_glue(text: str) -> str:
+    """Restore structure lost when reasoning deltas arrive token-by-token.
+
+    GPT-5.x reasoning summaries stream as discrete token deltas. Sentence
+    boundaries and numbered list markers arrive glued to the previous/next
+    token without any newline or space:
+
+        ``spent.Let me:1. Profile``
+        ``scenario2. Look at``
+        ``)3. Identify``
+
+    This mirrors ``_normalize_inline_heading_boundaries`` (which fixes glued
+    **bold headings**) but targets plain-prose glue: missing sentence spaces
+    and glued numbered list starts.  It runs before heading detection so the
+    restored newlines create real block boundaries.
+    """
+    text = _MISSING_SENTENCE_SPACE_RE.sub(r"\1 ", text)
+    text = _GLUED_NUMBERED_LIST_RE.sub("\n", text)
+    return text
 
 
 def _extract_reasoning_tag_bodies(text: str) -> str:

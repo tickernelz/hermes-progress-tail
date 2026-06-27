@@ -587,3 +587,66 @@ def test_inline_think_wrapper_fails_open_when_reasoning_context_missing(monkeypa
     wrapped("<think>should stay visible</think> hello")
 
     assert seen == ["<think>should stay visible</think> hello"]
+
+
+def test_streaming_glue_missing_sentence_space_is_restored():
+    """GPT-5.x reasoning deltas can arrive glued: ``word.Next`` → ``word. Next``."""
+    text = "Let me profile the ORM layer to understand where time is spent.Let me plan next steps."
+    normalized = normalize_reasoning_text(text)
+
+    assert "spent. Let" in normalized
+    assert "spent.Let" not in normalized
+
+
+def test_streaming_glue_numbered_list_markers_get_newlines():
+    """Glued numbered list items ``scenario2.`` must split onto separate lines."""
+    text = (
+        "Let me:1. Profile actual ORM operations in a real scenario"
+        "2. Look at the ORM internals"
+        "3. Identify hotspots in the ORM execution path"
+        "4. Create a concrete plan with measurable targets"
+    )
+    normalized = normalize_reasoning_text(text)
+
+    assert "me:\n1. Profile" in normalized
+    assert "scenario\n2. Look" in normalized
+    assert "path\n4. Create" in normalized
+    assert "scenario2." not in normalized
+    assert ")3." not in normalized
+
+
+def test_streaming_glue_full_screenshot_text_renders_structured_list():
+    """Exact text from user screenshot: full reasoning with glued list + sentence."""
+    text = (
+        "The user wants me to analyze ORM performance deeply - all read, search_read, "
+        "call_kw operations - and come up with a comprehensive optimization plan. This "
+        "is a significant architectural analysis task. Let me start by profiling the ORM "
+        "layer to understand where time is spent.Let me:1. Profile actual ORM operations "
+        "(read, search_read, call_kw) in a real scenario2. Look at the ORM internals "
+        "(models.py, fields.py, query.py)3. Identify hotspots in the ORM execution path"
+        "4. Create a concrete plan with measurable targetsI should start with profiling "
+        "to get real data, then dive into code analysis."
+    )
+    rendered = render_reasoning_tail(text, max_lines=6, max_chars=800, redact=False)
+
+    assert "spent. Let" in rendered
+    assert "me:\n1. Profile" in rendered
+    assert "scenario\n2. Look" in rendered
+    assert "query.py)\n3. Identify" in rendered
+    assert "path\n4. Create" in rendered
+    assert "spent.Let" not in rendered
+    assert "scenario2." not in rendered
+    assert ")3." not in rendered
+    assert "path4." not in rendered
+
+
+def test_streaming_glue_does_not_break_camelcase_or_version_numbers():
+    """False positive guards: camelCase identifiers and version numbers stay intact."""
+    text = "Using callKw to read data from v0.1.93. The searchRead method at step1 should work."
+    normalized = normalize_reasoning_text(text)
+
+    # Version number must not get split
+    assert "v0.1.93" in normalized
+    # camelCase must stay intact (lowercase-lowercase, not sentence boundary)
+    assert "callKw" in normalized
+    assert "searchRead" in normalized
