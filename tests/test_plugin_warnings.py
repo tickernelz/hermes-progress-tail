@@ -117,11 +117,11 @@ def test_register_does_not_warn_for_reasoning_when_native_gateway_suppression_ha
     command_names = [name for name, _fn, _kwargs in ctx.commands]
     assert command_names == [
         "progresstail",
-        "progresstail_update",
-        "progresstail_doctor",
-        "progresstail_jobs",
-        "progresstail_cleanup",
-        "progresstail_demo",
+        "progresstail-update",
+        "progresstail-doctor",
+        "progresstail-jobs",
+        "progresstail-cleanup",
+        "progresstail-demo",
     ]
     assert "update --dry-run" in ctx.commands[0][2]["args_hint"]
     assert "config cleanup --dry-run" in ctx.commands[0][2]["args_hint"]
@@ -150,11 +150,11 @@ def test_register_does_not_warn_for_core_notifier_when_native_gateway_suppressio
     command_names = [name for name, _fn, _kwargs in ctx.commands]
     assert command_names == [
         "progresstail",
-        "progresstail_update",
-        "progresstail_doctor",
-        "progresstail_jobs",
-        "progresstail_cleanup",
-        "progresstail_demo",
+        "progresstail-update",
+        "progresstail-doctor",
+        "progresstail-jobs",
+        "progresstail-cleanup",
+        "progresstail-demo",
     ]
     assert "update --dry-run" in ctx.commands[0][2]["args_hint"]
     assert "config cleanup --dry-run" in ctx.commands[0][2]["args_hint"]

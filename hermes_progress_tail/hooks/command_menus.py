@@ -11,25 +11,25 @@ _COMMAND_MENU_PATCH_MARKER = "_hermes_progress_tail_command_menu_patched"
 
 _PINNED_TELEGRAM_COMMANDS = (
     "progresstail",
-    "progresstail_update",
-    "progresstail_doctor",
-    "progresstail_jobs",
+    "progresstail-update",
+    "progresstail-doctor",
+    "progresstail-jobs",
 )
 
 _PINNED_SLACK_COMMANDS = (
     "progresstail",
-    "progresstail_update",
-    "progresstail_doctor",
-    "progresstail_jobs",
+    "progresstail-update",
+    "progresstail-doctor",
+    "progresstail-jobs",
 )
 
 _COMMAND_FALLBACK_DESCRIPTIONS = {
     "progresstail": "Show progress-tail status",
-    "progresstail_update": "Apply progress-tail update",
-    "progresstail_doctor": "Diagnose progress-tail config",
-    "progresstail_jobs": "Show progress-tail jobs",
-    "progresstail_cleanup": "Apply progress-tail cleanup",
-    "progresstail_demo": "Show progress-tail demo",
+    "progresstail-update": "Apply progress-tail update",
+    "progresstail-doctor": "Diagnose progress-tail config",
+    "progresstail-jobs": "Show progress-tail jobs",
+    "progresstail-cleanup": "Apply progress-tail cleanup",
+    "progresstail-demo": "Show progress-tail demo",
 }
 
 

@@ -76,13 +76,13 @@ def test_announcement_markdown_sanitizer_keeps_markdown_but_removes_empty_noise(
 <script>alert('x')</script>
 # Release **note**
 ![logo](https://example.test/logo.png)
-- Use `/progresstail_update`
+- Use `/progresstail-update`
 """
 
     sanitized = sanitize_announcement_markdown(markdown, max_chars=900)
 
     assert "# Release **note**" in sanitized
-    assert "- Use `/progresstail_update`" in sanitized
+    assert "- Use `/progresstail-update`" in sanitized
     assert "<!--" not in sanitized
     assert "<script" not in sanitized
     assert "alert" not in sanitized

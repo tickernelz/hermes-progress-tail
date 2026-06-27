@@ -243,27 +243,27 @@ def _register_progress_tail_commands(ctx: Any) -> None:
         args_hint="status|doctor|jobs|update --dry-run|update --apply|config cleanup --dry-run|config cleanup --apply|demo",
     )
     ctx.register_command(
-        "progresstail_update",
+        "progresstail-update",
         _progresstail_update_alias,
         description="Apply a hermes-progress-tail plugin update by default",
     )
     ctx.register_command(
-        "progresstail_doctor",
+        "progresstail-doctor",
         lambda raw_args="": _command("doctor"),
         description="Diagnose hermes-progress-tail config and hooks",
     )
     ctx.register_command(
-        "progresstail_jobs",
+        "progresstail-jobs",
         _progresstail_jobs_alias,
         description="Show hermes-progress-tail background jobs",
     )
     ctx.register_command(
-        "progresstail_cleanup",
+        "progresstail-cleanup",
         _progresstail_cleanup_alias,
         description="Apply progress-tail legacy config cleanup by default",
     )
     ctx.register_command(
-        "progresstail_demo",
+        "progresstail-demo",
         lambda raw_args="": _command("demo"),
         description="Show a hermes-progress-tail demo bubble",
     )

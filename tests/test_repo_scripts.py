@@ -73,7 +73,7 @@ def test_readme_documents_assistant_platforms_and_config_doctor_warnings():
     assert "warning: retired config key" in readme
     assert "/progresstail update --dry-run" in readme
     assert "/progresstail update --apply" in readme
-    assert "/progresstail_update" in readme
+    assert "/progresstail-update" in readme
     assert "defaults to `--apply`" in readme
     assert "The command never restarts Hermes" in readme
     assert "/progresstail config cleanup --dry-run" in readme
