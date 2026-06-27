@@ -157,7 +157,7 @@ def _config_cleanup_command(args: str) -> str:
             "Usage: /progresstail config cleanup --dry-run\n"
             "       /progresstail config cleanup --apply"
         )
-    from hermes_progress_tail.installer import cleanup_legacy_global_suppression
+    from ..installer import cleanup_legacy_global_suppression
 
     result = cleanup_legacy_global_suppression(_hermes_home(), dry_run=dry_run)
     return "\n".join(result.messages)
@@ -268,7 +268,7 @@ def _run_update_install(
     profiles: list[str] | None = None,
     all_profiles: bool = False,
 ) -> list[str]:
-    from hermes_progress_tail.installer import install_many
+    from ..installer import install_many
 
     with tempfile.TemporaryDirectory(prefix="hpt-update-") as tmp_dir:
         source_dir = _download_update_source(ref, Path(tmp_dir))
