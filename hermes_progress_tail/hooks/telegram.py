@@ -115,6 +115,17 @@ def _telegram_rich_fallback_error(exc: Exception) -> bool:
     return "badrequest" in name or "bad request" in text or "can't parse" in text
 
 
+def _is_flood_control(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return (
+        "flood control" in text
+        or "retry after" in text
+        or "retry in" in text
+        or "too many requests" in text
+        or getattr(exc, "error_code", None) == 429
+    )
+
+
 async def _try_edit_rich_message(
     adapter: Any,
     chat_id: str,
@@ -155,6 +166,13 @@ async def _try_edit_rich_message(
                 "hermes-progress-tail Telegram rich edit rejected; falling back MarkdownV2",
                 exc_info=True,
             )
+            return None
+        if _is_flood_control(exc):
+            logger.warning(
+                "hermes-progress-tail Telegram rich edit flood-controlled; "
+                "latching rich off and falling back to MarkdownV2"
+            )
+            adapter._hermes_progress_tail_rich_disabled = True
             return None
         logger.debug("hermes-progress-tail Telegram rich edit transient failure", exc_info=True)
         return send_result_cls(success=False, message_id=message_id, error=err_text, retryable=True)
@@ -216,6 +234,13 @@ def _send_rich_exception_result(adapter: Any, exc: Exception, send_result_cls: A
             "hermes-progress-tail Telegram rich send rejected; falling back MarkdownV2",
             exc_info=True,
         )
+        return None
+    if _is_flood_control(exc):
+        logger.warning(
+            "hermes-progress-tail Telegram rich send flood-controlled; "
+            "latching rich off and falling back to MarkdownV2"
+        )
+        adapter._hermes_progress_tail_rich_disabled = True
         return None
     logger.debug("hermes-progress-tail Telegram rich send transient failure", exc_info=True)
     return send_result_cls(success=False, error=str(exc), retryable=True)
