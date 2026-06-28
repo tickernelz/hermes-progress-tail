@@ -1,5 +1,5 @@
 name: hermes-progress-tail
-version: 0.1.98
+version: 0.1.99
 description: Compact tool and reasoning progress tail for Hermes gateway platforms
 kind: standalone
 provides_hooks:
