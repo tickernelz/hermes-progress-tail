@@ -347,9 +347,12 @@ def _classify_edit_error(error: Any) -> str:
 
 def _edit_backoff_seconds(error: Any, kind: str, failure_count: int) -> float:
     msg = str(error or "").lower()
-    match = re.search(r"(?:retry after|flood_control:|retry_after=)\s*:?\s*(\d+(?:\.\d+)?)", msg)
+    match = re.search(
+        r"(?:retry after|flood_control:|retry_after=|retry in)\s*:?\s*(\d+(?:\.\d+)?)",
+        msg,
+    )
     if match:
-        return min(float(match.group(1)), 30.0)
+        return min(float(match.group(1)), 600.0)
     if kind == "rate_limited":
         return min(2.0 * max(1, failure_count), 30.0)
     if kind == "too_long":

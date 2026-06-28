@@ -556,3 +556,52 @@ def test_initial_send_flood_control_uses_backoff_without_disabling_context():
         assert ctx.edit_backoff_until - time.monotonic() <= 5.5
 
     asyncio.run(run())
+
+
+def test_initial_send_flood_control_retry_in_format_uses_server_backoff():
+    """Telegram sendRichMessage flood errors say 'Retry in N seconds'.
+
+    The old regex only matched 'retry after' / 'flood_control:' / 'retry_after='.
+    'Retry in' was missed, so the plugin retried every 30s against a multi-hour
+    penalty and spiraled into worse flood control.
+    """
+
+    async def run():
+        adapter = SequenceSendAdapter(["Flood control exceeded. Retry in 120 seconds"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "one"), force=True)
+
+        assert ctx.disabled is False
+        assert ctx.edit_state == "rate_limited"
+        assert ctx.edit_backoff_until > time.monotonic()
+        # Should honor the 120s server request, capped at 600s max.
+        assert ctx.edit_backoff_until - time.monotonic() >= 100.0
+        assert ctx.edit_backoff_until - time.monotonic() <= 120.5
+
+    asyncio.run(run())
+
+
+def test_flood_control_severe_backoff_is_capped_at_600s_not_30s():
+    """A multi-hour penalty must not be capped to 30s — that causes a spiral."""
+
+    async def run():
+        adapter = SequenceSendAdapter(["Flood control exceeded. Retry in 11220 seconds"])
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"tools": {"timestamp": False}}})
+        )
+        ctx = make_ctx(adapter, platform="telegram")
+        renderer.register_context(ctx)
+
+        await renderer.handle_event(ToolEvent("s1", "k1", "telegram", "one"), force=True)
+
+        assert ctx.disabled is False
+        assert ctx.edit_state == "rate_limited"
+        # Must be capped at 600s (10 min), not 30s.
+        assert ctx.edit_backoff_until - time.monotonic() > 60.0
+
+    asyncio.run(run())
