@@ -652,4 +652,55 @@ def test_rich_send_flood_control_falls_back_to_legacy_send(monkeypatch):
     assert result.success is True
     assert len(adapter.send_calls) >= 1
     assert adapter._hermes_progress_tail_rich_disabled is True
+    # Flood deadline must be set in the future
+    assert adapter._hermes_progress_tail_rich_flood_until > 0
     uninstall_telegram_format_monkeypatch(LegacySendAdapter)
+
+
+def test_rich_auto_re_enables_after_flood_cooldown(monkeypatch):
+    """Rich must auto re-enable after the flood cooldown period passes."""
+    parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.telegram",
+        SimpleNamespace(ParseMode=parse_mode),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=SendResult, utf16_len=len),
+    )
+    monkeypatch.delitem(
+        __import__("sys").modules, "hermes_plugins.telegram_platform.adapter", raising=False
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+    assert install_telegram_format_monkeypatch(FakeTelegramAdapter) is True
+    adapter = FakeTelegramAdapter()
+
+    # Simulate flood latch with a deadline already in the past
+    adapter._hermes_progress_tail_rich_disabled = True
+    adapter._hermes_progress_tail_rich_flood_until = 0.01  # already expired
+
+    # Sleep briefly so monotonic clock is definitely past the deadline
+    import time as _time
+
+    _time.sleep(0.02)
+
+    adapter._bot.do_api_request = AsyncMock(return_value={"message_id": 456})
+
+    result = asyncio.run(
+        adapter.edit_message(
+            "123",
+            "456",
+            "**__Tools__**\n✅ terminal: pytest -q · done",
+        )
+    )
+
+    # Rich should have been re-enabled and used (not MarkdownV2 fallback)
+    assert result.success is True
+    adapter._bot.do_api_request.assert_awaited_once()
+    (method,) = adapter._bot.do_api_request.await_args.args
+    assert method == "editMessageText"
+    # Rich is re-enabled
+    assert adapter._hermes_progress_tail_rich_disabled is False
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)

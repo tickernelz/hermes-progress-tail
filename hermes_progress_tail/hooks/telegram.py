@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import inspect
 import logging
+import re
+import time
 from contextlib import suppress
 from functools import wraps
 from typing import Any
@@ -70,7 +72,14 @@ def _telegram_rich_enabled(adapter: Any) -> bool:
     if override is not None:
         return bool(override)
     if getattr(adapter, "_hermes_progress_tail_rich_disabled", False):
-        return False
+        # Flood control latch is time-bounded: auto re-enable after cooldown.
+        flood_until = getattr(adapter, "_hermes_progress_tail_rich_flood_until", 0.0)
+        if flood_until and time.monotonic() >= flood_until:
+            adapter._hermes_progress_tail_rich_disabled = False
+            adapter._hermes_progress_tail_rich_flood_until = 0.0
+            logger.info("hermes-progress-tail Telegram rich re-enabled after flood cooldown")
+        else:
+            return False
     settings = _runtime_telegram_settings()
     if settings is None:
         return True
@@ -126,6 +135,30 @@ def _is_flood_control(exc: Exception) -> bool:
     )
 
 
+def _flood_control_seconds(exc: Exception) -> float:
+    """Extract server-requested cooldown from a Telegram flood error."""
+    text = str(exc).lower()
+    retry_after = getattr(exc, "retry_after", None)
+    if retry_after is not None:
+        return min(float(retry_after), 600.0)
+    match = re.search(r"retry\s+(?:in\s+|after\s+)?(\d+)", text)
+    if match:
+        return min(float(match.group(1)), 600.0)
+    return 300.0
+
+
+def _latch_rich_flood_off(adapter: Any, exc: Exception) -> None:
+    """Latch rich messages off for the flood cooldown period."""
+    adapter._hermes_progress_tail_rich_disabled = True
+    cooldown = _flood_control_seconds(exc)
+    adapter._hermes_progress_tail_rich_flood_until = time.monotonic() + cooldown
+    logger.warning(
+        "hermes-progress-tail Telegram rich flood-controlled; "
+        "latching rich off for %.0fs, falling back to MarkdownV2",
+        cooldown,
+    )
+
+
 async def _try_edit_rich_message(
     adapter: Any,
     chat_id: str,
@@ -168,11 +201,7 @@ async def _try_edit_rich_message(
             )
             return None
         if _is_flood_control(exc):
-            logger.warning(
-                "hermes-progress-tail Telegram rich edit flood-controlled; "
-                "latching rich off and falling back to MarkdownV2"
-            )
-            adapter._hermes_progress_tail_rich_disabled = True
+            _latch_rich_flood_off(adapter, exc)
             return None
         logger.debug("hermes-progress-tail Telegram rich edit transient failure", exc_info=True)
         return send_result_cls(success=False, message_id=message_id, error=err_text, retryable=True)
@@ -236,11 +265,7 @@ def _send_rich_exception_result(adapter: Any, exc: Exception, send_result_cls: A
         )
         return None
     if _is_flood_control(exc):
-        logger.warning(
-            "hermes-progress-tail Telegram rich send flood-controlled; "
-            "latching rich off and falling back to MarkdownV2"
-        )
-        adapter._hermes_progress_tail_rich_disabled = True
+        _latch_rich_flood_off(adapter, exc)
         return None
     logger.debug("hermes-progress-tail Telegram rich send transient failure", exc_info=True)
     return send_result_cls(success=False, error=str(exc), retryable=True)
