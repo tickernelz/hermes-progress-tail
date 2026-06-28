@@ -149,8 +149,32 @@ def _flood_control_seconds(exc: Exception) -> float:
 
 def _latch_rich_flood_off(adapter: Any, exc: Exception) -> None:
     """Latch rich messages off for the flood cooldown period."""
+    _latch_rich_flood_off_str(adapter, str(exc))
+
+
+def _is_flood_control_str(text: str) -> bool:
+    text = str(text or "").lower()
+    return (
+        "flood control" in text
+        or "retry after" in text
+        or "retry in" in text
+        or "too many requests" in text
+    )
+
+
+def _flood_control_seconds_str(text: str) -> float:
+    """Extract server-requested cooldown from a flood error string."""
+    lower = str(text or "").lower()
+    match = re.search(r"retry\s+(?:in\s+|after\s+)?(\d+)", lower)
+    if match:
+        return min(float(match.group(1)), 600.0)
+    return 300.0
+
+
+def _latch_rich_flood_off_str(adapter: Any, error_text: str) -> None:
+    """Latch rich messages off for the flood cooldown period (string variant)."""
     adapter._hermes_progress_tail_rich_disabled = True
-    cooldown = _flood_control_seconds(exc)
+    cooldown = _flood_control_seconds_str(error_text)
     adapter._hermes_progress_tail_rich_flood_until = time.monotonic() + cooldown
     logger.warning(
         "hermes-progress-tail Telegram rich flood-controlled; "
@@ -228,6 +252,14 @@ async def _try_send_rich_message(
             result = await try_send_rich(chat_id, rich_markdown, reply_to, metadata)
             if result is None and getattr(adapter, "_rich_send_disabled", False):
                 adapter._hermes_progress_tail_rich_disabled = True
+                return None
+            # Core adapter catches flood errors internally and returns a failure
+            # SendResult instead of raising. Detect that and latch+fallback.
+            if result is not None and not getattr(result, "success", False):
+                error_text = str(getattr(result, "error", "") or "")
+                if _is_flood_control_str(error_text):
+                    _latch_rich_flood_off_str(adapter, error_text)
+                    return None
             return result
         except Exception as exc:
             return _send_rich_exception_result(adapter, exc, send_result_cls)

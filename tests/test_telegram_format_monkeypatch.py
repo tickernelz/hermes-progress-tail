@@ -657,6 +657,62 @@ def test_rich_send_flood_control_falls_back_to_legacy_send(monkeypatch):
     uninstall_telegram_format_monkeypatch(LegacySendAdapter)
 
 
+def test_rich_send_flood_in_sendresult_triggers_fallback(monkeypatch):
+    """Core adapter catches flood errors internally and returns a failed SendResult.
+
+    The plugin must detect flood in the result's error string, latch rich off,
+    and return None so the caller falls back to legacy send.
+    """
+    parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.telegram",
+        SimpleNamespace(ParseMode=parse_mode),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=SendResult, utf16_len=len),
+    )
+    monkeypatch.delitem(
+        __import__("sys").modules, "hermes_plugins.telegram_platform.adapter", raising=False
+    )
+
+    class CoreFloodAdapter(FakeTelegramAdapter):
+        def __init__(self):
+            super().__init__()
+            self.send_calls = []
+            self._rich_messages_enabled = True
+            self._rich_send_disabled = False
+
+        def _should_attempt_rich(self, content, metadata=None):
+            return True
+
+        async def _try_send_rich(self, chat_id, content, reply_to, metadata):
+            # Core catches flood and returns a failure result (no exception)
+            return SendResult(
+                success=False,
+                error="Flood control exceeded. Retry in 5568 seconds",
+                retryable=True,
+            )
+
+        async def send(self, chat_id, content, reply_to=None, metadata=None):
+            self.send_calls.append((chat_id, content))
+            return SendResult(True, message_id="999")
+
+    uninstall_telegram_format_monkeypatch(CoreFloodAdapter)
+    assert install_telegram_format_monkeypatch(CoreFloodAdapter) is True
+    adapter = CoreFloodAdapter()
+
+    result = asyncio.run(adapter.send("123", "**bold content**"))
+
+    assert result.success is True
+    assert len(adapter.send_calls) >= 1
+    assert adapter._hermes_progress_tail_rich_disabled is True
+    assert adapter._hermes_progress_tail_rich_flood_until > 0
+    uninstall_telegram_format_monkeypatch(CoreFloodAdapter)
+
+
 def test_rich_auto_re_enables_after_flood_cooldown(monkeypatch):
     """Rich must auto re-enable after the flood cooldown period passes."""
     parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
