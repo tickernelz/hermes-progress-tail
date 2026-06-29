@@ -199,7 +199,13 @@ def test_feature_overrides_do_not_mutate_default_config(tmp_path):
     assert DEFAULT_CONFIG["delegates"]["enabled"] is True
     assert DEFAULT_CONFIG["renderer"]["mode"] == "focused"
     assert DEFAULT_CONFIG["renderer"]["style"] == "emoji"
-    assert DEFAULT_CONFIG["renderer"]["density"] == "verbose"
+    assert DEFAULT_CONFIG["renderer"]["density"] == "normal"
+    assert DEFAULT_CONFIG["renderer"]["edit_interval"] == 5.0
+    assert DEFAULT_CONFIG["assistant"]["min_update_chars"] == 160
+    assert DEFAULT_CONFIG["reasoning"]["min_update_chars"] == 300
+    assert DEFAULT_CONFIG["background_jobs"]["update_interval_seconds"] == 10
+    assert DEFAULT_CONFIG["cleanup"]["auto_delete"] is False
+    assert DEFAULT_CONFIG["telegram"]["rich_messages"] is True
 
 
 def test_uninstall_many_targets_selected_profiles(tmp_path):

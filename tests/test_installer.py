@@ -5,6 +5,7 @@ import yaml
 
 from hermes_progress_tail.installer import (
     DEFAULT_CONFIG,
+    TELEGRAM_FLOOD_SAFE_CONFIG,
     _builtin_reasoning_conflict,
     _copy_plugin,
     _core_notifier_conflict,
@@ -49,11 +50,18 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert config["progress_tail"]["patch"]["detail"] == "smart"
     assert config["progress_tail"]["patch"]["preview_chars"] == 48
     assert config["progress_tail"]["patch"]["max_files"] == 3
+    assert config["progress_tail"]["assistant"]["min_update_chars"] == 160
+    assert config["progress_tail"]["reasoning"]["min_update_chars"] == 300
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
+    assert config["progress_tail"]["renderer"]["density"] == "normal"
+    assert config["progress_tail"]["renderer"]["edit_interval"] == 5.0
     assert config["progress_tail"]["renderer"]["agent_label"] == ""
     assert config["progress_tail"]["footer"]["enabled"] is True
     assert config["progress_tail"]["footer"]["density"] == "normal"
     assert config["progress_tail"]["footer"]["max_path_chars"] == 56
+    assert config["progress_tail"]["background_jobs"]["update_interval_seconds"] == 10
+    assert config["progress_tail"]["cleanup"]["auto_delete"] is False
+    assert config["progress_tail"]["telegram"]["rich_messages"] is True
     assert "default_notify_on_complete" not in config["progress_tail"]["background_jobs"]
     assert "finalization" not in config["progress_tail"]
     assert "progress_tail" in config
@@ -187,6 +195,8 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     assert "finalization" not in config["progress_tail"]
     assert config["progress_tail"]["renderer"]["strategy"] == "live_tail"
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
+    assert config["progress_tail"]["renderer"]["density"] == "normal"
+    assert config["progress_tail"]["renderer"]["edit_interval"] == 5.0
     assert config["progress_tail"]["renderer"]["agent_label"] == ""
     assert any("progress_tail.todo" in message for message in result.messages)
     assert any(
@@ -195,6 +205,48 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
         and "progress_tail.telegram.details_open_on_failure" in message
         for message in result.messages
     )
+
+
+def test_install_flood_safe_overrides_existing_telegram_cadence(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "plugin.yaml").write_text("name: hermes-progress-tail\n", encoding="utf-8")
+    (source / "__init__.py").write_text("def register(ctx): pass\n", encoding="utf-8")
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "progress_tail": {
+                    "assistant": {"min_update_chars": 40},
+                    "reasoning": {"min_update_chars": 80},
+                    "background_jobs": {"update_interval_seconds": 3},
+                    "cleanup": {"auto_delete": True},
+                    "telegram": {"rich_messages": True},
+                    "renderer": {"edit_interval": 1.5, "density": "verbose"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = install(
+        hermes_home,
+        source,
+        dry_run=False,
+        feature_overrides=TELEGRAM_FLOOD_SAFE_CONFIG,
+    )
+
+    config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
+    progress_tail = config["progress_tail"]
+    assert progress_tail["assistant"]["min_update_chars"] == 160
+    assert progress_tail["reasoning"]["min_update_chars"] == 300
+    assert progress_tail["background_jobs"]["update_interval_seconds"] == 10
+    assert progress_tail["cleanup"]["auto_delete"] is False
+    assert progress_tail["telegram"]["rich_messages"] is True
+    assert progress_tail["renderer"]["edit_interval"] == 5.0
+    assert progress_tail["renderer"]["density"] == "normal"
+    assert result.changed is True
 
 
 def test_install_preserves_core_notifier_with_recommended_display_defaults(tmp_path):

@@ -145,7 +145,7 @@ def _simple_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]:
             "density": _prompt_choice(
                 "Renderer density",
                 ("compact", "normal", "verbose", "debug"),
-                "verbose",
+                "normal",
                 input_stream,
             ),
         },
@@ -205,7 +205,7 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
         "max_lines": _prompt_int("Reasoning max lines", 3, input_stream),
         "max_chars": _prompt_int("Reasoning max characters", 600, input_stream, min_value=80),
         "min_update_chars": _prompt_int(
-            "Reasoning minimum new characters before edit", 80, input_stream
+            "Reasoning minimum new characters before edit", 300, input_stream
         ),
         "no_edit_strategy": _prompt_choice(
             "Reasoning behavior on no-edit platforms",
@@ -239,9 +239,9 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
         ),
         "style": _prompt_choice("Renderer style", ("emoji", "plain"), "emoji", input_stream),
         "density": _prompt_choice(
-            "Renderer density", ("compact", "normal", "verbose", "debug"), "verbose", input_stream
+            "Renderer density", ("compact", "normal", "verbose", "debug"), "normal", input_stream
         ),
-        "edit_interval": _prompt_float("Minimum seconds between live edits", 1.5, input_stream),
+        "edit_interval": _prompt_float("Minimum seconds between live edits", 5.0, input_stream),
         "stale_ttl_seconds": _prompt_int("Stale session TTL seconds", 900, input_stream),
         "redact_secrets": _confirm("Redact common secrets before rendering", True, input_stream),
     }
@@ -316,6 +316,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--enable-reasoning", choices=["on", "off"])
     parser.add_argument("--renderer-style", choices=["emoji", "plain"])
     parser.add_argument("--renderer-density", choices=["compact", "normal", "verbose", "debug"])
+    parser.add_argument(
+        "--telegram-flood-safe",
+        action="store_true",
+        help="Apply safer Telegram progress-tail cadence while keeping rich messages enabled.",
+    )
     args = parser.parse_args(argv)
     hermes_home = Path(args.hermes_home)
     profiles = _parse_profile_list(args.profile)
@@ -347,6 +352,12 @@ def main(argv: list[str] | None = None) -> int:
             prompt_file.close()
         return 2
     if not (args.interactive and args.action in {"install", "uninstall"}):
+        if args.telegram_flood_safe:
+            from .installer import TELEGRAM_FLOOD_SAFE_CONFIG
+
+            feature_overrides.update(
+                {key: dict(value) for key, value in TELEGRAM_FLOOD_SAFE_CONFIG.items()}
+            )
         toggles = {
             "tools": args.enable_tools,
             "delegates": args.enable_delegates,

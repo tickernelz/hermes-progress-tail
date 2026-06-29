@@ -60,7 +60,7 @@ class AssistantSettings:
     enabled: bool = True
     max_lines: int = 3
     max_chars: int = 500
-    min_update_chars: int = 40
+    min_update_chars: int = 160
 
 
 @dataclass(frozen=True)
@@ -68,7 +68,7 @@ class ReasoningSettings:
     enabled: bool = True
     max_lines: int = 3
     max_chars: int = 600
-    min_update_chars: int = 80
+    min_update_chars: int = 300
     no_edit_strategy: str = "off"
 
 
@@ -82,7 +82,7 @@ class BackgroundJobSettings:
     head_lines: int = 2
     tail_lines: int = 3
     max_line_chars: int = 120
-    update_interval_seconds: int = 3
+    update_interval_seconds: int = 10
     suppress_native_notify: bool = True
     suppress_watch_notifications: bool = True
     default_notify_on_complete: bool = False
@@ -95,7 +95,7 @@ class NativeGatewaySettings:
 
 @dataclass(frozen=True)
 class CleanupSettings:
-    auto_delete: bool = True
+    auto_delete: bool = False
     delay_seconds: int = 5
     delete_on_success: bool = True
     delete_on_failure: bool = False
@@ -123,7 +123,7 @@ class TelegramSettings:
 class LegacyDefaultSettings:
     lines: int = 3
     preview_length: int = 120
-    edit_interval: float = 1.5
+    edit_interval: float = 5.0
     stale_ttl_seconds: int = 900
     redact_secrets: bool = True
     show_completed: bool = False
@@ -132,7 +132,7 @@ class LegacyDefaultSettings:
 @dataclass(frozen=True)
 class RendererSettings:
     strategy: str = "auto"
-    edit_interval: float = 1.5
+    edit_interval: float = 5.0
     stale_ttl_seconds: int = 900
     redact_secrets: bool = True
     mode: str = "sectioned"
@@ -155,7 +155,7 @@ class PlatformSettings:
     strategy: str = "auto"
     lines: int = 3
     preview_length: int = 120
-    edit_interval: float = 1.5
+    edit_interval: float = 5.0
     stale_ttl_seconds: int = 900
     redact_secrets: bool = True
     show_completed: bool = False
@@ -294,7 +294,7 @@ def _legacy_to_progress_tail(section: dict[str, Any]) -> dict[str, Any]:
         "assistant": section.get("assistant", {}),
         "renderer": {
             "strategy": "auto",
-            "edit_interval": defaults.get("edit_interval", 1.5),
+            "edit_interval": defaults.get("edit_interval", 5.0),
             "stale_ttl_seconds": defaults.get("stale_ttl_seconds", 900),
             "redact_secrets": defaults.get("redact_secrets", True),
         },
@@ -434,13 +434,13 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         enabled=_bool(assistant_raw.get("enabled"), True),
         max_lines=_int(assistant_raw.get("max_lines"), 3),
         max_chars=_int(assistant_raw.get("max_chars"), 500),
-        min_update_chars=_int(assistant_raw.get("min_update_chars"), 40),
+        min_update_chars=_int(assistant_raw.get("min_update_chars"), 160),
     )
     reasoning = ReasoningSettings(
         enabled=_bool(reasoning_raw.get("enabled"), True),
         max_lines=_int(reasoning_raw.get("max_lines"), 3),
         max_chars=_int(reasoning_raw.get("max_chars"), 600),
-        min_update_chars=_int(reasoning_raw.get("min_update_chars"), 80),
+        min_update_chars=_int(reasoning_raw.get("min_update_chars"), 300),
         no_edit_strategy=_strategy(reasoning_raw.get("no_edit_strategy"), "off"),
     )
     background_jobs = BackgroundJobSettings(
@@ -452,7 +452,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
         head_lines=_int(background_raw.get("head_lines"), 2),
         tail_lines=_int(background_raw.get("tail_lines"), 3),
         max_line_chars=_int(background_raw.get("max_line_chars"), 120, min_value=24),
-        update_interval_seconds=_int(background_raw.get("update_interval_seconds"), 3),
+        update_interval_seconds=_int(background_raw.get("update_interval_seconds"), 10),
         suppress_native_notify=_bool(background_raw.get("suppress_native_notify"), True),
         suppress_watch_notifications=_bool(
             background_raw.get("suppress_watch_notifications"), True
@@ -461,7 +461,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     )
     native_gateway = NativeGatewaySettings(suppress=_bool(native_gateway_raw.get("suppress"), True))
     cleanup = CleanupSettings(
-        auto_delete=_bool(cleanup_raw.get("auto_delete"), True),
+        auto_delete=_bool(cleanup_raw.get("auto_delete"), False),
         delay_seconds=_int(cleanup_raw.get("delay_seconds"), 5, min_value=0),
         delete_on_success=_bool(cleanup_raw.get("delete_on_success"), True),
         delete_on_failure=_bool(cleanup_raw.get("delete_on_failure"), False),
@@ -483,7 +483,7 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     renderer_mode, renderer_density = _renderer_mode_and_density(renderer_raw)
     renderer = RendererSettings(
         strategy=_strategy(renderer_raw.get("strategy"), "auto"),
-        edit_interval=_float(renderer_raw.get("edit_interval"), 1.5),
+        edit_interval=_float(renderer_raw.get("edit_interval"), 5.0),
         stale_ttl_seconds=_int(renderer_raw.get("stale_ttl_seconds"), 900),
         redact_secrets=_bool(renderer_raw.get("redact_secrets"), True),
         mode=renderer_mode,

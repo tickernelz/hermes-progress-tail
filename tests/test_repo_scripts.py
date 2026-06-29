@@ -36,6 +36,7 @@ def test_readme_keeps_install_section_simple_and_moves_env_options():
         "HPT_DRY_RUN",
         "HPT_PROFILES",
         "HPT_ALL_PROFILES",
+        "HPT_TELEGRAM_FLOOD_SAFE",
         "HERMES_HOME",
         "HPT_REPO",
         "HPT_REF",
@@ -53,7 +54,7 @@ def test_readme_documents_background_job_defaults_without_finalization_config():
     assert "cleanup_stale_on_next_turn" not in readme
     assert "mode: focused # focused|sectioned" in readme
     assert "mode: focused # focused|sectioned|compact" not in readme
-    assert "density: verbose # compact|normal|verbose|debug" in readme
+    assert "density: normal # compact|normal|verbose|debug" in readme
     assert "footer:" in readme
     assert "density: normal # compact|normal|debug" in readme
     assert "max_path_chars: 56" in readme
@@ -64,7 +65,12 @@ def test_readme_documents_assistant_platforms_and_config_doctor_warnings():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     assert "assistant:" in readme
-    assert "min_update_chars: 40" in readme
+    assert "min_update_chars: 160" in readme
+    assert "min_update_chars: 300" in readme
+    assert "edit_interval: 5.0" in readme
+    assert "update_interval_seconds: 10" in readme
+    assert "auto_delete: false" in readme
+    assert "rich_messages: true" in readme
     assert "platforms:" in readme
     assert "discord:" in readme
     assert "tools_enabled" in readme
@@ -111,12 +117,47 @@ def test_install_script_supports_local_source_dir(tmp_path):
     assert "Restart Hermes manually" in result.stdout
 
 
+def test_install_script_applies_telegram_flood_safe_env(tmp_path):
+    env = os.environ.copy()
+    env["HPT_SOURCE_DIR"] = str(Path.cwd())
+    env["HPT_INTERACTIVE"] = "0"
+    env["HPT_TELEGRAM_FLOOD_SAFE"] = "1"
+    env["HERMES_HOME"] = str(tmp_path / "hermes")
+    config_path = tmp_path / "hermes" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        "progress_tail:\n"
+        "  renderer:\n"
+        "    edit_interval: 1.5\n"
+        "    density: verbose\n"
+        "  cleanup:\n"
+        "    auto_delete: true\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", "install.sh"],
+        check=True,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "Updated plugin" in result.stdout or "Installed plugin" in result.stdout
+    config = config_path.read_text(encoding="utf-8")
+    assert "edit_interval: 5.0" in config
+    assert "density: normal" in config
+    assert "auto_delete: false" in config
+    assert "rich_messages: true" in config
+
+
 def test_install_script_defaults_to_interactive_when_not_dry_run():
     script = Path("install.sh").read_text(encoding="utf-8")
 
     assert "INTERACTIVE_DEFAULT=1" in script
     assert "--interactive --prompt-input /dev/tty" in script
     assert "--native-gateway-suppress" in script
+    assert "--telegram-flood-safe" in script
     assert "--set-display-off" not in script
 
 

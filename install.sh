@@ -13,6 +13,9 @@ fi
 if [[ "${HPT_ALL_PROFILES:-0}" == "1" || "${HPT_ALL_PROFILES:-0}" == "true" ]]; then
   INSTALL_ARGS+=(--all-profiles)
 fi
+if [[ "${HPT_TELEGRAM_FLOOD_SAFE:-0}" == "1" || "${HPT_TELEGRAM_FLOOD_SAFE:-0}" == "true" ]]; then
+  INSTALL_ARGS+=(--telegram-flood-safe)
+fi
 INTERACTIVE_DEFAULT=1
 if [[ "$DRY_RUN" == "1" || "$DRY_RUN" == "true" || -n "${HPT_PROFILES:-}" || "${HPT_ALL_PROFILES:-0}" == "1" || "${HPT_ALL_PROFILES:-0}" == "true" ]]; then
   INTERACTIVE_DEFAULT=0

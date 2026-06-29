@@ -504,6 +504,42 @@ def test_telegram_format_monkeypatch_returns_message_lost_without_plain_retry(mo
     uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
 
 
+def test_telegram_markdownv2_flood_does_not_plain_retry(monkeypatch):
+    """A regular MarkdownV2 flood must back off, not hammer with plain fallback."""
+    parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.telegram",
+        SimpleNamespace(ParseMode=parse_mode),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gateway.platforms.base",
+        SimpleNamespace(SendResult=SendResult, utf16_len=len),
+    )
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+    assert install_telegram_format_monkeypatch(FakeTelegramAdapter) is True
+    adapter = FakeTelegramAdapter()
+    adapter._bot.edit_message_text.side_effect = Exception(
+        "Flood control exceeded. Retry in 6044 seconds"
+    )
+
+    result = asyncio.run(adapter.edit_message("123", "456", "progress **bold**"))
+
+    assert result.success is False
+    assert result.message_id == "456"
+    assert result.retryable is True
+    assert "Flood control exceeded" in result.error
+    adapter._bot.edit_message_text.assert_awaited_once_with(
+        chat_id=123,
+        message_id=456,
+        text="progress *bold*",
+        parse_mode="MarkdownV2",
+    )
+    assert adapter.original_calls == []
+    uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
+
+
 def test_telegram_format_monkeypatch_forwards_metadata_to_original(monkeypatch):
     """Regression: wrapper must accept and forward `metadata` keyword.
 

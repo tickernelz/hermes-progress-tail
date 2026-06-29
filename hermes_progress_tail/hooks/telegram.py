@@ -483,6 +483,16 @@ def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None
             err_lower = err_text.lower()
             if "not modified" in err_lower:
                 return SendResult(success=True, message_id=message_id)
+            if _is_flood_control(fmt_err):
+                logger.warning(
+                    "hermes-progress-tail Telegram MarkdownV2 edit flood-controlled; backing off"
+                )
+                return SendResult(
+                    success=False,
+                    message_id=message_id,
+                    error=err_text,
+                    retryable=True,
+                )
             if _telegram_edit_target_lost(err_lower):
                 logger.debug(
                     "hermes-progress-tail Telegram live edit target disappeared; "

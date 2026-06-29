@@ -53,13 +53,13 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "max_lines": 3,
         "max_chars": 500,
-        "min_update_chars": 40,
+        "min_update_chars": 160,
     },
     "reasoning": {
         "enabled": True,
         "max_lines": 3,
         "max_chars": 600,
-        "min_update_chars": 80,
+        "min_update_chars": 300,
         "no_edit_strategy": "off",
     },
     "background_jobs": {
@@ -71,7 +71,7 @@ DEFAULT_CONFIG = {
         "head_lines": 2,
         "tail_lines": 3,
         "max_line_chars": 120,
-        "update_interval_seconds": 3,
+        "update_interval_seconds": 10,
         "suppress_native_notify": True,
         "suppress_watch_notifications": True,
     },
@@ -79,7 +79,7 @@ DEFAULT_CONFIG = {
         "suppress": True,
     },
     "cleanup": {
-        "auto_delete": True,
+        "auto_delete": False,
         "delay_seconds": 5,
         "delete_on_success": True,
         "delete_on_failure": False,
@@ -100,12 +100,12 @@ DEFAULT_CONFIG = {
     },
     "renderer": {
         "strategy": "auto",
-        "edit_interval": 1.5,
+        "edit_interval": 5.0,
         "stale_ttl_seconds": 900,
         "redact_secrets": True,
         "mode": "focused",
         "style": "emoji",
-        "density": "verbose",
+        "density": "normal",
         "agent_label": "",
     },
     "no_edit": {
@@ -114,6 +114,15 @@ DEFAULT_CONFIG = {
         "final_summary": True,
         "max_snapshots_per_turn": 5,
     },
+}
+
+TELEGRAM_FLOOD_SAFE_CONFIG = {
+    "assistant": {"min_update_chars": 160},
+    "reasoning": {"min_update_chars": 300},
+    "background_jobs": {"update_interval_seconds": 10},
+    "cleanup": {"auto_delete": False},
+    "telegram": {"rich_messages": True},
+    "renderer": {"edit_interval": 5.0, "density": "normal"},
 }
 
 
@@ -244,12 +253,12 @@ def _migrate_legacy_config(config: dict[str, Any]) -> bool:
             "native_gateway": copy.deepcopy(DEFAULT_CONFIG["native_gateway"]),
             "renderer": {
                 "strategy": "auto",
-                "edit_interval": defaults.get("edit_interval", 1.5),
+                "edit_interval": defaults.get("edit_interval", 5.0),
                 "stale_ttl_seconds": defaults.get("stale_ttl_seconds", 900),
                 "redact_secrets": defaults.get("redact_secrets", True),
                 "mode": "focused",
                 "style": "emoji",
-                "density": "verbose",
+                "density": "normal",
                 "agent_label": "",
             },
             "no_edit": legacy.get("no_edit", DEFAULT_CONFIG["no_edit"]).copy()

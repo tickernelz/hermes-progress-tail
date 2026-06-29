@@ -47,6 +47,7 @@ Use environment variables for automation:
 - `HPT_DRY_RUN=1` — show what would change without writing files; non-interactive by default.
 - `HPT_PROFILES=work,personal` — install/update selected profiles.
 - `HPT_ALL_PROFILES=1` — install/update default plus every discovered profile.
+- `HPT_TELEGRAM_FLOOD_SAFE=1` — rewrite Telegram progress-tail cadence to safer values while keeping rich messages enabled.
 - `HERMES_HOME=/path/to/.hermes` — target a custom Hermes home.
 - `HPT_REPO=owner/repo` — download from another GitHub repo.
 - `HPT_REF=v0.2.00` — download a specific tag/branch/ref.
@@ -123,13 +124,13 @@ progress_tail:
     enabled: true
     max_lines: 3
     max_chars: 500
-    min_update_chars: 40
+    min_update_chars: 160
 
   reasoning:
     enabled: true
     max_lines: 3
     max_chars: 600
-    min_update_chars: 80
+    min_update_chars: 300
     no_edit_strategy: off
 
   background_jobs:
@@ -141,7 +142,7 @@ progress_tail:
     head_lines: 2
     tail_lines: 3
     max_line_chars: 120
-    update_interval_seconds: 3
+    update_interval_seconds: 10
     suppress_native_notify: true
     suppress_watch_notifications: true
 
@@ -149,7 +150,7 @@ progress_tail:
     suppress: true
 
   cleanup:
-    auto_delete: true
+    auto_delete: false
     delay_seconds: 5
     delete_on_success: true
     delete_on_failure: false
@@ -170,12 +171,12 @@ progress_tail:
 
   renderer:
     strategy: auto
-    edit_interval: 1.5
+    edit_interval: 5.0
     stale_ttl_seconds: 900
     redact_secrets: true
     mode: focused # focused|sectioned
     style: emoji # emoji|plain
-    density: verbose # compact|normal|verbose|debug
+    density: normal # compact|normal|verbose|debug
     agent_label: "" # optional label for focused HUD header, e.g. Akbar
 
   no_edit:

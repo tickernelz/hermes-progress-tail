@@ -342,10 +342,10 @@ def test_reasoning_after_finalize_starts_fresh_bubble():
     asyncio.run(run())
 
 
-def test_finalize_auto_deletes_completed_progress_bubble_by_default():
+def test_finalize_auto_deletes_completed_progress_bubble_when_enabled():
     async def run():
         adapter = EditableAdapter()
-        renderer = make_renderer({"cleanup": {"delay_seconds": 1}})
+        renderer = make_renderer({"cleanup": {"auto_delete": True, "delay_seconds": 1}})
         ctx = make_ctx(adapter)
         renderer.register_context(ctx)
 
@@ -368,7 +368,7 @@ def test_finalize_purge_keeps_auto_delete_task_alive():
     async def run():
         adapter = EditableAdapter()
         adapter.delete_event = asyncio.Event()
-        renderer = make_renderer({"cleanup": {"delay_seconds": 1}})
+        renderer = make_renderer({"cleanup": {"auto_delete": True, "delay_seconds": 1}})
         ctx = make_ctx(adapter)
         renderer.register_context(ctx)
 
