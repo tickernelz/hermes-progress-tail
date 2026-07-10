@@ -149,6 +149,8 @@ class ProgressRenderer:
                         ctx.active_tool_fingerprints[fingerprint] = line
             elif isinstance(event, DelegateEvent):
                 self._apply_delegate_event(ctx, event)
+                if self._delegate_event_is_terminal(event):
+                    force = True
             elif isinstance(event, BackgroundJobEvent):
                 self._apply_background_job_event(ctx, event)
                 force = True

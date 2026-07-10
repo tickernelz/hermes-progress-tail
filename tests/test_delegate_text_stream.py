@@ -161,6 +161,61 @@ def test_delegate_renderer_replaces_accumulated_subagent_text_reply_line():
     asyncio.run(run())
 
 
+def test_delegate_terminal_event_bypasses_live_tail_throttle():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = ProgressRenderer(
+            load_settings(
+                {
+                    "progress_tail": {
+                        "tools": {"timestamp": False},
+                        "renderer": {"edit_interval": 999},
+                    }
+                }
+            )
+        )
+        ctx = SessionContext(
+            "session-1",
+            "key-1",
+            "discord",
+            "chat",
+            "thread",
+            adapter,
+            asyncio.get_running_loop(),
+            "live_tail",
+            edit_interval=999,
+            timestamp=False,
+        )
+        renderer.register_context(ctx)
+        goal = "Inspect Apollo Coworker server and agent integration"
+        await renderer.handle_event(
+            DelegateEvent(
+                "session-1",
+                "key-1",
+                "discord",
+                "sa-terminal",
+                event_type="subagent.start",
+                goal=goal,
+            )
+        )
+        await renderer.handle_event(
+            DelegateEvent(
+                "session-1",
+                "key-1",
+                "discord",
+                "sa-terminal",
+                event_type="subagent.complete",
+                goal=goal,
+                summary="No issues found.",
+            )
+        )
+
+        assert adapter.edits
+        assert "result: ✓ done: No issues found." in adapter.edits[-1][2]
+
+    asyncio.run(run())
+
+
 def test_delegate_renderer_suppresses_streamed_reply_when_completion_result_is_shown():
     async def run():
         adapter = EditableAdapter()
