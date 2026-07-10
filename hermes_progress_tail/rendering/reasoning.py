@@ -17,6 +17,11 @@ _INLINE_BOLD_HEADING_RE = re.compile(
 )
 _MISSING_SENTENCE_SPACE_RE = re.compile(r"(?<=[a-z])([.])(?=[A-Z])")
 _GLUED_NUMBERED_LIST_RE = re.compile(r'(?<=[a-zA-Z):;\]}"\'])(?=\d{1,2}[.)]\s+[A-Z])')
+_EMPTY_HTML_COMMENT_SEPARATOR_RE = re.compile(
+    r"^(?P<indent>[ \t]*)<!--[ \t]*-->[ \t]*"
+    r"(?=(?:\*\*|__|#{1,6}\s)|$)"
+)
+_TRAILING_EMPTY_HTML_COMMENT_RE = re.compile(r"(?m)^[ \t]*<!--[ \t\n]*(?:-->)?[ \t\n]*\Z")
 _CHANNEL_ARTIFACT_RE = re.compile(
     r"<\|(?:channel\|>\s*analysis|start\|>|end\|>|message\|>|assistant\|>|analysis\|>)",
     re.IGNORECASE,
@@ -47,7 +52,7 @@ class ReasoningBlock:
     heading_style: str = ""
 
 
-def normalize_reasoning_text(text: str) -> str:
+def normalize_reasoning_text(text: str, *, preserve_stream_suffix: bool = False) -> str:
     if not text:
         return ""
     text = str(text).replace("\r\n", "\n").replace("\r", "\n")
@@ -56,6 +61,16 @@ def normalize_reasoning_text(text: str) -> str:
     text = text.replace("◁think▷", "<think>").replace("◁/think▷", "</think>")
     text = text.replace("<|begin_of_thought|>", "<think>").replace("<|end_of_thought|>", "</think>")
     text = _extract_reasoning_tag_bodies(text)
+    stream_suffix = ""
+    # GPT-5.6 emits empty HTML comments as heading separators and can split
+    # one comment across reasoning deltas. Keep a terminal fragment only in
+    # the internal stream buffer; render-time normalization removes it.
+    suffix_match = _TRAILING_EMPTY_HTML_COMMENT_RE.search(text)
+    if suffix_match and not _inside_code_fence(text, suffix_match.start()):
+        if preserve_stream_suffix:
+            stream_suffix = suffix_match.group(0).strip()
+        text = text[: suffix_match.start()]
+    text = _strip_empty_html_comment_separators(text)
     text = _normalize_streaming_glue(text)
     text = _normalize_inline_heading_boundaries(text)
     lines = []
@@ -75,7 +90,33 @@ def normalize_reasoning_text(text: str) -> str:
         if line:
             lines.append(line)
     text = "\n".join(lines).strip()
-    return re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if stream_suffix:
+        return f"{text}\n\n{stream_suffix}" if text else stream_suffix
+    return text
+
+
+def _strip_empty_html_comment_separators(text: str) -> str:
+    """Remove GPT-5.6 separator comments without touching code examples."""
+    output: list[str] = []
+    in_fence = False
+    for raw_line in text.splitlines(keepends=True):
+        if _CODE_FENCE_RE.match(raw_line.strip()):
+            in_fence = not in_fence
+            output.append(raw_line)
+            continue
+        if not in_fence:
+            raw_line = _EMPTY_HTML_COMMENT_SEPARATOR_RE.sub(r"\g<indent>", raw_line)
+        output.append(raw_line)
+    return "".join(output)
+
+
+def _inside_code_fence(text: str, position: int) -> bool:
+    in_fence = False
+    for raw_line in text[:position].splitlines():
+        if _CODE_FENCE_RE.match(raw_line.strip()):
+            in_fence = not in_fence
+    return in_fence
 
 
 def render_reasoning_tail(

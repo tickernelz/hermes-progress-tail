@@ -272,7 +272,7 @@ class ProgressRenderer:
         if not event.text:
             return 0
         merged = ctx.reasoning_text + str(event.text)
-        merged = self._normalize_reasoning(merged)
+        merged = self._normalize_reasoning(merged, preserve_stream_suffix=True)
         max_chars = self.settings.reasoning.max_chars
         if len(merged) > max_chars * 4:
             merged = self._trim_reasoning_buffer(merged, max_chars * 4)
@@ -525,8 +525,8 @@ class ProgressRenderer:
         )
 
     @staticmethod
-    def _normalize_reasoning(text: str) -> str:
-        return normalize_reasoning_text(text)
+    def _normalize_reasoning(text: str, *, preserve_stream_suffix: bool = False) -> str:
+        return normalize_reasoning_text(text, preserve_stream_suffix=preserve_stream_suffix)
 
     async def _finalize_progress_message(self, ctx: SessionContext) -> None:
         finalize_progress_message(ctx)

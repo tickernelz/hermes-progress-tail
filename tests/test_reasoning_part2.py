@@ -2,7 +2,15 @@ from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.monkeypatches import (
     _capture_inline_reasoning,
 )
-from hermes_progress_tail.state import SessionContext
+from hermes_progress_tail.renderer import ProgressRenderer
+from hermes_progress_tail.rendering.reasoning import (
+    normalize_reasoning_text,
+    render_reasoning_tail,
+)
+from hermes_progress_tail.rendering.telegram_rich import (
+    format_progress_tail_telegram_rich_markdown,
+)
+from hermes_progress_tail.state import ReasoningEvent, SessionContext
 
 
 class Result:
@@ -167,3 +175,84 @@ def test_inline_think_wrapper_fails_open_with_split_opening_tag_when_context_dis
     wrapped("ink>hidden visible")
 
     assert seen == ["visible ", "<think>hidden visible"]
+
+
+def test_gpt56_empty_comment_separators_are_removed_before_heading_detection():
+    raw_reasoning = (
+        "**Planning docker exec syntax explanation**\n\n"
+        "<!-- -->"
+        "**Clarifying docker exec usage and middleware order**\n\n"
+        "<!-- -->"
+    )
+
+    normalized = normalize_reasoning_text(raw_reasoning)
+    rendered = render_reasoning_tail(raw_reasoning, max_lines=3, max_chars=600, redact=False)
+
+    assert normalized == (
+        "**Planning docker exec syntax explanation**\n\n"
+        "**Clarifying docker exec usage and middleware order**"
+    )
+    assert rendered == (
+        "**Planning docker exec syntax explanation**\n\n"
+        "**Clarifying docker exec usage and middleware order**"
+    )
+    assert "<!--" not in rendered
+
+
+def test_gpt56_empty_comment_separators_do_not_reach_telegram_rich_payload():
+    raw_reasoning = (
+        "**Fixing docker exec command usage**\n\n"
+        "<!-- -->"
+        "**Inspecting route mounting and middleware order**\n\n"
+        "<!-- -->"
+    )
+    rendered = render_reasoning_tail(raw_reasoning, max_lines=3, max_chars=600, redact=False)
+
+    rich_markdown = format_progress_tail_telegram_rich_markdown("▰ 💭 Reasoning\n" + rendered)
+
+    assert rich_markdown == (
+        "## Reasoning\n\n"
+        "### Fixing docker exec command usage\n\n"
+        "### Inspecting route mounting and middleware order"
+    )
+    assert "<!--" not in rich_markdown
+    assert "citation" not in rich_markdown.lower()
+
+
+def test_gpt56_split_comment_deltas_preserve_heading_boundary():
+    renderer = ProgressRenderer(load_settings({"progress_tail": {"reasoning": {"max_lines": 3}}}))
+    ctx = SessionContext("s1", "k1", "telegram", "chat", None, None, None)
+    deltas = (
+        "**Planning docker exec syntax explanation**\n\n<!--",
+        " -->",
+        "**Clarifying docker exec usage and middleware order**\n\n<!--",
+        " -->",
+    )
+
+    for delta in deltas:
+        renderer._append_reasoning(ctx, ReasoningEvent("s1", "k1", "telegram", delta))
+
+    rendered = renderer._reasoning_tail(ctx)
+    rich_markdown = format_progress_tail_telegram_rich_markdown("▰ 💭 Reasoning\n" + rendered)
+
+    assert rendered == (
+        "**Planning docker exec syntax explanation**\n\n"
+        "**Clarifying docker exec usage and middleware order**"
+    )
+    assert rich_markdown == (
+        "## Reasoning\n\n"
+        "### Planning docker exec syntax explanation\n\n"
+        "### Clarifying docker exec usage and middleware order"
+    )
+
+
+def test_gpt56_normalizer_preserves_inline_empty_html_comment_example():
+    text = "Use `<!-- -->` as an empty HTML comment in generated documentation."
+
+    assert normalize_reasoning_text(text) == text
+
+
+def test_gpt56_normalizer_preserves_fenced_empty_html_comment_example():
+    text = "```html\n<!-- -->\n```"
+
+    assert normalize_reasoning_text(text) == text
