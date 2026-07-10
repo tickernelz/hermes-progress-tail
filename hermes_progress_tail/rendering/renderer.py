@@ -46,7 +46,13 @@ from .finalization import (
     reset_turn,
     should_flush_before_reset,
 )
-from .reasoning import normalize_reasoning_text, render_reasoning_tail, split_reasoning_blocks
+from .reasoning import (
+    normalize_reasoning_text,
+    render_reasoning_tail,
+    split_reasoning_blocks,
+    split_reasoning_stream_suffix,
+    trim_reasoning_fenced_tail,
+)
 from .sections import (
     assistant_tail,
     compose_content,
@@ -272,10 +278,17 @@ class ProgressRenderer:
         if not event.text:
             return 0
         merged = ctx.reasoning_text + str(event.text)
-        merged = self._normalize_reasoning(merged, preserve_stream_suffix=True)
         max_chars = self.settings.reasoning.max_chars
-        if len(merged) > max_chars * 4:
-            merged = self._trim_reasoning_buffer(merged, max_chars * 4)
+        buffer_limit = max(0, max_chars * 4)
+        if len(merged) > buffer_limit:
+            core, stream_suffix = split_reasoning_stream_suffix(
+                merged,
+                max_suffix_chars=max(0, buffer_limit - 1),
+            )
+            normalized = self._normalize_reasoning(core)
+            trim_limit = buffer_limit - len(stream_suffix)
+            trimmed = self._trim_reasoning_buffer(normalized, trim_limit) if trim_limit > 0 else ""
+            merged = trimmed + stream_suffix
         ctx.reasoning_text = merged
         ctx.reasoning_pending_chars += len(str(event.text))
         ctx.last_reasoning_source = event.source or "structured_reasoning"
@@ -483,6 +496,9 @@ class ProgressRenderer:
 
     @staticmethod
     def _trim_reasoning_buffer(text: str, max_chars: int) -> str:
+        fenced_tail = trim_reasoning_fenced_tail(text, max_chars)
+        if fenced_tail is not None:
+            return fenced_tail
         blocks = split_reasoning_blocks(text)
         if blocks and blocks[-1].heading:
             latest = blocks[-1]
@@ -525,8 +541,8 @@ class ProgressRenderer:
         )
 
     @staticmethod
-    def _normalize_reasoning(text: str, *, preserve_stream_suffix: bool = False) -> str:
-        return normalize_reasoning_text(text, preserve_stream_suffix=preserve_stream_suffix)
+    def _normalize_reasoning(text: str) -> str:
+        return normalize_reasoning_text(text)
 
     async def _finalize_progress_message(self, ctx: SessionContext) -> None:
         finalize_progress_message(ctx)

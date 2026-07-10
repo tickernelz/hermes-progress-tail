@@ -1,3 +1,5 @@
+import pytest
+
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.monkeypatches import (
     _capture_inline_reasoning,
@@ -6,6 +8,7 @@ from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.rendering.reasoning import (
     normalize_reasoning_text,
     render_reasoning_tail,
+    trim_reasoning_fenced_tail,
 )
 from hermes_progress_tail.rendering.telegram_rich import (
     format_progress_tail_telegram_rich_markdown,
@@ -256,3 +259,140 @@ def test_gpt56_normalizer_preserves_fenced_empty_html_comment_example():
     text = "```html\n<!-- -->\n```"
 
     assert normalize_reasoning_text(text) == text
+
+
+def test_gpt56_separator_survives_every_two_delta_boundary():
+    raw = "**One**\n\n<!-- -->**Two**"
+    expected = "**One**\n\n**Two**"
+
+    for index in range(1, len(raw)):
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"reasoning": {"max_lines": 3}}})
+        )
+        ctx = SessionContext("s1", "k1", "telegram", "chat", None, None, None)
+        for delta in (raw[:index], raw[index:]):
+            renderer._append_reasoning(ctx, ReasoningEvent("s1", "k1", "telegram", delta))
+
+        assert renderer._reasoning_tail(ctx) == expected, f"split at {index}"
+
+
+def test_gpt56_separator_survives_buffer_trim_at_every_split_boundary():
+    prefix = "**One**\n" + ("body " * 100)
+    suffix = "\n\n<!-- -->**Two**"
+
+    for index in range(len(suffix) + 1):
+        renderer = ProgressRenderer(
+            load_settings({"progress_tail": {"reasoning": {"max_lines": 3, "max_chars": 80}}})
+        )
+        ctx = SessionContext("s1", "k1", "telegram", "chat", None, None, None)
+        for delta in (prefix + suffix[:index], suffix[index:]):
+            renderer._append_reasoning(ctx, ReasoningEvent("s1", "k1", "telegram", delta))
+
+        normalized = normalize_reasoning_text(ctx.reasoning_text)
+        assert "<!--" not in normalized, f"split at {index}"
+        assert normalized.endswith("**Two**"), f"split at {index}"
+
+
+def test_gpt56_normalizer_preserves_tilde_fenced_empty_comment():
+    text = "~~~html\n<!-- -->\n~~~"
+
+    assert normalize_reasoning_text(text) == text
+
+
+def test_gpt56_normalizer_preserves_comment_inside_longer_backtick_fence():
+    text = "````md\n```\n<!-- -->\n```\n````"
+
+    assert normalize_reasoning_text(text) == text
+
+
+def test_gpt56_streamed_fenced_comment_preserves_every_two_delta_boundary():
+    samples = (
+        "~~~html\n<!-- -->\n~~~",
+        "````md\n```\n<!-- -->\n```\n````",
+    )
+
+    for text in samples:
+        for index in range(1, len(text)):
+            renderer = ProgressRenderer(
+                load_settings({"progress_tail": {"reasoning": {"max_lines": 10}}})
+            )
+            ctx = SessionContext("s1", "k1", "telegram", "chat", None, None, None)
+            for delta in (text[:index], text[index:]):
+                renderer._append_reasoning(ctx, ReasoningEvent("s1", "k1", "telegram", delta))
+
+            assert normalize_reasoning_text(ctx.reasoning_text) == text, (
+                f"split at {index} in {text!r}"
+            )
+
+
+def test_gpt56_bounded_fenced_comment_preserves_fence_context():
+    samples = (
+        ("```html", "```"),
+        ("~~~html", "~~~"),
+        ("````html", "````"),
+    )
+
+    for opening, closing in samples:
+        prefix = opening + "\n" + ("code " * 100)
+        suffix = "\n<!-- -->\n" + closing
+        for index in range(len(suffix) + 1):
+            renderer = ProgressRenderer(
+                load_settings({"progress_tail": {"reasoning": {"max_lines": 10, "max_chars": 80}}})
+            )
+            ctx = SessionContext("s1", "k1", "telegram", "chat", None, None, None)
+            for delta in (prefix + suffix[:index], suffix[index:]):
+                renderer._append_reasoning(ctx, ReasoningEvent("s1", "k1", "telegram", delta))
+
+            normalized = normalize_reasoning_text(ctx.reasoning_text)
+            assert "<!-- -->" in normalized, f"split at {index} in {opening!r}"
+            assert normalized.startswith(opening), f"split at {index} in {opening!r}"
+            assert normalized.endswith(closing), f"split at {index} in {opening!r}"
+            assert len(ctx.reasoning_text) <= 320
+
+
+def test_gpt56_bounded_oversized_partial_separator_whitespace_respects_cap():
+    renderer = ProgressRenderer(
+        load_settings({"progress_tail": {"reasoning": {"max_lines": 10, "max_chars": 80}}})
+    )
+    ctx = SessionContext("s1", "k1", "telegram", "chat", None, None, None)
+
+    renderer._append_reasoning(
+        ctx,
+        ReasoningEvent("s1", "k1", "telegram", "**One**\n\n<!" + " " * 1000),
+    )
+
+    assert len(ctx.reasoning_text) <= 320
+
+    renderer._append_reasoning(
+        ctx,
+        ReasoningEvent("s1", "k1", "telegram", "-- -->\n**Two**"),
+    )
+
+    assert len(ctx.reasoning_text) <= 320
+    assert normalize_reasoning_text(ctx.reasoning_text) == "**One**\n\n**Two**"
+
+
+def test_preserve_stream_suffix_keyword_remains_compatible():
+    text = "**One**\n\n<!--"
+
+    assert normalize_reasoning_text(text, preserve_stream_suffix=True) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("foo\n<!--", "foo\n\n<!--"),
+        ("foo\n<!-- -->", "foo\n\n<!-- -->"),
+        ("foo\n<!-- \t", "foo\n\n<!--"),
+        ("foo\n\n<!-- --> \t\n", "foo\n\n<!-- -->"),
+    ],
+)
+def test_preserve_stream_suffix_keeps_v0202_boundary_semantics(text, expected):
+    assert normalize_reasoning_text(text, preserve_stream_suffix=True) == expected
+
+
+def test_trim_reasoning_fenced_tail_respects_zero_body_budget():
+    trimmed = trim_reasoning_fenced_tail("```\nbody\n```", 8)
+
+    assert trimmed == "```\n```"
+    assert len(trimmed) <= 8

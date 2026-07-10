@@ -7,7 +7,7 @@ from ..utils.redaction import redact_text
 from ..utils.text import truncate_tail_text
 
 _REASONING_TAG_NAMES = r"think|thinking|reasoning|thought|analysis|REASONING_SCRATCHPAD"
-_CODE_FENCE_RE = re.compile(r"^`{3,}")
+_CODE_FENCE_LINE_RE = re.compile(r"^(?P<indent> {0,3})(?P<run>`{3,}|~{3,})(?P<tail>.*)$")
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 _BOLD_HEADING_RE = re.compile(r"^(?:\*\*|__)(?P<title>[^*_\n][^\n]*?)(?:\*\*|__)\s*$")
 _INLINE_BOLD_HEADING_RE = re.compile(
@@ -62,9 +62,8 @@ def normalize_reasoning_text(text: str, *, preserve_stream_suffix: bool = False)
     text = text.replace("<|begin_of_thought|>", "<think>").replace("<|end_of_thought|>", "</think>")
     text = _extract_reasoning_tag_bodies(text)
     stream_suffix = ""
-    # GPT-5.6 emits empty HTML comments as heading separators and can split
-    # one comment across reasoning deltas. Keep a terminal fragment only in
-    # the internal stream buffer; render-time normalization removes it.
+    # Preserve v0.2.02 API behavior: detach a terminal non-fenced separator,
+    # canonicalize its whitespace, then reattach it after a blank line.
     suffix_match = _TRAILING_EMPTY_HTML_COMMENT_RE.search(text)
     if suffix_match and not _inside_code_fence(text, suffix_match.start()):
         if preserve_stream_suffix:
@@ -96,27 +95,117 @@ def normalize_reasoning_text(text: str, *, preserve_stream_suffix: bool = False)
     return text
 
 
+def split_reasoning_stream_suffix(
+    text: str, *, max_suffix_chars: int | None = None
+) -> tuple[str, str]:
+    """Detach an incomplete structural separator before bounded buffer trimming."""
+    if not text:
+        return "", ""
+    line_start = text.rfind("\n") + 1
+    last_line = text[line_start:]
+    compact_line = "".join(last_line.split())
+    empty_comment = "<!---->"
+    pending_comment = bool(compact_line) and empty_comment.startswith(compact_line)
+    if pending_comment:
+        prefix = text[:line_start]
+        core = prefix.rstrip(" \t\n")
+        newline_count = prefix[len(core) :].count("\n")
+        boundary = "\n" * min(2, newline_count)
+        suffix = boundary + last_line
+        if max_suffix_chars is not None and len(suffix) > max_suffix_chars:
+            compact_line = compact_line[:max_suffix_chars]
+            boundary_budget = max_suffix_chars - len(compact_line)
+            boundary = boundary[-boundary_budget:] if boundary_budget > 0 else ""
+            suffix = boundary + compact_line
+        return core, suffix
+    if not last_line.strip():
+        core = text.rstrip(" \t\n")
+        newline_count = text[len(core) :].count("\n")
+        return core, "\n" * min(2, newline_count)
+    return text, ""
+
+
+def trim_reasoning_fenced_tail(text: str, max_chars: int) -> str | None:
+    """Keep the latest fenced tail structurally valid across bounded trimming."""
+    if not text or max_chars <= 0:
+        return None
+    lines = text.splitlines()
+    fence_state: tuple[str, int] | None = None
+    opening_index: int | None = None
+    latest_complete: tuple[int, int] | None = None
+    for index, line in enumerate(lines):
+        previous_state = fence_state
+        fence_state = _advance_code_fence(line, fence_state)
+        if previous_state is None and fence_state is not None:
+            opening_index = index
+        elif previous_state is not None and fence_state is None and opening_index is not None:
+            latest_complete = opening_index, index
+            opening_index = None
+
+    closing_index: int | None = None
+    if fence_state is not None and opening_index is not None:
+        start_index = opening_index
+    elif latest_complete and not any(line.strip() for line in lines[latest_complete[1] + 1 :]):
+        start_index, closing_index = latest_complete
+    else:
+        return None
+
+    opening = lines[start_index]
+    closing = lines[closing_index] if closing_index is not None else ""
+    body_end = closing_index if closing_index is not None else len(lines)
+    body = "\n".join(lines[start_index + 1 : body_end])
+    fixed_chars = len(opening) + 1
+    if closing:
+        fixed_chars += len(closing) + 1
+    if fixed_chars > max_chars:
+        return None
+    body_budget = max_chars - fixed_chars
+    body_tail = body[-body_budget:].lstrip() if body and body_budget > 0 else ""
+    result = opening
+    if body_tail:
+        result += "\n" + body_tail
+    if closing:
+        result += "\n" + closing
+    return result
+
+
 def _strip_empty_html_comment_separators(text: str) -> str:
     """Remove GPT-5.6 separator comments without touching code examples."""
     output: list[str] = []
-    in_fence = False
+    fence_state: tuple[str, int] | None = None
     for raw_line in text.splitlines(keepends=True):
-        if _CODE_FENCE_RE.match(raw_line.strip()):
-            in_fence = not in_fence
-            output.append(raw_line)
-            continue
-        if not in_fence:
+        previous_state = fence_state
+        fence_state = _advance_code_fence(raw_line, fence_state)
+        if previous_state is None and fence_state is None:
             raw_line = _EMPTY_HTML_COMMENT_SEPARATOR_RE.sub(r"\g<indent>", raw_line)
         output.append(raw_line)
     return "".join(output)
 
 
 def _inside_code_fence(text: str, position: int) -> bool:
-    in_fence = False
+    fence_state: tuple[str, int] | None = None
     for raw_line in text[:position].splitlines():
-        if _CODE_FENCE_RE.match(raw_line.strip()):
-            in_fence = not in_fence
-    return in_fence
+        fence_state = _advance_code_fence(raw_line, fence_state)
+    return fence_state is not None
+
+
+def _advance_code_fence(raw_line: str, state: tuple[str, int] | None) -> tuple[str, int] | None:
+    """Track CommonMark backtick/tilde fences and their opening length."""
+    line = raw_line.rstrip("\r\n")
+    match = _CODE_FENCE_LINE_RE.match(line)
+    if not match:
+        return state
+    run = match.group("run")
+    marker = run[0]
+    tail = match.group("tail")
+    if state is None:
+        if marker == "`" and "`" in tail:
+            return None
+        return marker, len(run)
+    opening_marker, opening_length = state
+    if marker == opening_marker and len(run) >= opening_length and not tail.strip():
+        return None
+    return state
 
 
 def render_reasoning_tail(
@@ -152,7 +241,7 @@ def split_reasoning_blocks(text: str) -> list[ReasoningBlock]:
     heading_style = ""
     body: list[str] = []
     saw_heading = False
-    in_fence = False
+    fence_state: tuple[str, int] | None = None
 
     def flush() -> None:
         nonlocal heading, heading_style, body
@@ -169,11 +258,12 @@ def split_reasoning_blocks(text: str) -> list[ReasoningBlock]:
 
     for raw_line in lines:
         line = raw_line.strip()
-        if _CODE_FENCE_RE.match(line):
-            in_fence = not in_fence
+        previous_state = fence_state
+        fence_state = _advance_code_fence(raw_line, fence_state)
+        if previous_state is not None or fence_state is not None:
             body.append(line)
             continue
-        detected = None if in_fence else _detect_heading(line)
+        detected = _detect_heading(line)
         if detected:
             flush()
             heading = detected[0]
