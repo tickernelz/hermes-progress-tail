@@ -199,7 +199,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 _renderer: ProgressRenderer | None = None
-VERSION = "0.2.01"
+VERSION = "0.2.02"
 _ASSISTANT_CAPTURE: dict[str, Any] = {
     "status": "never",
     "session_id": "",
