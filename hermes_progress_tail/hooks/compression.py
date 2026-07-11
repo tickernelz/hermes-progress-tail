@@ -6,6 +6,8 @@ from typing import Any
 
 from .agent import _positive_int
 from .contracts import HookCallbacks, current_hook_callbacks
+from .install_report import PatchStatus
+from .status_helpers import structured_patch_status
 
 logger = logging.getLogger(__name__)
 _COMPRESSION_STATUS_ORIGINALS: dict[type, Any] = {}
@@ -14,7 +16,7 @@ _COMPRESSION_STATUS_PATCH_MARKER = "_hermes_progress_tail_compression_status_pat
 _COMPRESSION_LIFECYCLE_PATCH_MARKER = "_hermes_progress_tail_compression_lifecycle_patched"
 
 
-def install_compression_status_monkeypatch(
+def _mutate_compression_status_monkeypatch(
     agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
 ) -> bool:
     callbacks = callbacks if callbacks is not None else current_hook_callbacks()
@@ -25,7 +27,10 @@ def install_compression_status_monkeypatch(
             logger.debug("hermes-progress-tail could not import AIAgent for compression: %s", exc)
             return False
     if getattr(agent_cls, _COMPRESSION_STATUS_PATCH_MARKER, False):
-        return True
+        return bool(
+            callable(_COMPRESSION_STATUS_ORIGINALS.get(agent_cls))
+            and callable(getattr(agent_cls, "_emit_status", None))
+        )
     emit_status = getattr(agent_cls, "_emit_status", None)
     if emit_status is None:
         logger.debug("hermes-progress-tail compression status monkeypatch disabled: API missing")
@@ -61,7 +66,7 @@ def _looks_like_compression_status(text: Any) -> bool:
     )
 
 
-def install_compression_lifecycle_monkeypatch(
+def _mutate_compression_lifecycle_monkeypatch(
     agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
 ) -> bool:
     callbacks = callbacks if callbacks is not None else current_hook_callbacks()
@@ -75,7 +80,10 @@ def install_compression_lifecycle_monkeypatch(
             )
             return False
     if getattr(agent_cls, _COMPRESSION_LIFECYCLE_PATCH_MARKER, False):
-        return True
+        return bool(
+            callable(_COMPRESSION_LIFECYCLE_ORIGINALS.get(agent_cls))
+            and callable(getattr(agent_cls, "_compress_context", None))
+        )
     compress_context = getattr(agent_cls, "_compress_context", None)
     if compress_context is None:
         logger.debug("hermes-progress-tail compression lifecycle disabled: API missing")
@@ -188,3 +196,53 @@ def uninstall_compression_lifecycle_monkeypatch(agent_cls: type | None = None) -
     except Exception:
         setattr(agent_cls, _COMPRESSION_LIFECYCLE_PATCH_MARKER, False)
     return True
+
+
+def _compression_status_patch_status(
+    agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> PatchStatus:
+    def resolver():
+        from run_agent import AIAgent
+
+        return AIAgent
+
+    return structured_patch_status(
+        name="compression_status",
+        target_label="run_agent.AIAgent._emit_status",
+        target=agent_cls,
+        resolver=resolver,
+        members=("_emit_status",),
+        mutate=lambda target: _mutate_compression_status_monkeypatch(target, callbacks=callbacks),
+    )
+
+
+def install_compression_status_monkeypatch(
+    agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    return bool(_compression_status_patch_status(agent_cls, callbacks=callbacks).installed)
+
+
+def _compression_lifecycle_patch_status(
+    agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> PatchStatus:
+    def resolver():
+        from run_agent import AIAgent
+
+        return AIAgent
+
+    return structured_patch_status(
+        name="compression_lifecycle",
+        target_label="run_agent.AIAgent._compress_context",
+        target=agent_cls,
+        resolver=resolver,
+        members=("_compress_context",),
+        mutate=lambda target: _mutate_compression_lifecycle_monkeypatch(
+            target, callbacks=callbacks
+        ),
+    )
+
+
+def install_compression_lifecycle_monkeypatch(
+    agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    return bool(_compression_lifecycle_patch_status(agent_cls, callbacks=callbacks).installed)

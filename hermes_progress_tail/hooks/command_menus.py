@@ -4,9 +4,12 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from .install_report import PatchStatus
+from .status_helpers import structured_patch_status
+
 logger = logging.getLogger(__name__)
 
-_COMMAND_MENU_ORIGINALS: dict[str, Any] = {}
+_COMMAND_MENU_ORIGINALS: dict[int, tuple[Any, dict[str, Any]]] = {}
 _COMMAND_MENU_PATCH_MARKER = "_hermes_progress_tail_command_menu_patched"
 
 _PINNED_TELEGRAM_COMMANDS = (
@@ -109,23 +112,36 @@ def _pin_slack_entries(
     return output[:max_items]
 
 
-def install_command_menu_monkeypatch() -> bool:
-    try:
-        import hermes_cli.commands as commands_mod
-    except Exception as exc:
-        logger.debug("hermes-progress-tail command menu patch unavailable: %s", exc)
-        return False
+def _mutate_command_menu_monkeypatch(commands_module: Any | None = None) -> bool:
+    commands_mod = commands_module
+    if commands_mod is None:
+        try:
+            import hermes_cli.commands as commands_mod
+        except Exception as exc:
+            logger.debug("hermes-progress-tail command menu patch unavailable: %s", exc)
+            return False
     if getattr(commands_mod, _COMMAND_MENU_PATCH_MARKER, False):
-        return True
+        entry = _COMMAND_MENU_ORIGINALS.get(id(commands_mod))
+        return bool(
+            entry
+            and entry[0] is commands_mod
+            and callable(entry[1].get("telegram_menu_commands"))
+            and callable(getattr(commands_mod, "telegram_menu_commands", None))
+            and (
+                not callable(getattr(commands_mod, "slack_native_slashes", None))
+                or callable(entry[1].get("slack_native_slashes"))
+            )
+        )
 
     original_telegram_menu = getattr(commands_mod, "telegram_menu_commands", None)
     original_slack_native = getattr(commands_mod, "slack_native_slashes", None)
     if not callable(original_telegram_menu):
         return False
 
-    _COMMAND_MENU_ORIGINALS["telegram_menu_commands"] = original_telegram_menu
+    originals = {"telegram_menu_commands": original_telegram_menu}
     if callable(original_slack_native):
-        _COMMAND_MENU_ORIGINALS["slack_native_slashes"] = original_slack_native
+        originals["slack_native_slashes"] = original_slack_native
+    _COMMAND_MENU_ORIGINALS[id(commands_mod)] = (commands_mod, originals)
 
     def patched_telegram_menu_commands(max_commands: int = 100):
         base_commands, hidden_count = original_telegram_menu(max_commands=max_commands)
@@ -161,17 +177,23 @@ def install_command_menu_monkeypatch() -> bool:
     return True
 
 
-def uninstall_command_menu_monkeypatch() -> bool:
-    try:
-        import hermes_cli.commands as commands_mod
-    except Exception:
-        return False
+def uninstall_command_menu_monkeypatch(commands_module: Any | None = None) -> bool:
+    commands_mod = commands_module
+    if commands_mod is None:
+        try:
+            import hermes_cli.commands as commands_mod
+        except Exception:
+            return False
     changed = False
-    original = _COMMAND_MENU_ORIGINALS.pop("telegram_menu_commands", None)
+    entry = _COMMAND_MENU_ORIGINALS.pop(id(commands_mod), None)
+    if entry is None or entry[0] is not commands_mod:
+        return False
+    originals = entry[1]
+    original = originals.get("telegram_menu_commands")
     if original is not None:
         commands_mod.telegram_menu_commands = original
         changed = True
-    original = _COMMAND_MENU_ORIGINALS.pop("slack_native_slashes", None)
+    original = originals.get("slack_native_slashes")
     if original is not None:
         commands_mod.slack_native_slashes = original
         changed = True
@@ -187,3 +209,23 @@ def command_menu_monkeypatch_active() -> bool:
         return bool(getattr(commands_mod, _COMMAND_MENU_PATCH_MARKER, False))
     except Exception:
         return False
+
+
+def _command_menu_patch_status(commands_module: Any | None = None) -> PatchStatus:
+    def resolver():
+        import hermes_cli.commands
+
+        return hermes_cli.commands
+
+    return structured_patch_status(
+        name="command_menu",
+        target_label="hermes_cli.commands.telegram_menu_commands",
+        target=commands_module,
+        resolver=resolver,
+        members=("telegram_menu_commands",),
+        mutate=lambda target: _mutate_command_menu_monkeypatch(target),
+    )
+
+
+def install_command_menu_monkeypatch(commands_module: Any | None = None) -> bool:
+    return bool(_command_menu_patch_status(commands_module).installed)

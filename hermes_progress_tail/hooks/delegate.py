@@ -5,13 +5,15 @@ from functools import wraps
 from typing import Any
 
 from .contracts import HookCallbacks, current_hook_callbacks
+from .install_report import PatchStatus
+from .status_helpers import structured_patch_status
 
 logger = logging.getLogger(__name__)
 _DELEGATE_ORIGINALS: dict[int, tuple[Any, Any]] = {}
 _DELEGATE_PATCH_MARKER = "_hermes_progress_tail_delegate_patched"
 
 
-def install_delegate_monkeypatches(
+def _mutate_delegate_monkeypatches(
     delegate_module: Any | None = None, *, callbacks: HookCallbacks | None = None
 ) -> bool:
     callbacks = callbacks if callbacks is not None else current_hook_callbacks()
@@ -22,7 +24,13 @@ def install_delegate_monkeypatches(
             logger.debug("hermes-progress-tail could not import delegate_tool: %s", exc)
             return False
     if getattr(delegate_module, _DELEGATE_PATCH_MARKER, False):
-        return True
+        entry = _DELEGATE_ORIGINALS.get(id(delegate_module))
+        return bool(
+            entry
+            and entry[0] is delegate_module
+            and callable(entry[1])
+            and callable(getattr(delegate_module, "_build_child_progress_callback", None))
+        )
     original = getattr(delegate_module, "_build_child_progress_callback", None)
     if original is None:
         logger.warning(
@@ -125,3 +133,31 @@ def uninstall_delegate_monkeypatches(delegate_module: Any | None = None) -> bool
     except Exception:
         setattr(delegate_module, _DELEGATE_PATCH_MARKER, False)
     return True
+
+
+def _delegate_patch_status(
+    delegate_module: Any | None = None,
+    *,
+    callbacks: HookCallbacks | None = None,
+) -> PatchStatus:
+    def resolver():
+        from tools import delegate_tool
+
+        return delegate_tool
+
+    return structured_patch_status(
+        name="delegate_progress",
+        target_label="tools.delegate_tool._build_child_progress_callback",
+        target=delegate_module,
+        resolver=resolver,
+        members=("_build_child_progress_callback",),
+        mutate=lambda target: _mutate_delegate_monkeypatches(target, callbacks=callbacks),
+    )
+
+
+def install_delegate_monkeypatches(
+    delegate_module: Any | None = None,
+    *,
+    callbacks: HookCallbacks | None = None,
+) -> bool:
+    return bool(_delegate_patch_status(delegate_module, callbacks=callbacks).installed)

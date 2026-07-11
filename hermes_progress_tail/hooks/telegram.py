@@ -14,49 +14,23 @@ from ..rendering.telegram_rich import (
     telegram_rich_message_payload,
 )
 from .contracts import HookCallbacks, current_hook_callbacks
+from .install_report import PatchStatus
+from .status_helpers import structured_patch_status
+from .telegram_formatting import (
+    _escape_telegram_mdv2 as _escape_telegram_mdv2,
+)
+from .telegram_formatting import (
+    _replace_outside_code as _replace_outside_code,
+)
+from .telegram_formatting import (
+    _telegram_edit_target_lost,
+    format_progress_tail_telegram_markdown,
+)
 
 logger = logging.getLogger(__name__)
-_TELEGRAM_ORIGINALS: dict[type, Any] = {}
-_TELEGRAM_SEND_ORIGINALS: dict[type, Any] = {}
+_TELEGRAM_ORIGINALS: dict[type, Any] = {}; _TELEGRAM_SEND_ORIGINALS: dict[type, Any] = {}  # noqa: E702  # fmt: skip
 _TELEGRAM_TOPIC_RECOVERY_ORIGINALS: dict[type, Any] = {}
-_TELEGRAM_PATCH_MARKER = "_hermes_progress_tail_telegram_format_patched"
-_TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER = "_hermes_progress_tail_telegram_topic_recovery_patched"
-
-
-def _telegram_edit_target_lost(error_text: str) -> bool:
-    text = str(error_text or "").lower()
-    return (
-        "message to edit not found" in text
-        or "message not found" in text
-        or "message_id_invalid" in text
-        or "unknown message" in text
-        or ("message_id" in text and "not found" in text)
-    )
-
-
-def format_progress_tail_telegram_markdown(content: str, formatter: Any) -> str:
-    text = str(content or "")
-    placeholders: dict[str, str] = {}
-
-    def stash(value: str) -> str:
-        key = f"\x00HPT{len(placeholders)}\x00"
-        placeholders[key] = value
-        return key
-
-    def title_repl(match):
-        title = _escape_telegram_mdv2(match.group(1).strip())
-        return stash(f"*__{title}__*")
-
-    def bold_italic_repl(match):
-        body = _escape_telegram_mdv2(match.group(1).strip())
-        return stash(f"*_{body}_*")
-
-    text = _replace_outside_code(text, r"\*\*__([^\n*_][^\n]*?)__\*\*", title_repl)
-    text = _replace_outside_code(text, r"\*\*\*([^\n*][^\n]*?)\*\*\*", bold_italic_repl)
-    formatted = formatter(text)
-    for key, value in placeholders.items():
-        formatted = formatted.replace(_escape_telegram_mdv2(key), value).replace(key, value)
-    return formatted
+_TELEGRAM_PATCH_MARKER = "_hermes_progress_tail_telegram_format_patched"; _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER = "_hermes_progress_tail_telegram_topic_recovery_patched"  # noqa: E702  # fmt: skip
 
 
 def _runtime_telegram_settings(callbacks: HookCallbacks | None = None) -> Any:
@@ -72,7 +46,6 @@ def _telegram_rich_enabled(adapter: Any, callbacks: HookCallbacks | None = None)
     if override is not None:
         return bool(override)
     if getattr(adapter, "_hermes_progress_tail_rich_disabled", False):
-        # Flood control latch is time-bounded: auto re-enable after cooldown.
         flood_until = getattr(adapter, "_hermes_progress_tail_rich_flood_until", 0.0)
         if flood_until and time.monotonic() >= flood_until:
             adapter._hermes_progress_tail_rich_disabled = False
@@ -258,8 +231,6 @@ async def _try_send_rich_message(
             if result is None and getattr(adapter, "_rich_send_disabled", False):
                 adapter._hermes_progress_tail_rich_disabled = True
                 return None
-            # Core adapter catches flood errors internally and returns a failure
-            # SendResult instead of raising. Detect that and latch+fallback.
             if result is not None and not getattr(result, "success", False):
                 error_text = str(getattr(result, "error", "") or "")
                 if _is_flood_control_str(error_text):
@@ -321,22 +292,6 @@ def _original_send_kwargs(reply_to: str | None, metadata: dict[str, Any] | None)
     return kwargs
 
 
-def _replace_outside_code(text: str, pattern: str, repl: Any) -> str:
-    import re
-
-    parts = re.split(r"(```[\s\S]*?```|`[^`]*`)", str(text or ""))
-    for index, part in enumerate(parts):
-        if part.startswith("`"):
-            continue
-        parts[index] = re.sub(pattern, repl, part)
-    return "".join(parts)
-
-
-def _escape_telegram_mdv2(text: str) -> str:
-    specials = r"\\_*[]()~`>#+-=|{}.!"
-    return "".join("\\" + char if char in specials else char for char in str(text or ""))
-
-
 def _import_first_attr(candidates: tuple[tuple[str, str], ...]) -> Any:
     errors: list[str] = []
     for module_name, attr_name in candidates:
@@ -368,7 +323,7 @@ def _resolve_telegram_parse_mode() -> Any:
     )
 
 
-def install_telegram_topic_recovery_monkeypatch(gateway_runner_cls: type | None = None) -> bool:
+def _mutate_telegram_topic_recovery_monkeypatch(gateway_runner_cls: type | None = None) -> bool:
     runner_cls = gateway_runner_cls
     if runner_cls is None:
         try:
@@ -382,7 +337,10 @@ def install_telegram_topic_recovery_monkeypatch(gateway_runner_cls: type | None 
             )
             return False
     if getattr(runner_cls, _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER, False):
-        return True
+        return bool(
+            callable(_TELEGRAM_TOPIC_RECOVERY_ORIGINALS.get(runner_cls))
+            and callable(getattr(runner_cls, "_recover_telegram_topic_thread_id", None))
+        )
     original_edit = getattr(runner_cls, "_recover_telegram_topic_thread_id", None)
     if original_edit is None:
         logger.debug(
@@ -419,7 +377,7 @@ def _should_preserve_telegram_topic_thread(gateway: Any, source: Any) -> bool:
     return bool(inbound) and inbound not in general_ids
 
 
-def install_telegram_format_monkeypatch(
+def _mutate_telegram_format_monkeypatch(
     telegram_adapter_cls: type | None = None, *, callbacks: HookCallbacks | None = None
 ) -> bool:
     callbacks = callbacks if callbacks is not None else current_hook_callbacks()
@@ -430,7 +388,14 @@ def install_telegram_format_monkeypatch(
             logger.debug("hermes-progress-tail could not import TelegramAdapter: %s", exc)
             return False
     if telegram_adapter_cls.__dict__.get(_TELEGRAM_PATCH_MARKER, False):
-        return True
+        return bool(
+            callable(_TELEGRAM_ORIGINALS.get(telegram_adapter_cls))
+            and callable(getattr(telegram_adapter_cls, "edit_message", None))
+            and (
+                not callable(getattr(telegram_adapter_cls, "send", None))
+                or callable(_TELEGRAM_SEND_ORIGINALS.get(telegram_adapter_cls))
+            )
+        )
     original_edit = getattr(telegram_adapter_cls, "edit_message", None)
     original_send = getattr(telegram_adapter_cls, "send", None)
     if original_edit is None:
@@ -439,7 +404,6 @@ def install_telegram_format_monkeypatch(
         )
         return False
     _TELEGRAM_ORIGINALS[telegram_adapter_cls] = original_edit
-
     if original_send is not None:
         _TELEGRAM_SEND_ORIGINALS[telegram_adapter_cls] = original_send
 
@@ -592,3 +556,45 @@ def uninstall_telegram_topic_recovery_monkeypatch(gateway_runner_cls: type | Non
     except Exception:
         setattr(runner_cls, _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER, False)
     return True
+
+
+def _telegram_format_patch_status(
+    telegram_adapter_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> PatchStatus:
+    def resolver():
+        return _resolve_telegram_adapter_cls()
+
+    return structured_patch_status(
+        name="telegram_format",
+        target_label="TelegramAdapter.edit_message",
+        target=telegram_adapter_cls,
+        resolver=resolver,
+        members=("edit_message",),
+        mutate=lambda target: _mutate_telegram_format_monkeypatch(target, callbacks=callbacks),
+    )
+
+
+def install_telegram_format_monkeypatch(
+    telegram_adapter_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    return bool(_telegram_format_patch_status(telegram_adapter_cls, callbacks=callbacks).installed)
+
+
+def _telegram_topic_recovery_patch_status(gateway_runner_cls: type | None = None) -> PatchStatus:
+    def resolver():
+        from gateway.run import GatewayRunner
+
+        return GatewayRunner
+
+    return structured_patch_status(
+        name="telegram_topic_recovery",
+        target_label="gateway.run.GatewayRunner._recover_telegram_topic_thread_id",
+        target=gateway_runner_cls,
+        resolver=resolver,
+        members=("_recover_telegram_topic_thread_id",),
+        mutate=lambda target: _mutate_telegram_topic_recovery_monkeypatch(target),
+    )
+
+
+def install_telegram_topic_recovery_monkeypatch(gateway_runner_cls: type | None = None) -> bool:
+    return bool(_telegram_topic_recovery_patch_status(gateway_runner_cls).installed)

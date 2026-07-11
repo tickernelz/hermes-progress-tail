@@ -6,6 +6,8 @@ from functools import wraps
 from typing import Any
 
 from .contracts import HookCallbacks, current_hook_callbacks
+from .install_report import PatchStatus
+from .status_helpers import structured_patch_status
 
 logger = logging.getLogger(__name__)
 _ADAPTER_ORIGINALS: dict[type, dict[str, Any]] = {}
@@ -25,7 +27,7 @@ _NATIVE_GATEWAY_FALSE_SETTINGS = {
 _NATIVE_GATEWAY_OFF_SETTINGS = {"tool_progress"}
 
 
-def install_adapter_monkeypatches(
+def _mutate_adapter_monkeypatches(
     adapter_cls: type | None = None, *, callbacks: HookCallbacks | None = None
 ) -> bool:
     callbacks = callbacks if callbacks is not None else current_hook_callbacks()
@@ -36,7 +38,13 @@ def install_adapter_monkeypatches(
             logger.debug("hermes-progress-tail could not import BasePlatformAdapter: %s", exc)
             return False
     if getattr(adapter_cls, "_hermes_progress_tail_adapter_patched", False):
-        return True
+        originals = _ADAPTER_ORIGINALS.get(adapter_cls, {})
+        return bool(
+            callable(originals.get("set_message_handler"))
+            and callable(originals.get("handle_message"))
+            and callable(getattr(adapter_cls, "set_message_handler", None))
+            and callable(getattr(adapter_cls, "handle_message", None))
+        )
     set_handler = getattr(adapter_cls, "set_message_handler", None)
     handle_message = getattr(adapter_cls, "handle_message", None)
     if set_handler is None or handle_message is None:
@@ -77,7 +85,7 @@ def install_adapter_monkeypatches(
     return True
 
 
-def install_gateway_interrupt_monkeypatch(
+def _mutate_gateway_interrupt_monkeypatch(
     gateway_runner_cls: type | None = None, *, callbacks: HookCallbacks | None = None
 ) -> bool:
     callbacks = callbacks if callbacks is not None else current_hook_callbacks()
@@ -94,7 +102,7 @@ def install_gateway_interrupt_monkeypatch(
             )
             return False
     if getattr(runner_cls, _GATEWAY_INTERRUPT_PATCH_MARKER, False):
-        return True
+        return bool(callable(_GATEWAY_INTERRUPT_ORIGINALS.get(runner_cls)))
     original = getattr(runner_cls, "_interrupt_and_clear_session", None)
     if original is None:
         logger.debug("hermes-progress-tail gateway interrupt monkeypatch disabled: API missing")
@@ -136,7 +144,7 @@ def _is_stop_interrupt(interrupt_reason: str, invalidation_reason: str) -> bool:
     return reason == "stop requested" or invalidation.startswith("stop_command")
 
 
-def install_gateway_display_suppression_monkeypatch(display_module: Any | None = None) -> bool:
+def _mutate_gateway_display_suppression_monkeypatch(display_module: Any | None = None) -> bool:
     if display_module is None:
         try:
             from gateway import display_config as display_module
@@ -144,7 +152,8 @@ def install_gateway_display_suppression_monkeypatch(display_module: Any | None =
             logger.debug("hermes-progress-tail could not import gateway.display_config: %s", exc)
             return False
     if getattr(display_module, _GATEWAY_DISPLAY_PATCH_MARKER, False):
-        return True
+        entry = _GATEWAY_DISPLAY_ORIGINALS.get(id(display_module))
+        return bool(entry and entry[0] is display_module and callable(entry[1]))
     original = getattr(display_module, "resolve_display_setting", None)
     if original is None:
         logger.debug("hermes-progress-tail gateway display monkeypatch disabled: resolver missing")
@@ -317,7 +326,7 @@ def _legacy_global_suppression_warnings(config: dict[str, Any]) -> list[str]:
     return warnings
 
 
-def install_process_notification_monkeypatch(process_module: Any | None = None) -> bool:
+def _mutate_process_notification_monkeypatch(process_module: Any | None = None) -> bool:
     if process_module is None:
         try:
             from tools import process_registry as process_module
@@ -325,7 +334,8 @@ def install_process_notification_monkeypatch(process_module: Any | None = None) 
             logger.debug("hermes-progress-tail could not import process_registry: %s", exc)
             return False
     if getattr(process_module, _PROCESS_NOTIFICATION_PATCH_MARKER, False):
-        return True
+        entry = _PROCESS_NOTIFICATION_ORIGINALS.get(id(process_module))
+        return bool(entry and entry[0] is process_module and callable(entry[1]))
     original = getattr(process_module, "format_process_notification", None)
     if original is None:
         logger.debug(
@@ -469,3 +479,91 @@ def uninstall_process_notification_monkeypatch(process_module: Any | None = None
     except Exception:
         setattr(process_module, _PROCESS_NOTIFICATION_PATCH_MARKER, False)
     return True
+
+
+def _adapter_patch_status(
+    adapter_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> PatchStatus:
+    def resolver():
+        from gateway.platforms.base import BasePlatformAdapter
+
+        return BasePlatformAdapter
+
+    return structured_patch_status(
+        name="adapter_context",
+        target_label="gateway.platforms.base.BasePlatformAdapter.set_message_handler+handle_message",
+        target=adapter_cls,
+        resolver=resolver,
+        members=("set_message_handler", "handle_message"),
+        mutate=lambda target: _mutate_adapter_monkeypatches(target, callbacks=callbacks),
+    )
+
+
+def install_adapter_monkeypatches(
+    adapter_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    return bool(_adapter_patch_status(adapter_cls, callbacks=callbacks).installed)
+
+
+def _gateway_interrupt_patch_status(
+    gateway_runner_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> PatchStatus:
+    def resolver():
+        from gateway.run import GatewayRunner
+
+        return GatewayRunner
+
+    return structured_patch_status(
+        name="gateway_interrupt",
+        target_label="gateway.run.GatewayRunner._interrupt_and_clear_session",
+        target=gateway_runner_cls,
+        resolver=resolver,
+        members=("_interrupt_and_clear_session",),
+        mutate=lambda target: _mutate_gateway_interrupt_monkeypatch(target, callbacks=callbacks),
+    )
+
+
+def install_gateway_interrupt_monkeypatch(
+    gateway_runner_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    return bool(_gateway_interrupt_patch_status(gateway_runner_cls, callbacks=callbacks).installed)
+
+
+def _gateway_display_patch_status(display_module: Any | None = None) -> PatchStatus:
+    def resolver():
+        from gateway import display_config
+
+        return display_config
+
+    return structured_patch_status(
+        name="gateway_display",
+        target_label="gateway.display_config.resolve_display_setting",
+        target=display_module,
+        resolver=resolver,
+        members=("resolve_display_setting",),
+        mutate=lambda target: _mutate_gateway_display_suppression_monkeypatch(target),
+    )
+
+
+def install_gateway_display_suppression_monkeypatch(display_module: Any | None = None) -> bool:
+    return bool(_gateway_display_patch_status(display_module).installed)
+
+
+def _process_notification_patch_status(process_module: Any | None = None) -> PatchStatus:
+    def resolver():
+        from tools import process_registry
+
+        return process_registry
+
+    return structured_patch_status(
+        name="process_notifications",
+        target_label="tools.process_registry.format_process_notification",
+        target=process_module,
+        resolver=resolver,
+        members=("format_process_notification",),
+        mutate=lambda target: _mutate_process_notification_monkeypatch(target),
+    )
+
+
+def install_process_notification_monkeypatch(process_module: Any | None = None) -> bool:
+    return bool(_process_notification_patch_status(process_module).installed)

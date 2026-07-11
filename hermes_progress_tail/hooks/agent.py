@@ -7,6 +7,8 @@ from functools import wraps
 from typing import Any
 
 from .contracts import HookCallbacks, current_hook_callbacks
+from .install_report import PatchStatus
+from .status_helpers import structured_patch_status
 
 logger = logging.getLogger(__name__)
 _ORIGINALS: dict[type, dict[str, Any]] = {}
@@ -97,7 +99,7 @@ def _positive_int(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
-def install_agent_monkeypatches(
+def _mutate_agent_monkeypatches(
     agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
 ) -> bool:
     callbacks = callbacks if callbacks is not None else current_hook_callbacks()
@@ -108,7 +110,18 @@ def install_agent_monkeypatches(
             logger.debug("hermes-progress-tail could not import AIAgent: %s", exc)
             return False
     if getattr(agent_cls, _PATCH_MARKER, False):
-        return True
+        originals = _ORIGINALS.get(agent_cls, {})
+        optional_members = ("_emit_interim_assistant_message", "_invoke_tool")
+        return bool(
+            callable(originals.get("__init__"))
+            and callable(originals.get("_fire_reasoning_delta"))
+            and callable(getattr(agent_cls, "__init__", None))
+            and callable(getattr(agent_cls, "_fire_reasoning_delta", None))
+            and all(
+                not callable(getattr(agent_cls, member, None)) or callable(originals.get(member))
+                for member in optional_members
+            )
+        )
     init = getattr(agent_cls, "__init__", None)
     fire_reasoning = getattr(agent_cls, "_fire_reasoning_delta", None)
     emit_interim = getattr(agent_cls, "_emit_interim_assistant_message", None)
@@ -224,6 +237,32 @@ def install_agent_monkeypatches(
         agent_cls._invoke_tool = wraps(invoke_tool)(patched_invoke_tool)
     setattr(agent_cls, _PATCH_MARKER, True)
     return True
+
+
+def _agent_patch_status(
+    agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> PatchStatus:
+    resolved = callbacks if callbacks is not None else current_hook_callbacks()
+
+    def resolver():
+        from run_agent import AIAgent
+
+        return AIAgent
+
+    return structured_patch_status(
+        name="agent_callbacks",
+        target_label="run_agent.AIAgent.__init__+_fire_reasoning_delta",
+        target=agent_cls,
+        resolver=resolver,
+        members=("__init__", "_fire_reasoning_delta"),
+        mutate=lambda target: _mutate_agent_monkeypatches(target, callbacks=resolved),
+    )
+
+
+def install_agent_monkeypatches(
+    agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    return bool(_agent_patch_status(agent_cls, callbacks=callbacks).installed)
 
 
 def _assistant_visible_text(agent: Any, assistant_msg: Any) -> str:

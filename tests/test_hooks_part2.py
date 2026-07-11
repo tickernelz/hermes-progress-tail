@@ -149,8 +149,8 @@ def test_internal_auto_resume_message_registers_progress_context(monkeypatch):
         )
 
         from hermes_progress_tail.hooks.monkeypatches import (
-            install_monkeypatches,
-            uninstall_monkeypatches,
+            install_adapter_monkeypatches,
+            uninstall_adapter_monkeypatches,
         )
 
         class InternalEvent(Event):
@@ -160,12 +160,12 @@ def test_internal_auto_resume_message_registers_progress_context(monkeypatch):
         # internal synthetic MessageEvent. Core intentionally skips
         # pre_gateway_dispatch for internal events, so the plugin must register
         # its progress context from the adapter message-handler monkeypatch.
-        uninstall_monkeypatches(Adapter)
-        install_monkeypatches(Adapter)
+        uninstall_adapter_monkeypatches(Adapter)
+        install_adapter_monkeypatches(Adapter)
         try:
             await adapter.handle_message(InternalEvent())  # type: ignore[attr-defined]
         finally:
-            uninstall_monkeypatches(Adapter)
+            uninstall_adapter_monkeypatches(Adapter)
         hermes_progress_tail._on_pre_tool_call(
             "terminal", {"command": "resume tool"}, task_id="session-1"
         )
@@ -237,17 +237,17 @@ def test_internal_telegram_auto_resume_context_uses_gateway_topic_binding(monkey
         gateway = GatewayWithTopicBinding(adapter)
 
         from hermes_progress_tail.hooks.monkeypatches import (
-            install_monkeypatches,
-            uninstall_monkeypatches,
+            install_adapter_monkeypatches,
+            uninstall_adapter_monkeypatches,
         )
 
-        uninstall_monkeypatches(Adapter)
-        install_monkeypatches(Adapter)
+        uninstall_adapter_monkeypatches(Adapter)
+        install_adapter_monkeypatches(Adapter)
         try:
             adapter.set_message_handler(gateway.handle)
             await adapter.handle_message(InternalTelegramEvent())  # type: ignore[attr-defined]
         finally:
-            uninstall_monkeypatches(Adapter)
+            uninstall_adapter_monkeypatches(Adapter)
 
         renderer = hermes_progress_tail._get_renderer()
         assert renderer.find_context("general-session") is None
@@ -274,14 +274,14 @@ def test_adapter_gateway_capture_is_cleared_when_handler_is_unbound():
         return None
 
     from hermes_progress_tail.hooks.monkeypatches import (
-        install_monkeypatches,
-        uninstall_monkeypatches,
+        install_adapter_monkeypatches,
+        uninstall_adapter_monkeypatches,
     )
 
     adapter = Adapter()
     gateway = GatewayWithBoundHandler()
-    uninstall_monkeypatches(Adapter)
-    install_monkeypatches(Adapter)
+    uninstall_adapter_monkeypatches(Adapter)
+    install_adapter_monkeypatches(Adapter)
     try:
         adapter.set_message_handler(gateway.handle)
         assert getattr(adapter, "_hermes_progress_tail_gateway", None) is gateway
@@ -289,4 +289,4 @@ def test_adapter_gateway_capture_is_cleared_when_handler_is_unbound():
         adapter.set_message_handler(unbound_handler)
         assert not hasattr(adapter, "_hermes_progress_tail_gateway")
     finally:
-        uninstall_monkeypatches(Adapter)
+        uninstall_adapter_monkeypatches(Adapter)
