@@ -337,19 +337,19 @@ def _tool_context_lookup_ids(
 
 
 def _reactivate_foreground_context(renderer: ProgressRenderer, ctx: SessionContext) -> None:
-    if ctx.progress_state == "active":
+    if ctx.delivery.progress_state == "active":
         return
-    if ctx.progress_state not in {"finalized", "deleted"}:
+    if ctx.delivery.progress_state not in {"finalized", "deleted"}:
         return
-    was_deleted = ctx.progress_state == "deleted"
+    was_deleted = ctx.delivery.progress_state == "deleted"
     with suppress(Exception):
         renderer._cancel_delete(ctx)
-    ctx.progress_state = "active"
-    ctx.finalized_at = 0.0
+    ctx.delivery.progress_state = "active"
+    ctx.delivery.finalized_at = 0.0
     ctx.started_at = time.monotonic()
     if was_deleted:
-        ctx.message_id = None
-        ctx.can_edit = False
+        ctx.delivery.message_id = None
+        ctx.delivery.can_edit = False
 
 
 def _on_pre_tool_call(

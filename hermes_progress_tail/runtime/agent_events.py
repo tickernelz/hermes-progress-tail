@@ -133,7 +133,8 @@ def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> 
     if phase == "started":
         text = "Compacting context — summarizing earlier conversation"
     elif phase == "completed":
-        ctx.compaction_count = max(0, int(getattr(ctx, "compaction_count", 0))) + 1
+        diagnostics = getattr(ctx, "diagnostics", ctx)
+        diagnostics.compaction_count = max(0, int(getattr(diagnostics, "compaction_count", 0))) + 1
         text = _compression_lifecycle_completed_text(data)
     elif phase == "failed":
         text = "Context compaction failed — continuing unchanged"
@@ -306,7 +307,9 @@ def _finalize_target_context(
     active = [
         candidate
         for candidate in renderer.sessions.values()
-        if (not platform or candidate.platform == platform) and candidate.progress_state == "active"
+        if (not platform or candidate.platform == platform)
+        # Runtime integrations may expose a context-shaped test/legacy double.
+        and getattr(candidate, "delivery", candidate).progress_state == "active"
     ]
     return active[0] if len(active) == 1 else None
 

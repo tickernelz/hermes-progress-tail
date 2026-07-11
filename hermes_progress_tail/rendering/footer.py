@@ -150,7 +150,8 @@ def _context_percent_label(env: EnvironmentSnapshot) -> str:
 
 def _compaction_label(ctx: SessionContext) -> str:
     try:
-        count = max(0, int(getattr(ctx, "compaction_count", 0)))
+        diagnostics = getattr(ctx, "diagnostics", ctx)
+        count = max(0, int(getattr(diagnostics, "compaction_count", 0)))
     except (TypeError, ValueError):
         count = 0
     return f"compacted {count}x"

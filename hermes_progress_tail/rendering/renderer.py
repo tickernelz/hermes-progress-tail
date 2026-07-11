@@ -166,12 +166,12 @@ class ProgressRenderer:
         if ctx is None:
             return
         async with ctx.lock:
-            if ctx.disabled or ctx.strategy == "off":
+            if ctx.delivery.disabled or ctx.strategy == "off":
                 return
-            if ctx.progress_state != "active":
+            if ctx.delivery.progress_state != "active":
                 if (
                     isinstance(event, BackgroundJobEvent)
-                    and ctx.progress_state == "background_active"
+                    and ctx.delivery.progress_state == "background_active"
                 ):
                     pass
                 else:
@@ -182,9 +182,9 @@ class ProgressRenderer:
                 self._clear_transient_assistant(ctx)
             if not self.reducer.accepts(ctx, event):
                 return
-            ctx.last_event_at = time.monotonic()
-            ctx.total_events += 1
-            ctx.new_events_since_snapshot += 1
+            ctx.diagnostics.last_event_at = time.monotonic()
+            ctx.diagnostics.total_events += 1
+            ctx.diagnostics.new_events_since_snapshot += 1
             line = self._format_tool_line(ctx, event) if isinstance(event, ToolEvent) else ""
             result = self.reducer.reduce(ctx, event, tool_line=line)
             force = force or result.force
@@ -199,8 +199,8 @@ class ProgressRenderer:
                 pending = result.pending_chars
                 if (
                     not force
-                    and ctx.message_id
-                    and time.monotonic() - ctx.last_render_at < ctx.edit_interval
+                    and ctx.delivery.message_id
+                    and time.monotonic() - ctx.delivery.last_render_at < ctx.edit_interval
                 ):
                     return
                 if not force and pending < self.settings.assistant.min_update_chars:
@@ -209,8 +209,8 @@ class ProgressRenderer:
                 pending = result.pending_chars
                 if (
                     not force
-                    and ctx.message_id
-                    and time.monotonic() - ctx.last_render_at < ctx.edit_interval
+                    and ctx.delivery.message_id
+                    and time.monotonic() - ctx.delivery.last_render_at < ctx.edit_interval
                 ):
                     return
                 if not force and pending < self.settings.reasoning.min_update_chars:
@@ -250,15 +250,15 @@ class ProgressRenderer:
                 self.sessions.get(ctx.session_id) is not ctx or ctx.generation != generation
             ):
                 return
-            if ctx.disabled:
+            if ctx.delivery.disabled:
                 self._cancel_delayed_flush(ctx)
                 return
             self._cancel_delayed_flush(ctx)
-            progress_message_id = ctx.message_id
+            progress_message_id = ctx.delivery.message_id
             if self._should_flush_before_reset(ctx):
                 if ctx.strategy == "live_tail" and self._content(ctx):
                     await self._render_live(ctx, force=True, ignore_backoff=True)
-                    progress_message_id = ctx.message_id or progress_message_id
+                    progress_message_id = ctx.delivery.message_id or progress_message_id
                 elif (
                     ctx.strategy == "snapshot"
                     and self.settings.no_edit.final_summary
@@ -266,10 +266,10 @@ class ProgressRenderer:
                 ):
                     await self._render_snapshot(ctx, force=True, final=True)
             self._reset_turn(ctx)
-            ctx.message_id = progress_message_id
+            ctx.delivery.message_id = progress_message_id
             await self._finalize_progress_message(ctx)
             self._schedule_auto_delete(ctx, success=success)
-            if ctx.progress_state == "background_active" and self._content(ctx):
+            if ctx.delivery.progress_state == "background_active" and self._content(ctx):
                 if ctx.strategy == "live_tail":
                     await self._render_live(ctx, force=True, ignore_backoff=True)
                 elif ctx.strategy == "snapshot" and self.settings.no_edit.final_summary:

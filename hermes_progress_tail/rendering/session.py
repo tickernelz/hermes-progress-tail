@@ -31,8 +31,9 @@ class SessionRegistry:
     def register_context(self, ctx: SessionContext) -> None:
         existing = self.sessions.get(ctx.session_id)
         if existing is not None:
-            reuse_progress = existing.progress_state == "active" and self.same_source_message(
-                existing, ctx
+            reuse_progress = (
+                existing.delivery.progress_state == "active"
+                and self.same_source_message(existing, ctx)
             )
             if reuse_progress:
                 self._cancel_delete(existing)
@@ -75,24 +76,21 @@ class SessionRegistry:
         self, existing: SessionContext, ctx: SessionContext, reuse_progress: bool
     ) -> None:
         ctx.background = existing.background
-        ctx.progress_state = "active"
-        ctx.finalized_at = 0.0
-        ctx.generation = existing.generation + 1
-        ctx.total_events = existing.total_events if reuse_progress else 0
-        ctx.snapshots_sent = existing.snapshots_sent if reuse_progress else 0
-        ctx.last_error = existing.last_error
-        ctx.downgrade_reason = existing.downgrade_reason
-        ctx.downgrade_at = existing.downgrade_at
-        ctx.last_render_at = existing.last_render_at if reuse_progress else 0.0
-        ctx.edit_state = existing.edit_state if reuse_progress else "editable"
-        ctx.edit_backoff_until = existing.edit_backoff_until if reuse_progress else 0.0
-        ctx.edit_failure_count = existing.edit_failure_count if reuse_progress else 0
-        ctx.edit_recovery_sends = existing.edit_recovery_sends if reuse_progress else 0
-        if existing.delayed_flush_task is not None and not existing.delayed_flush_task.done():
+        if (
+            existing.delivery.delayed_flush_task is not None
+            and not existing.delivery.delayed_flush_task.done()
+        ):
             self._cancel_delayed_flush(existing)
-            ctx.edit_backoff_until = 0.0
-        ctx.fallback_send_count = existing.fallback_send_count if reuse_progress else 0
-        ctx.new_events_since_snapshot = existing.new_events_since_snapshot if reuse_progress else 0
+        if reuse_progress:
+            ctx.delivery = existing.delivery
+            ctx.diagnostics = existing.diagnostics
+        else:
+            ctx.diagnostics.last_error = existing.diagnostics.last_error
+            ctx.diagnostics.downgrade_reason = existing.diagnostics.downgrade_reason
+            ctx.diagnostics.downgrade_at = existing.diagnostics.downgrade_at
+        ctx.delivery.progress_state = "active"
+        ctx.delivery.finalized_at = 0.0
+        ctx.generation = existing.generation + 1
         ctx.lock = existing.lock
 
     @staticmethod
@@ -128,8 +126,8 @@ class SessionRegistry:
         if session_key:
             ctx.session_key = session_key
         self._cancel_delete(ctx)
-        ctx.progress_state = "active"
-        ctx.finalized_at = 0.0
+        ctx.delivery.progress_state = "active"
+        ctx.delivery.finalized_at = 0.0
         self.sessions[new_session_id] = ctx
         if ctx.session_key:
             self.session_keys[ctx.session_key] = new_session_id
@@ -148,7 +146,7 @@ class SessionRegistry:
             sid
             for sid, ctx in self.sessions.items()
             if (not platform or ctx.platform == platform)
-            and now - ctx.last_event_at
+            and now - ctx.diagnostics.last_event_at
             > ctx.lines * ctx.edit_interval + self.settings.renderer.stale_ttl_seconds
         ]
         for sid in stale:

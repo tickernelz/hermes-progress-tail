@@ -405,8 +405,12 @@ def _command(raw_args: str = "") -> str:
         for sid, ctx in renderer.sessions.items():
             # Command tests and third-party integrations may provide context-shaped doubles.
             background = getattr(ctx, "background", None)
-            order = background.order if background is not None else ctx.background_order
-            jobs = background.jobs if background is not None else ctx.background_jobs
+            order = (
+                background.order if background is not None else getattr(ctx, "background_order", ())
+            )
+            jobs = (
+                background.jobs if background is not None else getattr(ctx, "background_jobs", {})
+            )
             for process_id in order:
                 job = jobs.get(process_id)
                 if job is None:
@@ -497,22 +501,56 @@ def _command(raw_args: str = "") -> str:
                 lines.append(f"warning: unknown config key {key}; check for typos or stale docs")
             for sid, ctx in renderer.sessions.items():
                 label = ctx.session_key or sid
-                lines.append(
-                    f"session {label}: strategy={ctx.strategy} disabled={ctx.disabled} events={ctx.total_events}"
+                # Commands intentionally support context-shaped integration doubles.
+                delivery = getattr(ctx, "delivery", ctx)
+                diagnostics = getattr(ctx, "diagnostics", ctx)
+                assistant = getattr(ctx, "assistant", None)
+                reasoning = getattr(ctx, "reasoning", None)
+                assistant_last_at = (
+                    assistant.last_at
+                    if assistant is not None
+                    else getattr(ctx, "last_assistant_at", 0.0)
                 )
-                if ctx.downgrade_reason:
-                    lines.append(f"session {label}: downgraded={redact_text(ctx.downgrade_reason)}")
-                if ctx.last_error:
-                    lines.append(f"session {label}: last_error={redact_text(ctx.last_error)}")
-                if ctx.last_assistant_at:
-                    when = time.strftime("%H:%M:%S", time.localtime(ctx.last_assistant_at))
+                assistant_last_chars = (
+                    assistant.last_chars
+                    if assistant is not None
+                    else getattr(ctx, "last_assistant_chars", 0)
+                )
+                reasoning_last_source = (
+                    reasoning.last_source
+                    if reasoning is not None
+                    else getattr(ctx, "last_reasoning_source", "")
+                )
+                reasoning_last_at = (
+                    reasoning.last_at
+                    if reasoning is not None
+                    else getattr(ctx, "last_reasoning_at", 0.0)
+                )
+                reasoning_last_chars = (
+                    reasoning.last_chars
+                    if reasoning is not None
+                    else getattr(ctx, "last_reasoning_chars", 0)
+                )
+                lines.append(
+                    f"session {label}: strategy={ctx.strategy} disabled={delivery.disabled} events={diagnostics.total_events}"
+                )
+                if diagnostics.downgrade_reason:
                     lines.append(
-                        f"session {label}: assistant chars={ctx.last_assistant_chars} at={when}"
+                        f"session {label}: downgraded={redact_text(diagnostics.downgrade_reason)}"
                     )
-                if ctx.last_reasoning_source:
-                    when = time.strftime("%H:%M:%S", time.localtime(ctx.last_reasoning_at))
+                if diagnostics.last_error:
                     lines.append(
-                        f"session {label}: last_reasoning source={ctx.last_reasoning_source} chars={ctx.last_reasoning_chars} at={when}"
+                        f"session {label}: last_error={redact_text(diagnostics.last_error)}"
+                    )
+                if assistant_last_at:
+                    when = time.strftime("%H:%M:%S", time.localtime(assistant_last_at))
+                    lines.append(
+                        f"session {label}: assistant chars={assistant_last_chars} at={when}"
+                    )
+                if reasoning_last_source:
+                    when = time.strftime("%H:%M:%S", time.localtime(reasoning_last_at))
+                    lines.append(
+                        f"session {label}: last_reasoning source={reasoning_last_source} chars={reasoning_last_chars} at={when}"
                     )
         else:
             lines.extend(_legacy_global_suppression_warnings(runtime_config))

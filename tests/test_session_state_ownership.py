@@ -11,6 +11,27 @@ import pytest
 from hermes_progress_tail.models import state
 
 MIGRATED = {
+    "message_id": "message_id",
+    "can_edit": "can_edit",
+    "disabled": "disabled",
+    "progress_state": "progress_state",
+    "finalized_at": "finalized_at",
+    "last_render_at": "last_render_at",
+    "edit_state": "edit_state",
+    "edit_backoff_until": "edit_backoff_until",
+    "edit_failure_count": "edit_failure_count",
+    "edit_recovery_sends": "edit_recovery_sends",
+    "delayed_flush_task": "delayed_flush_task",
+    "delete_task": "delete_task",
+    "fallback_send_count": "fallback_send_count",
+    "snapshots_sent": "snapshots_sent",
+    "last_event_at": "last_event_at",
+    "new_events_since_snapshot": "new_events_since_snapshot",
+    "total_events": "total_events",
+    "last_error": "last_error",
+    "downgrade_reason": "downgrade_reason",
+    "downgrade_at": "downgrade_at",
+    "compaction_count": "compaction_count",
     "tool_lines": "lines",
     "active_tool_lines": "active_lines",
     "active_tool_fingerprints": "active_fingerprints",
@@ -51,32 +72,14 @@ FIELD_NAMES = [
     "generation",
     "owner_thread_id",
     "owner_thread_name",
-    "message_id",
-    "can_edit",
-    "disabled",
-    "progress_state",
-    "finalized_at",
+    "delivery",
     "started_at",
     "tool",
     "delegate",
     "background",
     "assistant",
     "reasoning",
-    "last_render_at",
-    "last_event_at",
-    "edit_state",
-    "edit_backoff_until",
-    "edit_failure_count",
-    "edit_recovery_sends",
-    "delayed_flush_task",
-    "delete_task",
-    "fallback_send_count",
-    "new_events_since_snapshot",
-    "snapshots_sent",
-    "total_events",
-    "last_error",
-    "downgrade_reason",
-    "downgrade_at",
+    "diagnostics",
     "tools_enabled",
     "assistant_enabled",
     "reasoning_enabled",
@@ -89,7 +92,6 @@ FIELD_NAMES = [
     "source_message_id",
     "lock",
     "environment",
-    "compaction_count",
 ]
 LEGACY = [
     "lines",
@@ -168,6 +170,8 @@ LEGACY = [
 
 
 def prerequisites():
+    assert hasattr(state, "DeliveryState"), "DeliveryState owner is missing"
+    assert hasattr(state, "DiagnosticsState"), "DiagnosticsState owner is missing"
     assert hasattr(state, "ToolState"), "ToolState owner is missing"
     assert hasattr(state, "AssistantState"), "AssistantState owner is missing"
     assert hasattr(state, "ReasoningState"), "ReasoningState owner is missing"
@@ -188,6 +192,8 @@ def test_exact_canonical_fields_annotations_and_factories():
     expected = {f.name: f.type for f in fields(cls)}
     assert cls.__annotations__ == expected
     by_name = {f.name: f for f in fields(cls)}
+    assert by_name["delivery"].default_factory is state.DeliveryState
+    assert by_name["diagnostics"].default_factory is state.DiagnosticsState
     assert by_name["tool"].default_factory is state.ToolState
     assert by_name["assistant"].default_factory is state.AssistantState
     assert by_name["reasoning"].default_factory is state.ReasoningState
@@ -221,6 +227,33 @@ def test_all_compatibility_properties_delegate_without_storage():
     assert all(isinstance(getattr(cls, name, None), property) for name in MIGRATED)
     for index, (flat, nested) in enumerate(MIGRATED.items(), 1):
         if flat in {
+            "message_id",
+            "can_edit",
+            "disabled",
+            "progress_state",
+            "finalized_at",
+            "last_render_at",
+            "edit_state",
+            "edit_backoff_until",
+            "edit_failure_count",
+            "edit_recovery_sends",
+            "delayed_flush_task",
+            "delete_task",
+            "fallback_send_count",
+            "snapshots_sent",
+        }:
+            owner = ctx.delivery
+        elif flat in {
+            "last_event_at",
+            "new_events_since_snapshot",
+            "total_events",
+            "last_error",
+            "downgrade_reason",
+            "downgrade_at",
+            "compaction_count",
+        }:
+            owner = ctx.diagnostics
+        elif flat in {
             "tool_lines",
             "active_tool_lines",
             "active_tool_fingerprints",
@@ -256,6 +289,10 @@ def test_owner_defaults_types_identity_and_conflicts():
         and first.assistant.lines is not second.assistant.lines
     )
     assert first.reasoning is not second.reasoning
+    assert isinstance(first.delivery, state.DeliveryState)
+    assert isinstance(first.diagnostics, state.DiagnosticsState)
+    assert first.delivery is not second.delivery
+    assert first.diagnostics is not second.diagnostics
     assert isinstance(first.tool, state.ToolState)
     assert first.tool is not second.tool
     assert first.tool.lines is not second.tool.lines
@@ -275,6 +312,27 @@ def test_owner_defaults_types_identity_and_conflicts():
     with pytest.raises(TypeError, match="reasoning cannot be combined"):
         make_context(reasoning=state.ReasoningState(), reasoning_text="x")
     conflicts = (
+        ("delivery", "message_id", None),
+        ("delivery", "can_edit", True),
+        ("delivery", "disabled", False),
+        ("delivery", "progress_state", "active"),
+        ("delivery", "finalized_at", 0.0),
+        ("delivery", "last_render_at", 0.0),
+        ("delivery", "edit_state", "editable"),
+        ("delivery", "edit_backoff_until", 0.0),
+        ("delivery", "edit_failure_count", 0),
+        ("delivery", "edit_recovery_sends", 0),
+        ("delivery", "delayed_flush_task", None),
+        ("delivery", "delete_task", None),
+        ("delivery", "fallback_send_count", 0),
+        ("delivery", "snapshots_sent", 0),
+        ("diagnostics", "last_event_at", 0.0),
+        ("diagnostics", "new_events_since_snapshot", 0),
+        ("diagnostics", "total_events", 0),
+        ("diagnostics", "last_error", ""),
+        ("diagnostics", "downgrade_reason", ""),
+        ("diagnostics", "downgrade_at", 0.0),
+        ("diagnostics", "compaction_count", 0),
         ("tool", "tool_lines", deque()),
         ("tool", "active_tool_lines", {}),
         ("tool", "active_tool_fingerprints", {}),
@@ -291,6 +349,8 @@ def test_owner_defaults_types_identity_and_conflicts():
     )
     for owner, legacy, value in conflicts:
         owner_type = {
+            "delivery": state.DeliveryState,
+            "diagnostics": state.DiagnosticsState,
             "tool": state.ToolState,
             "delegate": state.DelegateState,
             "background": state.BackgroundState,
@@ -307,13 +367,107 @@ def test_explicit_owner_construction_preserves_identity():
     second = state.SessionContext("s", "k", "discord", "c", None, None, None, reasoning=reasoning)
     delegate = state.DelegateState()
     background = state.BackgroundState()
+    delivery = state.DeliveryState(message_id="owned")
+    diagnostics = state.DiagnosticsState(last_error="owned")
     third = state.SessionContext(
-        "s", "k", "discord", "c", None, None, None, delegate=delegate, background=background
+        "s",
+        "k",
+        "discord",
+        "c",
+        None,
+        None,
+        None,
+        delegate=delegate,
+        background=background,
+        delivery=delivery,
+        diagnostics=diagnostics,
     )
     assert first.assistant is assistant
     assert second.reasoning is reasoning
     assert third.delegate is delegate
     assert third.background is background
+    assert third.delivery is delivery
+    assert third.diagnostics is diagnostics
+
+
+def test_delivery_diagnostics_exact_contract_defaults_and_import_order():
+    prerequisites()
+    delivery_names = [
+        "message_id",
+        "can_edit",
+        "disabled",
+        "progress_state",
+        "finalized_at",
+        "last_render_at",
+        "edit_state",
+        "edit_backoff_until",
+        "edit_failure_count",
+        "edit_recovery_sends",
+        "delayed_flush_task",
+        "delete_task",
+        "fallback_send_count",
+        "snapshots_sent",
+    ]
+    delivery_types = [
+        "str | None",
+        "bool",
+        "bool",
+        "str",
+        "float",
+        "float",
+        "str",
+        "float",
+        "int",
+        "int",
+        "Any",
+        "Any",
+        "int",
+        "int",
+    ]
+    diagnostics_names = [
+        "last_event_at",
+        "new_events_since_snapshot",
+        "total_events",
+        "last_error",
+        "downgrade_reason",
+        "downgrade_at",
+        "compaction_count",
+    ]
+    diagnostics_types = ["float", "int", "int", "str", "str", "float", "int"]
+    delivery_fields = fields(state.DeliveryState)
+    diagnostics_fields = fields(state.DiagnosticsState)
+    assert [item.name for item in delivery_fields] == delivery_names
+    assert [item.type for item in delivery_fields] == delivery_types
+    assert [item.name for item in diagnostics_fields] == diagnostics_names
+    assert [item.type for item in diagnostics_fields] == diagnostics_types
+    delivery = state.DeliveryState()
+    diagnostics = state.DiagnosticsState()
+    assert delivery == state.DeliveryState(
+        None, True, False, "active", 0.0, 0.0, "editable", 0.0, 0, 0, None, None, 0, 0
+    )
+    assert isinstance(diagnostics.last_event_at, float)
+    assert (
+        diagnostics.new_events_since_snapshot,
+        diagnostics.total_events,
+        diagnostics.last_error,
+        diagnostics.downgrade_reason,
+        diagnostics.downgrade_at,
+        diagnostics.compaction_count,
+    ) == (0, 0, "", "", 0.0, 0)
+    checks = """
+r = importlib.import_module('hermes_progress_tail.models.state_records')
+c = importlib.import_module('hermes_progress_tail.models.state_compat')
+s = importlib.import_module('hermes_progress_tail.models.state')
+assert s.DeliveryState is r.DeliveryState
+assert s.DiagnosticsState is r.DiagnosticsState
+assert issubclass(s.SessionContext, c.SessionStateCompatibility)
+"""
+    for first in ("state_records", "state_compat", "state"):
+        code = (
+            f"import importlib\nimportlib.import_module('hermes_progress_tail.models.{first}')\n"
+            + checks
+        )
+        subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_tool_state_exact_contract_identity_and_import_order():
@@ -388,6 +542,8 @@ def test_production_uses_nested_owner_access():
     package = Path(__file__).parents[1] / "hermes_progress_tail"
     paths = [
         *sorted((package / "rendering").glob("*.py")),
+        package / "runtime" / "agent_events.py",
+        package / "runtime" / "commands.py",
         package / "runtime" / "tool_events.py",
     ]
     offenders = []

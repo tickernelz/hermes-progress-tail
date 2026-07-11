@@ -225,8 +225,12 @@ def prune_background_jobs(
         if job is not None:
             removed_any = True
             cancel_poll(job)
-    if removed_any and not ctx.background.jobs and ctx.progress_state == "background_active":
-        ctx.progress_state = "finalized"
+    if (
+        removed_any
+        and not ctx.background.jobs
+        and ctx.delivery.progress_state == "background_active"
+    ):
+        ctx.delivery.progress_state = "finalized"
 
 
 def cancel_background_poll(job: BackgroundJob) -> None:

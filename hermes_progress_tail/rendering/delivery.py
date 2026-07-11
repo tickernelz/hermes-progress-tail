@@ -40,57 +40,61 @@ class RendererDelivery:
         self, ctx: SessionContext, force: bool = False, *, ignore_backoff: bool = False
     ) -> None:
         now = time.monotonic()
-        if not force and ctx.message_id and now - ctx.last_render_at < ctx.edit_interval:
+        if (
+            not force
+            and ctx.delivery.message_id
+            and now - ctx.delivery.last_render_at < ctx.edit_interval
+        ):
             return
-        if ctx.message_id and now < ctx.edit_backoff_until and not ignore_backoff:
-            self.schedule_delayed_live_flush(ctx, ctx.edit_backoff_until - now)
+        if ctx.delivery.message_id and now < ctx.delivery.edit_backoff_until and not ignore_backoff:
+            self.schedule_delayed_live_flush(ctx, ctx.delivery.edit_backoff_until - now)
             return
         content = self._content(ctx)
         if not content:
             return
         content = self.prepare_message(ctx, content)
-        if ctx.message_id and ctx.can_edit:
+        if ctx.delivery.message_id and ctx.delivery.can_edit:
             try:
                 result = await ctx.adapter.edit_message(
                     chat_id=ctx.chat_id,
-                    message_id=ctx.message_id,
+                    message_id=ctx.delivery.message_id,
                     content=content,
                 )
             except Exception as exc:
                 logger.debug("hermes-progress-tail edit failed: %s", exc)
-                ctx.last_error = str(exc)
-                result = _Result(False, ctx.message_id, str(exc))
+                ctx.diagnostics.last_error = str(exc)
+                result = _Result(False, ctx.delivery.message_id, str(exc))
             if getattr(result, "success", False):
                 ctx.assistant.pending_chars = 0
                 ctx.reasoning.pending_chars = 0
-                ctx.edit_state = "editable"
-                ctx.edit_backoff_until = 0.0
-                ctx.edit_failure_count = 0
-                ctx.last_render_at = time.monotonic()
+                ctx.delivery.edit_state = "editable"
+                ctx.delivery.edit_backoff_until = 0.0
+                ctx.delivery.edit_failure_count = 0
+                ctx.delivery.last_render_at = time.monotonic()
                 return
             error = str(getattr(result, "error", "") or "edit failed")
             kind = self.classify_edit_error(error)
             if kind == "noop_success":
                 ctx.assistant.pending_chars = 0
                 ctx.reasoning.pending_chars = 0
-                ctx.edit_state = "editable"
-                ctx.last_render_at = time.monotonic()
+                ctx.delivery.edit_state = "editable"
+                ctx.delivery.last_render_at = time.monotonic()
                 return
-            ctx.last_error = error
-            if ctx.edit_state == kind and kind in {
+            ctx.diagnostics.last_error = error
+            if ctx.delivery.edit_state == kind and kind in {
                 "rate_limited",
                 "transient",
                 "unknown_transient",
             }:
-                ctx.edit_failure_count += 1
+                ctx.delivery.edit_failure_count += 1
             else:
-                ctx.edit_failure_count = 1
+                ctx.delivery.edit_failure_count = 1
             if kind == "unsupported":
                 await self.downgrade_to_snapshot(ctx, error, "unsupported")
                 return
             if kind == "message_lost":
-                if ctx.edit_recovery_sends == 0:
-                    ctx.edit_state = "recovering"
+                if ctx.delivery.edit_recovery_sends == 0:
+                    ctx.delivery.edit_state = "recovering"
                     await self.send_live_message(ctx, content, recovery=True)
                     return
                 await self.downgrade_to_snapshot(ctx, error, "message_lost")
@@ -98,12 +102,12 @@ class RendererDelivery:
             if kind == "too_long":
                 await self.downgrade_to_snapshot(ctx, error, "too_long")
                 return
-            delay = self.edit_backoff_seconds(error, kind, ctx.edit_failure_count)
-            ctx.edit_state = kind
+            delay = self.edit_backoff_seconds(error, kind, ctx.delivery.edit_failure_count)
+            ctx.delivery.edit_state = kind
             if ignore_backoff:
-                ctx.edit_backoff_until = 0.0
+                ctx.delivery.edit_backoff_until = 0.0
                 return
-            ctx.edit_backoff_until = time.monotonic() + delay
+            ctx.delivery.edit_backoff_until = time.monotonic() + delay
             self.schedule_delayed_live_flush(ctx, delay)
             return
         await self.send_live_message(ctx, content)
@@ -117,46 +121,46 @@ class RendererDelivery:
             logger.debug("hermes-progress-tail send failed: %s", exc)
             result = _Result(False, None, str(exc))
         if getattr(result, "success", False):
-            ctx.message_id = getattr(result, "message_id", None) or ctx.message_id
-            ctx.can_edit = True
-            ctx.edit_state = "editable"
-            ctx.edit_backoff_until = 0.0
-            ctx.edit_failure_count = 0
+            ctx.delivery.message_id = getattr(result, "message_id", None) or ctx.delivery.message_id
+            ctx.delivery.can_edit = True
+            ctx.delivery.edit_state = "editable"
+            ctx.delivery.edit_backoff_until = 0.0
+            ctx.delivery.edit_failure_count = 0
             if recovery:
-                ctx.edit_recovery_sends += 1
-                ctx.fallback_send_count += 1
+                ctx.delivery.edit_recovery_sends += 1
+                ctx.delivery.fallback_send_count += 1
             ctx.assistant.pending_chars = 0
             ctx.reasoning.pending_chars = 0
-            ctx.last_render_at = time.monotonic()
+            ctx.delivery.last_render_at = time.monotonic()
         else:
             error = str(getattr(result, "error", "send failed") or "send failed")
-            ctx.last_error = error
+            ctx.diagnostics.last_error = error
             kind = self.classify_edit_error(error)
             if kind in {"rate_limited", "transient", "unknown_transient"}:
-                if ctx.edit_state == kind:
-                    ctx.edit_failure_count += 1
+                if ctx.delivery.edit_state == kind:
+                    ctx.delivery.edit_failure_count += 1
                 else:
-                    ctx.edit_failure_count = 1
-                delay = self.edit_backoff_seconds(error, kind, ctx.edit_failure_count)
-                ctx.edit_state = kind
-                ctx.edit_backoff_until = time.monotonic() + delay
+                    ctx.delivery.edit_failure_count = 1
+                delay = self.edit_backoff_seconds(error, kind, ctx.delivery.edit_failure_count)
+                ctx.delivery.edit_state = kind
+                ctx.delivery.edit_backoff_until = time.monotonic() + delay
                 self.schedule_delayed_live_flush(ctx, delay)
                 return
-            ctx.disabled = True
+            ctx.delivery.disabled = True
 
     async def downgrade_to_snapshot(self, ctx: SessionContext, error: str, state: str) -> None:
         ctx.strategy = "snapshot"
-        ctx.can_edit = False
-        ctx.edit_state = state
-        ctx.downgrade_reason = error
-        ctx.downgrade_at = time.time()
-        if ctx.fallback_send_count == 0:
+        ctx.delivery.can_edit = False
+        ctx.delivery.edit_state = state
+        ctx.diagnostics.downgrade_reason = error
+        ctx.diagnostics.downgrade_at = time.time()
+        if ctx.delivery.fallback_send_count == 0:
             await self.render_snapshot(ctx, force=True)
 
     def schedule_delayed_live_flush(self, ctx: SessionContext, delay: float) -> None:
         if ctx.loop is None:
             return
-        current = ctx.delayed_flush_task
+        current = ctx.delivery.delayed_flush_task
         if current is not None and not current.done():
             return
         generation = ctx.generation
@@ -167,68 +171,75 @@ class RendererDelivery:
                 if ctx.generation != generation:
                     return
                 async with ctx.lock:
-                    if ctx.disabled or ctx.strategy != "live_tail" or not self._content(ctx):
+                    if (
+                        ctx.delivery.disabled
+                        or ctx.strategy != "live_tail"
+                        or not self._content(ctx)
+                    ):
                         return
                     await self.render_live(ctx, force=True)
             except asyncio.CancelledError:
                 raise
             finally:
-                if ctx.delayed_flush_task is task:
-                    ctx.delayed_flush_task = None
+                if ctx.delivery.delayed_flush_task is task:
+                    ctx.delivery.delayed_flush_task = None
 
         task = ctx.loop.create_task(_flush_later())
-        ctx.delayed_flush_task = task
+        ctx.delivery.delayed_flush_task = task
 
     def cancel_delayed_flush(self, ctx: SessionContext) -> None:
-        task = ctx.delayed_flush_task
+        task = ctx.delivery.delayed_flush_task
         if task is not None and not task.done():
             task.cancel()
-        ctx.delayed_flush_task = None
+        ctx.delivery.delayed_flush_task = None
 
     def cancel_delete(self, ctx: SessionContext) -> None:
-        task = ctx.delete_task
+        task = ctx.delivery.delete_task
         if task is not None and not task.done():
             task.cancel()
-        ctx.delete_task = None
+        ctx.delivery.delete_task = None
 
     def schedule_auto_delete(self, ctx: SessionContext, *, success: bool) -> None:
         cleanup = self.settings.cleanup
-        if not cleanup.auto_delete or not ctx.message_id or ctx.loop is None:
+        if not cleanup.auto_delete or not ctx.delivery.message_id or ctx.loop is None:
             return
         if success and not cleanup.delete_on_success:
             return
         if not success and not cleanup.delete_on_failure:
             return
-        if ctx.progress_state == "background_active" and not cleanup.delete_background_active:
+        if (
+            ctx.delivery.progress_state == "background_active"
+            and not cleanup.delete_background_active
+        ):
             return
         self.cancel_delete(ctx)
         generation = ctx.generation
-        message_id = str(ctx.message_id)
+        message_id = str(ctx.delivery.message_id)
         delay = max(0, cleanup.delay_seconds)
 
         async def _delete_later() -> None:
             try:
                 await asyncio.sleep(delay)
-                if ctx.generation != generation or ctx.message_id != message_id:
+                if ctx.generation != generation or ctx.delivery.message_id != message_id:
                     return
                 try:
                     deleted = await delete_message(ctx.adapter, ctx.chat_id, message_id)
                 except Exception as exc:
                     logger.debug("hermes-progress-tail delete failed: %s", exc)
-                    ctx.last_error = str(exc)
+                    ctx.diagnostics.last_error = str(exc)
                     return
                 if deleted:
-                    ctx.message_id = None
-                    ctx.can_edit = False
-                    ctx.progress_state = "deleted"
+                    ctx.delivery.message_id = None
+                    ctx.delivery.can_edit = False
+                    ctx.delivery.progress_state = "deleted"
             except asyncio.CancelledError:
                 raise
             finally:
-                if ctx.delete_task is task:
-                    ctx.delete_task = None
+                if ctx.delivery.delete_task is task:
+                    ctx.delivery.delete_task = None
 
         task = ctx.loop.create_task(_delete_later())
-        ctx.delete_task = task
+        ctx.delivery.delete_task = task
 
     async def render_snapshot(
         self, ctx: SessionContext, force: bool = False, final: bool = False
@@ -237,9 +248,11 @@ class RendererDelivery:
         if not content_body:
             return
         now = time.monotonic()
-        enough_events = ctx.new_events_since_snapshot >= self.settings.no_edit.min_new_events
-        enough_time = now - ctx.last_render_at >= self.settings.no_edit.interval_seconds
-        under_cap = ctx.snapshots_sent < self.settings.no_edit.max_snapshots_per_turn
+        enough_events = (
+            ctx.diagnostics.new_events_since_snapshot >= self.settings.no_edit.min_new_events
+        )
+        enough_time = now - ctx.delivery.last_render_at >= self.settings.no_edit.interval_seconds
+        under_cap = ctx.delivery.snapshots_sent < self.settings.no_edit.max_snapshots_per_turn
         if not force and not (enough_events and enough_time and under_cap):
             return
         if not final and not under_cap:
@@ -250,28 +263,28 @@ class RendererDelivery:
             title = f"Progress tail — latest {len(ctx.tool.lines)} tools"
         else:
             title = "Progress tail — latest updates"
-        if ctx.total_events:
-            title += f" of {ctx.total_events} events"
+        if ctx.diagnostics.total_events:
+            title += f" of {ctx.diagnostics.total_events} events"
         content = self.prepare_message(ctx, title + "\n" + content_body)
         try:
             result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
         except Exception as exc:
             logger.debug("hermes-progress-tail snapshot send failed: %s", exc)
-            ctx.last_error = str(exc)
-            ctx.disabled = True
+            ctx.diagnostics.last_error = str(exc)
+            ctx.delivery.disabled = True
             return
         if getattr(result, "success", False):
-            ctx.snapshots_sent += 1
-            ctx.fallback_send_count += 1
-            ctx.new_events_since_snapshot = 0
+            ctx.delivery.snapshots_sent += 1
+            ctx.delivery.fallback_send_count += 1
+            ctx.diagnostics.new_events_since_snapshot = 0
             ctx.assistant.pending_chars = 0
             ctx.reasoning.pending_chars = 0
-            ctx.last_render_at = time.monotonic()
+            ctx.delivery.last_render_at = time.monotonic()
         else:
-            ctx.last_error = str(
+            ctx.diagnostics.last_error = str(
                 getattr(result, "error", "snapshot send failed") or "snapshot send failed"
             )
-            ctx.disabled = True
+            ctx.delivery.disabled = True
 
     def prepare_message(self, ctx: SessionContext, content: str) -> str:
         return self.fit_message(content, self.message_limit(ctx))

@@ -127,3 +127,32 @@ class ToolState:
     completed_ids: set[str] = field(default_factory=set)
     todo_items: tuple[TodoItem, ...] = ()
     todo_updated_at: float = 0.0
+
+
+@dataclass
+class DeliveryState:
+    message_id: str | None = None
+    can_edit: bool = True
+    disabled: bool = False
+    progress_state: str = "active"
+    finalized_at: float = 0.0
+    last_render_at: float = 0.0
+    edit_state: str = "editable"
+    edit_backoff_until: float = 0.0
+    edit_failure_count: int = 0
+    edit_recovery_sends: int = 0
+    delayed_flush_task: Any = None
+    delete_task: Any = None
+    fallback_send_count: int = 0
+    snapshots_sent: int = 0
+
+
+@dataclass
+class DiagnosticsState:
+    last_event_at: float = field(default_factory=time.monotonic)
+    new_events_since_snapshot: int = 0
+    total_events: int = 0
+    last_error: str = ""
+    downgrade_reason: str = ""
+    downgrade_at: float = 0.0
+    compaction_count: int = 0

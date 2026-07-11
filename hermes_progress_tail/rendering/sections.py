@@ -66,13 +66,13 @@ def assistant_tail(lines: tuple[AssistantLine, ...], *, max_lines: int, max_char
 
 
 def debug_section(ctx: SessionContext, *, section: Callable[[str, str, str], str]) -> str:
-    lines = [f"strategy={ctx.strategy}", f"events={ctx.total_events}"]
-    if ctx.edit_state != "editable":
-        lines.append(f"edit_state={ctx.edit_state}")
-    if ctx.downgrade_reason:
-        lines.append(f"downgrade={ctx.downgrade_reason}")
-    if ctx.last_error:
-        lines.append(f"last_error={ctx.last_error}")
+    lines = [f"strategy={ctx.strategy}", f"events={ctx.diagnostics.total_events}"]
+    if ctx.delivery.edit_state != "editable":
+        lines.append(f"edit_state={ctx.delivery.edit_state}")
+    if ctx.diagnostics.downgrade_reason:
+        lines.append(f"downgrade={ctx.diagnostics.downgrade_reason}")
+    if ctx.diagnostics.last_error:
+        lines.append(f"last_error={ctx.diagnostics.last_error}")
     return section("Debug", "🛠️", "\n".join(lines))
 
 
