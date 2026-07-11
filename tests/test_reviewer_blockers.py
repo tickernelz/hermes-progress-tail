@@ -1,13 +1,10 @@
-from tests.support.rendering import Result
-
 import asyncio
 
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.formatter import format_tool_line
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import ReasoningEvent, SessionContext, ToolEvent
-
-
+from tests.support.rendering import Result
 
 
 class SlowEditableAdapter:

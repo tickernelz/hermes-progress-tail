@@ -1,14 +1,9 @@
-from tests.support.rendering import Result, EditableAdapter
-
 import asyncio
 
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.models.state import DelegateEvent, SessionContext
 from hermes_progress_tail.rendering.renderer import ProgressRenderer
-
-
-
-
+from tests.support.rendering import EditableAdapter
 
 
 def test_delegate_renderer_does_not_render_subagent_text_fragments_as_update_rows():

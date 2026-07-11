@@ -1,12 +1,9 @@
-from tests.support.rendering import Result
-
 import asyncio
 
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import BackgroundJobEvent, ReasoningEvent, SessionContext, ToolEvent
-
-
+from tests.support.rendering import Result
 
 
 class EditableAdapter:

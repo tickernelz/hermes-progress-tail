@@ -1,14 +1,3 @@
-from tests.support.rendering import (
-    EditableAdapter,
-    ExceptionSendAdapter,
-    FailingEditAdapter,
-    NoEditAdapter,
-    Result,
-    SequenceEditAdapter,
-    SequenceSendAdapter,
-    make_live_context as make_ctx,
-)
-
 import asyncio
 import time
 from collections import deque
@@ -21,25 +10,14 @@ from hermes_progress_tail.state import (
     BackgroundJobEvent,
     DelegateEvent,
     ReasoningEvent,
-    SessionContext,
     ToolEvent,
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+from tests.support.rendering import (
+    EditableAdapter,
+)
+from tests.support.rendering import (
+    make_live_context as make_ctx,
+)
 
 
 def test_focused_verbose_layout_prioritizes_now_state_and_curated_sections():

@@ -1,5 +1,3 @@
-from tests.support.rendering import Result, EditableAdapter
-
 import asyncio
 from types import SimpleNamespace
 
@@ -8,10 +6,7 @@ import pytest
 from hermes_progress_tail.config import find_unknown_config_keys, load_settings
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import EnvironmentSnapshot, SessionContext, ToolEvent
-
-
-
-
+from tests.support.rendering import EditableAdapter
 
 
 def make_renderer(*, mode="focused"):

@@ -1,5 +1,3 @@
-from tests.support.rendering import Result
-
 import asyncio
 from types import SimpleNamespace
 
@@ -10,8 +8,7 @@ from hermes_progress_tail.monkeypatches import (
     uninstall_gateway_interrupt_monkeypatch,
 )
 from hermes_progress_tail.state import SessionContext, ToolEvent
-
-
+from tests.support.rendering import Result
 
 
 class EditableAdapter:

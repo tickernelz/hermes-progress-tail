@@ -1,14 +1,3 @@
-from tests.support.rendering import (
-    EditableAdapter,
-    ExceptionSendAdapter,
-    FailingEditAdapter,
-    NoEditAdapter,
-    Result,
-    SequenceEditAdapter,
-    SequenceSendAdapter,
-    make_live_context as make_ctx,
-)
-
 import asyncio
 import time
 
@@ -18,22 +7,14 @@ from hermes_progress_tail.state import (
     SessionContext,
     ToolEvent,
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+from tests.support.rendering import (
+    EditableAdapter,
+    SequenceEditAdapter,
+    SequenceSendAdapter,
+)
+from tests.support.rendering import (
+    make_live_context as make_ctx,
+)
 
 
 def test_permanent_initial_send_failure_still_disables_context():

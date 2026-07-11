@@ -1,5 +1,3 @@
-from tests.support.rendering import Result, EditableAdapter
-
 import asyncio
 import time
 import types
@@ -15,10 +13,7 @@ from hermes_progress_tail.monkeypatches import (
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.runtime import plugin
 from hermes_progress_tail.state import BackgroundJobEvent, SessionContext, ToolEvent
-
-
-
-
+from tests.support.rendering import EditableAdapter
 
 
 def make_ctx(adapter, *, platform="discord", strategy="live_tail"):

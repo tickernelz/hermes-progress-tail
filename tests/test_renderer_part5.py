@@ -1,14 +1,3 @@
-from tests.support.rendering import (
-    EditableAdapter,
-    ExceptionSendAdapter,
-    FailingEditAdapter,
-    NoEditAdapter,
-    Result,
-    SequenceEditAdapter,
-    SequenceSendAdapter,
-    make_live_context as make_ctx,
-)
-
 import asyncio
 
 from hermes_progress_tail.config import load_settings
@@ -16,25 +5,15 @@ from hermes_progress_tail.formatter import extract_todo_items, format_tool_line
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import (
     DelegateEvent,
-    SessionContext,
     ToolEvent,
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+from tests.support.rendering import (
+    EditableAdapter,
+    FailingEditAdapter,
+)
+from tests.support.rendering import (
+    make_live_context as make_ctx,
+)
 
 
 def test_renderer_compact_density_and_debug_downgrade_visibility():

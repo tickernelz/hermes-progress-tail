@@ -1,5 +1,3 @@
-from tests.support.rendering import Result, EditableAdapter
-
 import asyncio
 import sys
 from pathlib import Path
@@ -11,10 +9,7 @@ import hermes_progress_tail.rendering.footer as footer_module
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import EnvironmentSnapshot, SessionContext, ToolEvent
-
-
-
-
+from tests.support.rendering import EditableAdapter
 
 
 @pytest.fixture(autouse=True)

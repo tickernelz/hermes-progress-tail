@@ -1,5 +1,3 @@
-from tests.support.rendering import Result, EditableAdapter
-
 import asyncio
 from types import SimpleNamespace
 
@@ -12,10 +10,7 @@ from hermes_progress_tail.monkeypatches import (
 )
 from hermes_progress_tail.plugin import _on_pre_gateway_dispatch
 from hermes_progress_tail.rendering.renderer import ProgressRenderer
-
-
-
-
+from tests.support.rendering import EditableAdapter
 
 
 class Source:

@@ -1,4 +1,3 @@
-from tests.support.rendering import Result, EditableAdapter
 
 import pytest
 
@@ -16,10 +15,6 @@ from hermes_progress_tail.rendering.telegram_rich import (
     format_progress_tail_telegram_rich_markdown,
 )
 from hermes_progress_tail.state import ReasoningEvent, SessionContext
-
-
-
-
 
 
 class Source:
