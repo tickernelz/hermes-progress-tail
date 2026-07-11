@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -42,20 +43,36 @@ def test_violations_are_sorted_by_descending_count_then_path(tmp_path):
     )
 
 
+def test_line_limit_skips_missing_paths_and_directories(tmp_path):
+    missing = tmp_path / "missing.py"
+
+    assert line_limit_violations((missing, tmp_path)) == ()
+
+
 def test_tracked_text_files_uses_git_and_skips_missing_and_binary(tmp_path):
     _git(tmp_path, "init", "-q")
     text = tmp_path / "space name.txt"
     binary = tmp_path / "binary.bin"
     missing = tmp_path / "missing.txt"
     untracked = tmp_path / "untracked.txt"
+    non_utf8_name = os.fsdecode(b"non-utf8-\xff.txt")
+    non_utf8 = tmp_path / non_utf8_name
     text.write_text("hello\n", encoding="utf-8")
     binary.write_bytes(b"a\0b")
     missing.write_text("gone\n", encoding="utf-8")
     untracked.write_text("ignore\n", encoding="utf-8")
-    _git(tmp_path, "add", "space name.txt", "binary.bin", "missing.txt")
+    non_utf8.write_text("decoded with surrogateescape\n", encoding="utf-8")
+    _git(
+        tmp_path,
+        "add",
+        "space name.txt",
+        "binary.bin",
+        "missing.txt",
+        non_utf8_name,
+    )
     missing.unlink()
 
-    assert tracked_text_files(tmp_path) == (text,)
+    assert tracked_text_files(tmp_path) == tuple(sorted((non_utf8, text), key=str))
 
 
 def test_repository_structure_is_valid():

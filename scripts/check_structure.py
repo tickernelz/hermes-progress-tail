@@ -61,7 +61,7 @@ def main() -> int:
     violations = repository_violations(root)
     for path, line_count in violations:
         print(f"{path.relative_to(root)}: {line_count} lines (limit {MAX_LINES})")
-    return bool(violations)
+    return int(bool(violations))
 
 
 if __name__ == "__main__":
