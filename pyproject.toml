@@ -31,7 +31,7 @@ branch = true
 source = ["hermes_progress_tail"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 90
 show_missing = true
 skip_covered = true
 

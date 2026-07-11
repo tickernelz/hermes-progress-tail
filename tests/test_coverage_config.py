@@ -16,4 +16,4 @@ def test_coverage_gate_targets_production_with_branch_measurement():
 
     assert run["branch"] is True
     assert run["source"] == ["hermes_progress_tail"]
-    assert report["fail_under"] >= 80
+    assert report["fail_under"] >= 90
