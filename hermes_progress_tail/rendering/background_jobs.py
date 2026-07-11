@@ -18,7 +18,7 @@ def apply_background_job_event(
     settings: BackgroundJobSettings,
     cancel_poll: Callable[[BackgroundJob], None],
 ) -> None:
-    job = ctx.background_jobs.get(event.process_id)
+    job = ctx.background.jobs.get(event.process_id)
     if event.event_type == "cleanup":
         prune_background_jobs(ctx, settings=settings, cancel_poll=cancel_poll, now=event.created_at)
         return
@@ -31,8 +31,8 @@ def apply_background_job_event(
             started_at=event.created_at,
             updated_at=event.created_at,
         )
-        ctx.background_jobs[event.process_id] = job
-        ctx.background_order.append(event.process_id)
+        ctx.background.jobs[event.process_id] = job
+        ctx.background.order.append(event.process_id)
     if event.command:
         job.command = event.command
     if event.cwd:
@@ -80,7 +80,7 @@ def background_jobs_section(
     if not background_jobs_enabled(ctx):
         return ""
     prune_background_jobs(ctx, settings=settings.background_jobs, cancel_poll=cancel_poll)
-    jobs = [ctx.background_jobs[jid] for jid in ctx.background_order if jid in ctx.background_jobs]
+    jobs = [ctx.background.jobs[jid] for jid in ctx.background.order if jid in ctx.background.jobs]
     visible = []
     for job in jobs:
         if job.status == "running" and not settings.background_jobs.list_running:
@@ -203,29 +203,29 @@ def prune_background_jobs(
     ttl = settings.completed_ttl_seconds
     now = time.time() if now is None else now
     removed_any = False
-    for process_id in list(ctx.background_order):
-        job = ctx.background_jobs.get(process_id)
+    for process_id in list(ctx.background.order):
+        job = ctx.background.jobs.get(process_id)
         if job is None:
             with contextlib.suppress(ValueError):
-                ctx.background_order.remove(process_id)
+                ctx.background.order.remove(process_id)
             continue
         if job.status != "running" and job.completed_at and now - job.completed_at > ttl:
             cancel_poll(job)
-            ctx.background_jobs.pop(process_id, None)
+            ctx.background.jobs.pop(process_id, None)
             removed_any = True
             with contextlib.suppress(ValueError):
-                ctx.background_order.remove(process_id)
-    while len(ctx.background_order) > settings.max_jobs * 3:
-        process_id = ctx.background_order.popleft()
-        job = ctx.background_jobs.get(process_id)
+                ctx.background.order.remove(process_id)
+    while len(ctx.background.order) > settings.max_jobs * 3:
+        process_id = ctx.background.order.popleft()
+        job = ctx.background.jobs.get(process_id)
         if job is not None and job.status == "running":
-            ctx.background_order.append(process_id)
+            ctx.background.order.append(process_id)
             break
-        job = ctx.background_jobs.pop(process_id, None)
+        job = ctx.background.jobs.pop(process_id, None)
         if job is not None:
             removed_any = True
             cancel_poll(job)
-    if removed_any and not ctx.background_jobs and ctx.progress_state == "background_active":
+    if removed_any and not ctx.background.jobs and ctx.progress_state == "background_active":
         ctx.progress_state = "finalized"
 
 

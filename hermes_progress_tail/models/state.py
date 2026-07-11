@@ -4,15 +4,9 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
-TodoStatus = Literal["pending", "in_progress", "completed", "cancelled"]
-
-
-@dataclass(frozen=True)
-class TodoItem:
-    content: str
-    status: str
+from .events import TodoItem, TodoStatus  # noqa: F401 - compatibility re-export
 
 
 @dataclass
@@ -111,6 +105,18 @@ class ReasoningState:
     last_at: float = 0.0
 
 
+@dataclass
+class DelegateState:
+    branches: dict[str, DelegateBranch] = field(default_factory=dict)
+    order: deque[str] = field(default_factory=deque)
+
+
+@dataclass
+class BackgroundState:
+    jobs: dict[str, BackgroundJob] = field(default_factory=dict)
+    order: deque[str] = field(default_factory=deque)
+
+
 _MISSING = object()
 
 
@@ -143,10 +149,8 @@ class SessionContext:
     tool_completed_count: int = 0
     tool_failed_count: int = 0
     completed_tool_ids: set[str] = field(default_factory=set)
-    delegate_branches: dict[str, DelegateBranch] = field(default_factory=dict)
-    delegate_order: deque[str] = field(default_factory=deque)
-    background_jobs: dict[str, BackgroundJob] = field(default_factory=dict)
-    background_order: deque[str] = field(default_factory=deque)
+    delegate: DelegateState = field(default_factory=DelegateState)
+    background: BackgroundState = field(default_factory=BackgroundState)
     todo_items: tuple[TodoItem, ...] = ()
     todo_updated_at: float = 0.0
     assistant: AssistantState = field(default_factory=AssistantState)
@@ -293,10 +297,28 @@ class SessionContext:
         self.tool_completed_count = tool_completed_count
         self.tool_failed_count = tool_failed_count
         self.completed_tool_ids = set() if completed_tool_ids is _MISSING else completed_tool_ids
-        self.delegate_branches = {} if delegate_branches is _MISSING else delegate_branches
-        self.delegate_order = deque() if delegate_order is _MISSING else delegate_order
-        self.background_jobs = {} if background_jobs is _MISSING else background_jobs
-        self.background_order = deque() if background_order is _MISSING else background_order
+        delegate_legacy = delegate_branches is not _MISSING or delegate_order is not _MISSING
+        if delegate is not None and delegate_legacy:
+            raise TypeError("delegate cannot be combined with legacy delegate fields")
+        self.delegate = (
+            delegate
+            if delegate is not None
+            else DelegateState(
+                branches={} if delegate_branches is _MISSING else delegate_branches,
+                order=deque() if delegate_order is _MISSING else delegate_order,
+            )
+        )
+        background_legacy = background_jobs is not _MISSING or background_order is not _MISSING
+        if background is not None and background_legacy:
+            raise TypeError("background cannot be combined with legacy background fields")
+        self.background = (
+            background
+            if background is not None
+            else BackgroundState(
+                jobs={} if background_jobs is _MISSING else background_jobs,
+                order=deque() if background_order is _MISSING else background_order,
+            )
+        )
         self.todo_items = todo_items
         self.todo_updated_at = todo_updated_at
         self.last_render_at = last_render_at
@@ -331,8 +353,6 @@ class SessionContext:
             ("routing", routing),
             ("delivery", delivery),
             ("tool", tool),
-            ("delegate", delegate),
-            ("background", background),
             ("diagnostics", diagnostics),
         ):
             if owner_value is not None:
@@ -360,6 +380,38 @@ class SessionContext:
         if reasoning is not None and reasoning_legacy:
             raise TypeError("reasoning cannot be combined with legacy reasoning fields")
         self.reasoning = reasoning if reasoning is not None else ReasoningState(**reasoning_legacy)
+
+    @property
+    def delegate_branches(self):
+        return self.delegate.branches
+
+    @delegate_branches.setter
+    def delegate_branches(self, value):
+        self.delegate.branches = value
+
+    @property
+    def delegate_order(self):
+        return self.delegate.order
+
+    @delegate_order.setter
+    def delegate_order(self, value):
+        self.delegate.order = value
+
+    @property
+    def background_jobs(self):
+        return self.background.jobs
+
+    @background_jobs.setter
+    def background_jobs(self, value):
+        self.background.jobs = value
+
+    @property
+    def background_order(self):
+        return self.background.order
+
+    @background_order.setter
+    def background_order(self, value):
+        self.background.order = value
 
     @property
     def assistant_lines(self):
@@ -477,80 +529,11 @@ class SessionContext:
         self.lines = lines
 
 
-@dataclass(frozen=True)
-class ToolEvent:
-    session_id: str
-    session_key: str
-    platform: str
-    line: str
-    tool_call_id: str = ""
-    tool_name: str = ""
-    replace_existing: bool = False
-    todo_items: tuple[TodoItem, ...] = ()
-    created_at: float = field(default_factory=time.time)
-    kind: Literal["tool"] = "tool"
+from . import events as _events  # noqa: E402
 
-
-@dataclass(frozen=True)
-class DelegateEvent:
-    session_id: str
-    session_key: str
-    platform: str
-    subagent_id: str
-    task_index: int = 0
-    task_count: int = 1
-    goal: str = ""
-    event_type: str = "subagent.tool"
-    tool_name: str = ""
-    preview: str = ""
-    args: dict[str, Any] | None = None
-    status: str = ""
-    model: str = ""
-    tool_count: int = 0
-    duration_seconds: float = 0.0
-    summary: str = ""
-    created_at: float = field(default_factory=time.time)
-    kind: Literal["delegate"] = "delegate"
-
-
-@dataclass(frozen=True)
-class ReasoningEvent:
-    session_id: str
-    session_key: str
-    platform: str
-    text: str
-    source: str = "structured_reasoning"
-    created_at: float = field(default_factory=time.time)
-    kind: Literal["reasoning"] = "reasoning"
-
-
-@dataclass(frozen=True)
-class AssistantEvent:
-    session_id: str
-    session_key: str
-    platform: str
-    text: str
-    already_streamed: bool = False
-    transient: bool = False
-    created_at: float = field(default_factory=time.time)
-    kind: Literal["assistant"] = "assistant"
-
-
-@dataclass(frozen=True)
-class BackgroundJobEvent:
-    session_id: str
-    session_key: str
-    platform: str
-    process_id: str
-    event_type: str = "started"
-    command: str = ""
-    cwd: str = ""
-    pid: int | None = None
-    output: str = ""
-    exited: bool = False
-    exit_code: int | None = None
-    created_at: float = field(default_factory=time.time)
-    kind: Literal["background_job"] = "background_job"
-
-
-ProgressEvent = ToolEvent | DelegateEvent | ReasoningEvent | AssistantEvent | BackgroundJobEvent
+ToolEvent = _events.ToolEvent
+DelegateEvent = _events.DelegateEvent
+ReasoningEvent = _events.ReasoningEvent
+AssistantEvent = _events.AssistantEvent
+BackgroundJobEvent = _events.BackgroundJobEvent
+ProgressEvent = _events.ProgressEvent

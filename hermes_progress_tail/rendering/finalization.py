@@ -6,7 +6,7 @@ from ..models.state import SessionContext
 
 
 def has_background_jobs(ctx: SessionContext) -> bool:
-    return bool(ctx.background_jobs)
+    return bool(ctx.background.jobs)
 
 
 def reset_turn(ctx: SessionContext) -> None:
@@ -18,8 +18,8 @@ def reset_turn(ctx: SessionContext) -> None:
     ctx.tool_failed_count = 0
     ctx.completed_tool_ids.clear()
     ctx.started_at = time.monotonic()
-    ctx.delegate_branches.clear()
-    ctx.delegate_order.clear()
+    ctx.delegate.branches.clear()
+    ctx.delegate.order.clear()
     ctx.todo_items = ()
     ctx.todo_updated_at = 0.0
     ctx.assistant.lines.clear()

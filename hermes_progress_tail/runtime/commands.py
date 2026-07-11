@@ -403,8 +403,12 @@ def _command(raw_args: str = "") -> str:
             f"background_jobs={'enabled' if renderer.settings.background_jobs.enabled else 'disabled'}"
         ]
         for sid, ctx in renderer.sessions.items():
-            for process_id in ctx.background_order:
-                job = ctx.background_jobs.get(process_id)
+            # Command tests and third-party integrations may provide context-shaped doubles.
+            background = getattr(ctx, "background", None)
+            order = background.order if background is not None else ctx.background_order
+            jobs = background.jobs if background is not None else ctx.background_jobs
+            for process_id in order:
+                job = jobs.get(process_id)
                 if job is None:
                     continue
                 if not include_all and job.status != "running":

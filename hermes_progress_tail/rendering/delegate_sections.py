@@ -27,16 +27,16 @@ class DelegateSections:
         return self._renderer.prune_completed(ctx, now=now)
 
     def section(self, ctx: SessionContext) -> str:
-        if not ctx.delegate_branches:
+        if not ctx.delegate.branches:
             return ""
         self.prune_completed(ctx)
-        if not ctx.delegate_branches:
+        if not ctx.delegate.branches:
             return ""
         settings = self.settings.delegates
-        visible_keys = list(ctx.delegate_order)[-settings.max_delegates :]
+        visible_keys = list(ctx.delegate.order)[-settings.max_delegates :]
         lines: list[str] = []
         visible_branches = [
-            branch for key in visible_keys if (branch := ctx.delegate_branches.get(key)) is not None
+            branch for key in visible_keys if (branch := ctx.delegate.branches.get(key)) is not None
         ]
         inferred_task_count = max(
             [len(visible_branches), *(branch.task_index + 1 for branch in visible_branches)],
@@ -79,7 +79,7 @@ class DelegateSections:
                     lines.append(
                         f"{connector} result: {self._simplify_completion_line(result_text, branch=branch)}"
                     )
-        hidden = len(ctx.delegate_order) - len(visible_keys)
+        hidden = len(ctx.delegate.order) - len(visible_keys)
         if hidden > 0:
             lines.append(f"+{hidden} older delegate{'s' if hidden != 1 else ''}")
         if not lines:

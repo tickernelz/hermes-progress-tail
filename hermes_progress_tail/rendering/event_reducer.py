@@ -74,7 +74,7 @@ class EventReducer:
             self.delegate_renderer.apply_event(ctx, event)
             if self.delegate_event_is_terminal(event):
                 key = event.subagent_id or f"task-{event.task_index}"
-                branch = ctx.delegate_branches.get(key)
+                branch = ctx.delegate.branches.get(key)
                 cleanup = (key, branch) if branch is not None else None
                 return ReductionResult(force=True, delegate_cleanup=cleanup)
             return ReductionResult()

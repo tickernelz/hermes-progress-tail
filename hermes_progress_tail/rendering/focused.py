@@ -240,12 +240,12 @@ def short_filename(path: str) -> str:
 def latest_activity(ctx: SessionContext, *, active_only: bool = False) -> str:
     if ctx.tool_lines and (not active_only or active_tool_count(ctx) > 0):
         return normalize_tool_line(ctx.tool_lines[-1])
-    for branch_key in reversed(ctx.delegate_order):
-        branch = ctx.delegate_branches.get(branch_key)
+    for branch_key in reversed(ctx.delegate.order):
+        branch = ctx.delegate.branches.get(branch_key)
         if branch and (not active_only or _delegate_is_active(branch.status)):
             return f"delegate · {branch.goal or branch.subagent_id}"
-    if ctx.background_order:
-        job = ctx.background_jobs.get(ctx.background_order[-1])
+    if ctx.background.order:
+        job = ctx.background.jobs.get(ctx.background.order[-1])
         if job and (not active_only or _background_job_is_active(job.status)):
             return f"background · {job.command or job.process_id}"
     if not active_only and ctx.assistant.latest_text:

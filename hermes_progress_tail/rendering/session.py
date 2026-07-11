@@ -82,8 +82,7 @@ class SessionRegistry:
     def _reuse_session(
         self, existing: SessionContext, ctx: SessionContext, reuse_progress: bool
     ) -> None:
-        ctx.background_jobs = existing.background_jobs
-        ctx.background_order = existing.background_order
+        ctx.background = existing.background
         ctx.progress_state = "active"
         ctx.finalized_at = 0.0
         ctx.generation = existing.generation + 1

@@ -199,7 +199,7 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
         or not runtime_plugin.get_renderer().settings.background_jobs.enabled
     ):
         return
-    job = ctx.background_jobs.get(process_id)
+    job = ctx.background.jobs.get(process_id)
     if job is not None and job.poll_task is not None and not job.poll_task.done():
         return
 
@@ -230,7 +230,7 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
                     return
                 output = str(getattr(session, "output_buffer", "") or "")
                 exited = bool(getattr(session, "exited", False))
-                existing = ctx.background_jobs.get(process_id)
+                existing = ctx.background.jobs.get(process_id)
                 if existing is not None and not exited and output == existing.last_output:
                     continue
                 _schedule_render(
@@ -257,7 +257,7 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
             logger.debug("hermes-progress-tail background job poll failed", exc_info=True)
 
     task = ctx.loop.create_task(_poll())
-    job = ctx.background_jobs.get(process_id)
+    job = ctx.background.jobs.get(process_id)
     if job is not None:
         job.poll_task = task
 

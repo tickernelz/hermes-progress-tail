@@ -330,7 +330,7 @@ class ProgressRenderer:
             try:
                 await asyncio.sleep(self.settings.delegates.completed_ttl_seconds)
                 async with ctx.lock:
-                    current = ctx.delegate_branches.get(subagent_id)
+                    current = ctx.delegate.branches.get(subagent_id)
                     if current is not branch:
                         return
                     self.delegate_renderer.prune_completed(ctx)

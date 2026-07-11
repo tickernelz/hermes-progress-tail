@@ -1,5 +1,7 @@
 import ast
 import inspect
+import subprocess
+import sys
 from collections import deque
 from dataclasses import MISSING, fields
 from pathlib import Path
@@ -9,6 +11,10 @@ import pytest
 from hermes_progress_tail.models import state
 
 MIGRATED = {
+    "delegate_branches": "branches",
+    "delegate_order": "order",
+    "background_jobs": "jobs",
+    "background_order": "order",
     "assistant_lines": "lines",
     "assistant_latest_text": "latest_text",
     "assistant_pending_chars": "pending_chars",
@@ -49,10 +55,8 @@ FIELD_NAMES = [
     "tool_completed_count",
     "tool_failed_count",
     "completed_tool_ids",
-    "delegate_branches",
-    "delegate_order",
-    "background_jobs",
-    "background_order",
+    "delegate",
+    "background",
     "todo_items",
     "todo_updated_at",
     "assistant",
@@ -165,6 +169,8 @@ LEGACY = [
 def prerequisites():
     assert hasattr(state, "AssistantState"), "AssistantState owner is missing"
     assert hasattr(state, "ReasoningState"), "ReasoningState owner is missing"
+    assert hasattr(state, "DelegateState")
+    assert hasattr(state, "BackgroundState")
     assert hasattr(state, "SessionContext"), "SessionContext is missing"
     return state.SessionContext
 
@@ -182,6 +188,8 @@ def test_exact_canonical_fields_annotations_and_factories():
     by_name = {f.name: f for f in fields(cls)}
     assert by_name["assistant"].default_factory is state.AssistantState
     assert by_name["reasoning"].default_factory is state.ReasoningState
+    assert by_name["delegate"].default_factory is state.DelegateState
+    assert by_name["background"].default_factory is state.BackgroundState
     assert by_name["assistant"].default is MISSING
     assert by_name["reasoning"].default is MISSING
 
@@ -209,11 +217,14 @@ def test_all_compatibility_properties_delegate_without_storage():
     ctx = make_context()
     assert all(isinstance(getattr(cls, name, None), property) for name in MIGRATED)
     for index, (flat, nested) in enumerate(MIGRATED.items(), 1):
-        owner = (
-            ctx.assistant
-            if flat.startswith("assistant") or flat.startswith("last_assistant")
-            else ctx.reasoning
-        )
+        if flat.startswith("delegate"):
+            owner = ctx.delegate
+        elif flat.startswith("background"):
+            owner = ctx.background
+        elif flat.startswith("assistant") or flat.startswith("last_assistant"):
+            owner = ctx.assistant
+        else:
+            owner = ctx.reasoning
         value = deque([state.AssistantLine("x")], maxlen=5) if flat == "assistant_lines" else index
         setattr(ctx, flat, value)
         assert getattr(ctx, flat) is value
@@ -230,10 +241,28 @@ def test_owner_defaults_types_identity_and_conflicts():
         and first.assistant.lines is not second.assistant.lines
     )
     assert first.reasoning is not second.reasoning
+    assert isinstance(first.delegate, state.DelegateState)
+    assert isinstance(first.background, state.BackgroundState)
+    assert first.delegate is not second.delegate
+    assert first.background is not second.background
+    assert first.delegate.branches is not second.delegate.branches
+    assert first.delegate.order is not second.delegate.order
+    assert first.background.jobs is not second.background.jobs
+    assert first.background.order is not second.background.order
     with pytest.raises(TypeError, match="assistant cannot be combined"):
         make_context(assistant=state.AssistantState(), assistant_latest_text="x")
     with pytest.raises(TypeError, match="reasoning cannot be combined"):
         make_context(reasoning=state.ReasoningState(), reasoning_text="x")
+    conflicts = (
+        ("delegate", "delegate_branches", {}),
+        ("delegate", "delegate_order", deque()),
+        ("background", "background_jobs", {}),
+        ("background", "background_order", deque()),
+    )
+    for owner, legacy, value in conflicts:
+        owner_type = state.DelegateState if owner == "delegate" else state.BackgroundState
+        with pytest.raises(TypeError, match=rf"{owner} cannot be combined"):
+            make_context(**{owner: owner_type(), legacy: value})
 
 
 def test_explicit_owner_construction_preserves_identity():
@@ -242,18 +271,51 @@ def test_explicit_owner_construction_preserves_identity():
     reasoning = state.ReasoningState(text="owned")
     first = state.SessionContext("s", "k", "discord", "c", None, None, None, assistant=assistant)
     second = state.SessionContext("s", "k", "discord", "c", None, None, None, reasoning=reasoning)
+    delegate = state.DelegateState()
+    background = state.BackgroundState()
+    third = state.SessionContext(
+        "s", "k", "discord", "c", None, None, None, delegate=delegate, background=background
+    )
     assert first.assistant is assistant
     assert second.reasoning is reasoning
+    assert third.delegate is delegate
+    assert third.background is background
+
+
+def test_event_models_are_dependency_safe_and_preserve_reexport_identity():
+    prerequisites()
+    checks = """
+e = importlib.import_module('hermes_progress_tail.models.events')
+s = importlib.import_module('hermes_progress_tail.models.state')
+assert s.ToolEvent is e.ToolEvent
+assert s.TodoItem is e.TodoItem
+assert s.TodoStatus is e.TodoStatus
+"""
+    for first in ("events", "state"):
+        code = (
+            f"import importlib\nimportlib.import_module('hermes_progress_tail.models.{first}')\n"
+            + checks
+        )
+        subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_production_uses_nested_owner_access():
     prerequisites()
-    root = Path(__file__).parents[1] / "hermes_progress_tail" / "rendering"
+    package = Path(__file__).parents[1] / "hermes_progress_tail"
+    paths = [
+        *sorted((package / "rendering").glob("*.py")),
+        package / "runtime" / "tool_events.py",
+    ]
     offenders = []
-    for path in sorted(root.glob("*.py")):
+    for path in paths:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and node.attr in MIGRATED:
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr in MIGRATED
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "ctx"
+            ):
                 offenders.append(f"{path.name}:{node.lineno}:{node.attr}")
     assert offenders == [], (
         "flat production access outside runtime compatibility boundaries: " + ", ".join(offenders)

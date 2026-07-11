@@ -49,7 +49,7 @@ class DelegateProgressRenderer:
             self.prune_completed(ctx, now=event.created_at)
             return
         key = event.subagent_id or f"task-{event.task_index}"
-        branch = ctx.delegate_branches.get(key)
+        branch = ctx.delegate.branches.get(key)
         if branch is None:
             branch = DelegateBranch(
                 subagent_id=key,
@@ -60,8 +60,8 @@ class DelegateProgressRenderer:
                 started_at=event.created_at,
             )
             branch.resize(self.settings.delegates.lines_per_delegate)
-            ctx.delegate_branches[key] = branch
-            ctx.delegate_order.append(key)
+            ctx.delegate.branches[key] = branch
+            ctx.delegate.order.append(key)
         else:
             if event_type in {"subagent.spawn_requested", "subagent.start"} and branch.completed_at:
                 self.cancel_cleanup(branch)
@@ -123,19 +123,19 @@ class DelegateProgressRenderer:
     def prune_completed(self, ctx: SessionContext, *, now: float | None = None) -> None:
         ttl = self.settings.delegates.completed_ttl_seconds
         current = time.time() if now is None else now
-        for key in list(ctx.delegate_order):
-            branch = ctx.delegate_branches.get(key)
+        for key in list(ctx.delegate.order):
+            branch = ctx.delegate.branches.get(key)
             if branch is None:
                 with contextlib.suppress(ValueError):
-                    ctx.delegate_order.remove(key)
+                    ctx.delegate.order.remove(key)
                 continue
             if not self._delegate_is_terminal(branch):
                 continue
             if branch.completed_at and current - branch.completed_at > ttl:
                 self.cancel_cleanup(branch)
-                ctx.delegate_branches.pop(key, None)
+                ctx.delegate.branches.pop(key, None)
                 with contextlib.suppress(ValueError):
-                    ctx.delegate_order.remove(key)
+                    ctx.delegate.order.remove(key)
 
     @staticmethod
     def cancel_cleanup(branch: DelegateBranch) -> None:
