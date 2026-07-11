@@ -9,11 +9,215 @@ import pytest
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.models.state import SessionContext
 from hermes_progress_tail.renderer import ProgressRenderer
+from hermes_progress_tail.rendering.delegate import DelegateProgressRenderer
 from tests.support.rendering import EditableAdapter
 
 DELIVERY_MODULE = "hermes_progress_tail.rendering.delivery"
 RENDERER_PATH = Path(__file__).parents[1] / "hermes_progress_tail" / "rendering" / "renderer.py"
 DELIVERY_PATH = Path(__file__).parents[1] / "hermes_progress_tail" / "rendering" / "delivery.py"
+DELEGATE_PATH = Path(__file__).parents[1] / "hermes_progress_tail" / "rendering" / "delegate.py"
+DELEGATE_SECTIONS_PATH = (
+    Path(__file__).parents[1] / "hermes_progress_tail" / "rendering" / "delegate_sections.py"
+)
+
+
+def test_architecture_delegate_section_result_formatting_is_a_cohesive_collaborator():
+    assert DELEGATE_SECTIONS_PATH.is_file()
+    tree = ast.parse(DELEGATE_PATH.read_text(encoding="utf-8"))
+    delegate_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "DelegateProgressRenderer"
+    )
+    section = next(
+        node
+        for node in delegate_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "section"
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "section"
+        for node in ast.walk(section)
+    )
+
+
+def test_architecture_delegate_compatibility_forwards_are_owned_by_class_body():
+    expected = {
+        "_status_symbol": ("status",),
+        "_duration": ("seconds",),
+        "_delegate_cwd": ("value",),
+        "_terminal_first_line": ("command",),
+        "_strip_tool_emoji": ("text",),
+        "_simplify_known_plugin_paths": ("text",),
+    }
+    tree = ast.parse(DELEGATE_PATH.read_text(encoding="utf-8"))
+    delegate_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "DelegateProgressRenderer"
+    )
+    owned_methods = {
+        node.name
+        for node in delegate_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert expected.keys() <= owned_methods
+    for name, parameters in expected.items():
+        assert (
+            tuple(inspect.signature(DelegateProgressRenderer.__dict__[name]).parameters)
+            == parameters
+        )
+
+
+def test_architecture_moved_delegate_forwards_preserve_exact_signatures_and_static_semantics():
+    expected = {
+        "_completion_result_text": "(self, branch)",
+        "_completion_result_lines": "(self, text)",
+        "_prepare_completion_block_text": "(self, text)",
+        "_split_inline_markdown_sections": "(text)",
+        "_simplify_long_paths": "(text)",
+        "_completed_result_line_limit": "(self)",
+        "_completed_result_line_char_limit": "(self)",
+        "_middle_truncate_lines": "(lines, limit)",
+        "_simplify_completion_line": "(self, text, *, branch=None)",
+        "_delegate_result_only": "(self, branch)",
+        "_completed_result_limit": "(self)",
+        "_delegate_display_lines": "(self, branch)",
+        "_delegate_title": "(self, branch, *, inferred_task_count=None)",
+        "_delegate_connector": "(self, index, total)",
+        "_delegate_compact_line": "(self, item)",
+        "_delegate_event_label": "(self, item)",
+        "_delegate_tool_name": "(item)",
+        "_simplify_delegate_tool_text": "(self, text)",
+    }
+    static_names = {
+        "_split_inline_markdown_sections",
+        "_simplify_long_paths",
+        "_middle_truncate_lines",
+        "_delegate_tool_name",
+    }
+    for name, signature in expected.items():
+        descriptor = inspect.getattr_static(DelegateProgressRenderer, name)
+        callable_ = descriptor.__func__ if isinstance(descriptor, staticmethod) else descriptor
+        signature_value = inspect.signature(callable_)
+        signature_value = signature_value.replace(
+            parameters=[
+                parameter.replace(annotation=inspect.Signature.empty)
+                for parameter in signature_value.parameters.values()
+            ],
+            return_annotation=inspect.Signature.empty,
+        )
+        assert str(signature_value) == signature
+        assert isinstance(descriptor, staticmethod) == (name in static_names)
+
+
+def test_delegate_sections_keeps_live_renderer_settings_identity():
+    settings = load_settings({})
+    renderer = DelegateProgressRenderer(settings)
+    assert hasattr(renderer, "_sections")
+    assert renderer._sections.settings is settings
+    replacement = load_settings({"renderer": {"density": "verbose"}})
+    renderer.settings = replacement
+    assert renderer._sections.settings is replacement
+
+
+def _delegate_dynamic_assembly_violations(source: str) -> list[str]:
+    """Return prohibited ways a module can assemble the delegate class dynamically."""
+    tree = ast.parse(source)
+    class_name = "DelegateProgressRenderer"
+    violations: list[str] = []
+    mutating_helpers: set[str] = set()
+
+    def targets_delegate(node):
+        return (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == class_name
+        )
+
+    for node in tree.body:
+        if (
+            isinstance(node, ast.ClassDef)
+            and node.name == class_name
+            and (node.bases or node.keywords or node.decorator_list)
+        ):
+            violations.append("class customization")
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+            (
+                isinstance(item, (ast.Assign, ast.AnnAssign))
+                and any(
+                    targets_delegate(target)
+                    for target in (item.targets if isinstance(item, ast.Assign) else [item.target])
+                )
+            )
+            or (
+                isinstance(item, ast.Call)
+                and isinstance(item.func, ast.Name)
+                and item.func.id in {"setattr", "exec"}
+            )
+            for item in ast.walk(node)
+        ):
+            mutating_helpers.add(node.name)
+
+    for node in tree.body:
+        targets = (
+            node.targets
+            if isinstance(node, ast.Assign)
+            else [node.target]
+            if isinstance(node, ast.AnnAssign)
+            else []
+        )
+        if any(targets_delegate(target) for target in targets):
+            violations.append("post-definition assignment")
+        for item in ast.walk(node):
+            if isinstance(item, ast.Call) and isinstance(item.func, ast.Name):
+                if item.func.id == "exec":
+                    violations.append("exec")
+                elif (
+                    item.func.id == "setattr"
+                    and item.args
+                    and isinstance(item.args[0], ast.Name)
+                    and item.args[0].id == class_name
+                ):
+                    violations.append("setattr")
+                elif item.func.id in mutating_helpers and not isinstance(
+                    node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    violations.append("helper-driven mutation")
+    return violations
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "DelegateProgressRenderer.x = value",
+        "DelegateProgressRenderer.x: object = value",
+        "setattr(DelegateProgressRenderer, 'x', value)",
+        "exec('DelegateProgressRenderer.x = value')",
+        "def mutate():\n    setattr(DelegateProgressRenderer, 'x', value)\nmutate()",
+    ],
+)
+def test_delegate_dynamic_assembly_detector_rejects_post_definition_mutations(mutation):
+    source = f"class DelegateProgressRenderer:\n    pass\n{mutation}\n"
+    assert _delegate_dynamic_assembly_violations(source)
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "class DelegateProgressRenderer(Base):\n    pass",
+        "class DelegateProgressRenderer(metaclass=Meta):\n    pass",
+        "@decorate\nclass DelegateProgressRenderer:\n    pass",
+    ],
+)
+def test_delegate_dynamic_assembly_detector_rejects_customized_class_declarations(declaration):
+    assert _delegate_dynamic_assembly_violations(declaration)
+
+
+def test_architecture_delegate_has_no_post_definition_class_assembly():
+    source = DELEGATE_PATH.read_text(encoding="utf-8")
+    assert not _delegate_dynamic_assembly_violations(source)
 
 
 class Collaborator:
