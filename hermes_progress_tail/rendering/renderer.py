@@ -80,6 +80,10 @@ class ProgressRenderer:
         self.sessions: dict[str, SessionContext] = {}
         self.session_keys: dict[str, str] = {}
 
+    def replace_settings(self, settings: Settings) -> None:
+        self.settings = settings
+        self.delegate_renderer.settings = settings
+
     async def handle_event(self, event: ProgressEvent, force: bool = False) -> None:
         ctx = self.find_context(event.session_id, event.session_key)
         if ctx is None:

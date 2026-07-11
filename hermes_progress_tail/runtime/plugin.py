@@ -216,7 +216,7 @@ def _get_renderer() -> ProgressRenderer:
     if _renderer is None:
         _renderer = ProgressRenderer(settings)
     else:
-        _renderer.settings = settings
+        _renderer.replace_settings(settings)
     return _renderer
 
 
