@@ -535,6 +535,8 @@ def test_status_command_reports_footer_config(monkeypatch):
         "_load_runtime_settings",
         lambda: load_settings({"progress_tail": {"footer": {"density": "compact"}}}),
     )
+    monkeypatch.setattr(plugin._runtime, "renderer", None)
+    monkeypatch.setattr(plugin._runtime, "settings_loader", lambda: plugin._load_runtime_settings())
     monkeypatch.setattr(commands, "_latest_release_info", lambda: None)
 
     status = plugin._command("status")

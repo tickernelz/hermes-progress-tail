@@ -8,17 +8,26 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 from ..hooks.platform import _legacy_global_suppression_warnings
 from ..settings.config import find_retired_config_keys, find_unknown_config_keys
 from ..utils.redaction import redact_text
-from .config_runtime import _background_job_config_warnings
+from .config_runtime import _background_job_config_warnings, _load_runtime_config
 from .demo import _demo_command
 
 _GITHUB_LATEST_RELEASE_URL = (
     "https://api.github.com/repos/tickernelz/hermes-progress-tail/releases/latest"
 )
 _LATEST_RELEASE_CACHE: dict[str, object] = {"checked_at": 0.0, "info": None}
+_COMMAND_RUNTIME: Any = None
+_COMMAND_VERSION = ""
+
+
+def configure_command_runtime(runtime: Any, *, version: str) -> None:
+    global _COMMAND_RUNTIME, _COMMAND_VERSION
+    _COMMAND_RUNTIME = runtime
+    _COMMAND_VERSION = version
 
 
 def _latest_release_info(timeout: float = 1.5, *, refresh: bool = False) -> dict[str, str] | None:
@@ -294,16 +303,12 @@ def _update_command(args: str) -> str:
     explicit_ref = _validate_update_ref(str(parsed["ref"] or ""))
     if parsed["ref"] and not explicit_ref:
         return "Invalid update ref. Use a tag/branch/ref like vX.Y.Z."
-    from . import plugin as runtime_plugin
-
     latest = None if explicit_ref else _fresh_latest_release_info()
     ref = explicit_ref or str((latest or {}).get("tag_name") or "").strip()
     if not ref:
         return "Could not determine latest hermes-progress-tail release. Use --ref vX.Y.Z."
-    if not bool(parsed["force"]) and not _is_newer_version(runtime_plugin.VERSION, ref):
-        return (
-            f"Already up to date: v{runtime_plugin.VERSION}. Use --force with --ref to reinstall."
-        )
+    if not bool(parsed["force"]) and not _is_newer_version(_COMMAND_VERSION, ref):
+        return f"Already up to date: v{_COMMAND_VERSION}. Use --force with --ref to reinstall."
     profiles = parsed["profiles"] or None
     try:
         messages = _run_update_install(
@@ -315,7 +320,7 @@ def _update_command(args: str) -> str:
     except Exception as exc:
         return f"Update failed: {redact_text(str(exc))}"
     verb = "dry-run" if dry_run else "applied"
-    lines = [f"Update {verb}: v{runtime_plugin.VERSION} → {ref}"]
+    lines = [f"Update {verb}: v{_COMMAND_VERSION} → {ref}"]
     lines.extend(messages)
     if dry_run:
         lines.append("No files changed. Re-run with --apply to update.")
@@ -327,14 +332,13 @@ def _update_command(args: str) -> str:
 def _command(raw_args: str = "") -> str:
     raw = (raw_args or "").strip()
     args = raw.lower()
-    from . import plugin as runtime_plugin
 
     if args.startswith("config cleanup"):
         return _config_cleanup_command(raw[len("config cleanup") :].strip())
     if args.startswith("update"):
         return _update_command(raw[len("update") :].strip())
 
-    renderer = runtime_plugin._get_renderer()
+    renderer = _COMMAND_RUNTIME.get_renderer()
     if args in {"jobs", "jobs all"}:
         include_all = args == "jobs all"
         lines = [
@@ -377,7 +381,7 @@ def _command(raw_args: str = "") -> str:
         except Exception:
             command_menu_active = False
         settings = renderer.settings
-        runtime_config = runtime_plugin._load_runtime_config()
+        runtime_config = _load_runtime_config()
         display = (
             runtime_config.get("display") if isinstance(runtime_config.get("display"), dict) else {}
         )
@@ -388,13 +392,14 @@ def _command(raw_args: str = "") -> str:
         agent_config = (
             runtime_config.get("agent") if isinstance(runtime_config.get("agent"), dict) else {}
         )
-        capture_at = float(runtime_plugin._ASSISTANT_CAPTURE.get("updated_at") or 0.0)
+        assistant_capture = _COMMAND_RUNTIME.assistant_capture
+        capture_at = float(assistant_capture.get("updated_at") or 0.0)
         capture_when = (
             time.strftime("%H:%M:%S", time.localtime(capture_at)) if capture_at else "never"
         )
         plugin_state = "enabled" if "hermes-progress-tail" in enabled_plugins else "not listed"
         lines = [
-            f"hermes-progress-tail {runtime_plugin.VERSION}",
+            f"hermes-progress-tail {_COMMAND_VERSION}",
             f"plugin={plugin_state}",
             f"sessions={active}",
             f"agent.gateway_notify_interval={agent_config.get('gateway_notify_interval', '<default:180>')}",
@@ -402,7 +407,7 @@ def _command(raw_args: str = "") -> str:
             f"todo=sticky:{settings.todo.sticky} hide_tool_line:{settings.todo.hide_tool_line}",
             f"patch=detail:{settings.patch.detail} preview_chars:{settings.patch.preview_chars} max_files:{settings.patch.max_files}",
             f"assistant={'enabled' if settings.assistant.enabled else 'disabled'} max_lines={settings.assistant.max_lines} max_chars={settings.assistant.max_chars}",
-            f"assistant_capture={runtime_plugin._ASSISTANT_CAPTURE.get('status', 'never')} already_streamed={runtime_plugin._ASSISTANT_CAPTURE.get('already_streamed', False)} session={runtime_plugin._ASSISTANT_CAPTURE.get('session_id') or '-'} key_present={runtime_plugin._ASSISTANT_CAPTURE.get('session_key_present', False)} at={capture_when}",
+            f"assistant_capture={assistant_capture.get('status', 'never')} already_streamed={assistant_capture.get('already_streamed', False)} session={assistant_capture.get('session_id') or '-'} key_present={assistant_capture.get('session_key_present', False)} at={capture_when}",
             f"reasoning={'enabled' if settings.reasoning.enabled else 'disabled'} max_lines={settings.reasoning.max_lines} max_chars={settings.reasoning.max_chars}",
             f"reasoning_effort={_config_reasoning_effort(runtime_config)}",
             "reasoning_sources=structured_reasoning,inline_think,provider_delimiters",
@@ -450,7 +455,7 @@ def _command(raw_args: str = "") -> str:
             lines.extend(_legacy_global_suppression_warnings(runtime_config))
         latest_release = None if args == "doctor" else _latest_release_info()
         return _status_markdown(
-            version=runtime_plugin.VERSION,
+            version=_COMMAND_VERSION,
             runtime_rows=lines,
             plugin_state=plugin_state,
             active_sessions=active,

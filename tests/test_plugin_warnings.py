@@ -1,10 +1,18 @@
 import logging
 
+import pytest
 import yaml
 
 import hermes_progress_tail.plugin as plugin
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.runtime import commands
+
+
+@pytest.fixture(autouse=True)
+def _configured_command_runtime(monkeypatch):
+    monkeypatch.setattr(plugin._runtime, "renderer", None)
+    monkeypatch.setattr(plugin._runtime, "settings_loader", lambda: plugin._load_runtime_settings())
+    monkeypatch.setattr(commands, "_load_runtime_config", lambda: plugin._load_runtime_config())
 
 
 class Ctx:

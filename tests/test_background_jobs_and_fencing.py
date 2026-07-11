@@ -516,20 +516,21 @@ def test_process_failure_notifications_are_compacted_not_dumped():
 
 
 def test_compression_status_is_suppressed_when_progress_tail_captures_it(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
 
     captured = []
-    monkeypatch.setattr(
-        plugin,
-        "on_compression_status_from_agent",
-        lambda agent, text: captured.append(text) or True,
+    callbacks = replace(
+        current_hook_callbacks(),
+        on_compression_status=lambda agent, text: captured.append(text) or True,
     )
 
     class FakeAgent:
         def _emit_status(self, text):
             return f"native:{text}"
 
-    install_compression_status_monkeypatch(FakeAgent)
+    install_compression_status_monkeypatch(FakeAgent, callbacks=callbacks)
 
     try:
         agent = FakeAgent()
@@ -546,20 +547,21 @@ def test_compression_status_is_suppressed_when_progress_tail_captures_it(monkeyp
 
 
 def test_preflight_compression_status_is_suppressed_when_progress_tail_captures_it(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
 
     captured = []
-    monkeypatch.setattr(
-        plugin,
-        "on_compression_status_from_agent",
-        lambda agent, text: captured.append(text) or True,
+    callbacks = replace(
+        current_hook_callbacks(),
+        on_compression_status=lambda agent, text: captured.append(text) or True,
     )
 
     class FakeAgent:
         def _emit_status(self, text):
             return f"native:{text}"
 
-    install_compression_status_monkeypatch(FakeAgent)
+    install_compression_status_monkeypatch(FakeAgent, callbacks=callbacks)
 
     try:
         agent = FakeAgent()

@@ -47,7 +47,9 @@ class Gateway:
 
 
 def test_inline_think_wrapper_fails_open_when_capture_schedule_fails(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
     from hermes_progress_tail.monkeypatches import _wrap_stream_delta_callback
 
     class Agent:
@@ -63,13 +65,16 @@ def test_inline_think_wrapper_fails_open_when_capture_schedule_fails(monkeypatch
             return ctx
 
     seen = []
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
-    monkeypatch.setattr(
-        plugin,
-        "on_reasoning_delta_from_agent",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("schedule failed")),
+    callbacks = replace(
+        current_hook_callbacks(),
+        reasoning_enabled=lambda agent: True,
+        on_reasoning_delta=lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("schedule failed")
+        ),
     )
-    wrapped = _wrap_stream_delta_callback(Agent(), lambda text: seen.append(text))
+    wrapped = _wrap_stream_delta_callback(
+        Agent(), lambda text: seen.append(text), callbacks=callbacks
+    )
 
     wrapped("<think>hidden</think> visible")
 
@@ -90,7 +95,9 @@ def test_inline_think_capture_fails_open_after_large_unterminated_block():
 
 
 def test_inline_think_wrapper_fails_open_with_split_opening_tag_when_schedule_fails(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
     from hermes_progress_tail.monkeypatches import _wrap_stream_delta_callback
 
     class Agent:
@@ -107,13 +114,16 @@ def test_inline_think_wrapper_fails_open_with_split_opening_tag_when_schedule_fa
 
     seen = []
     agent = Agent()
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
-    monkeypatch.setattr(
-        plugin,
-        "on_reasoning_delta_from_agent",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("schedule failed")),
+    callbacks = replace(
+        current_hook_callbacks(),
+        reasoning_enabled=lambda agent: True,
+        on_reasoning_delta=lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("schedule failed")
+        ),
     )
-    wrapped = _wrap_stream_delta_callback(agent, lambda text: seen.append(text))
+    wrapped = _wrap_stream_delta_callback(
+        agent, lambda text: seen.append(text), callbacks=callbacks
+    )
 
     wrapped("visible <th")
     wrapped("ink>hidden visible")
@@ -124,7 +134,9 @@ def test_inline_think_wrapper_fails_open_with_split_opening_tag_when_schedule_fa
 def test_inline_think_wrapper_fails_open_with_split_opening_tag_when_context_disappears(
     monkeypatch,
 ):
-    import hermes_progress_tail.plugin as plugin
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
     from hermes_progress_tail.monkeypatches import _wrap_stream_delta_callback
 
     class Agent:
@@ -144,8 +156,13 @@ def test_inline_think_wrapper_fails_open_with_split_opening_tag_when_context_dis
 
     renderer = Renderer()
     seen = []
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: renderer)
-    wrapped = _wrap_stream_delta_callback(Agent(), lambda text: seen.append(text))
+    callbacks = replace(
+        current_hook_callbacks(),
+        reasoning_enabled=lambda agent: renderer.find_context(agent.session_id) is not None,
+    )
+    wrapped = _wrap_stream_delta_callback(
+        Agent(), lambda text: seen.append(text), callbacks=callbacks
+    )
 
     wrapped("visible <th")
     renderer.enabled = False

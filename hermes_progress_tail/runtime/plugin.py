@@ -5,8 +5,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from ..hooks.contracts import HookCallbacks, configure_hook_callbacks
-from ..hooks.monkeypatches import install_monkeypatches
+from ..hooks.contracts import configure_hook_callbacks
+from ..hooks.monkeypatches import install_monkeypatches, install_monkeypatches_report
 from ..models.state import SessionContext
 from ..rendering.renderer import ProgressRenderer
 from ..settings.config import load_settings
@@ -30,7 +30,7 @@ from .agent_events import (
     on_gateway_stop_from_runner,
     on_reasoning_delta_from_agent,
 )
-from .commands import _command
+from .commands import _command, configure_command_runtime
 from .config_runtime import (
     _assistant_tail_enabled,
     _background_job_config_warnings,
@@ -39,6 +39,7 @@ from .config_runtime import (
     _load_runtime_settings,
     _progress_tail_enabled,
 )
+from .container import PluginRuntime
 from .context import (
     _adapter_for,
     _binding_is_stale_for_entry,
@@ -187,6 +188,7 @@ __all__ = [
     "_topic_recovered_source",
     "_update_environment_from_agent",
     "_update_environment_from_terminal",
+    "install_monkeypatches",
     "on_assistant_progress_from_agent",
     "on_compression_lifecycle_from_agent",
     "on_compression_status_from_agent",
@@ -199,25 +201,18 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-_renderer: ProgressRenderer | None = None
 VERSION = "0.2.04"
-_ASSISTANT_CAPTURE: dict[str, Any] = {
-    "status": "never",
-    "session_id": "",
-    "session_key_present": False,
-    "text_preview": "",
-    "already_streamed": False,
-    "updated_at": 0.0,
-}
+_runtime = PluginRuntime()
+_renderer: ProgressRenderer | None = _runtime.renderer
+_ASSISTANT_CAPTURE: dict[str, Any] = _runtime.assistant_capture
 
 
 def _get_renderer() -> ProgressRenderer:
     global _renderer
-    settings = _load_runtime_settings()
-    if _renderer is None:
-        _renderer = ProgressRenderer(settings)
-    else:
-        _renderer.replace_settings(settings)
+    if _renderer is not _runtime.renderer:
+        _runtime.renderer = _renderer
+    _runtime.settings_loader = _load_runtime_settings
+    _renderer = _runtime.get_renderer()
     return _renderer
 
 
@@ -271,6 +266,9 @@ def _register_progress_tail_commands(ctx: Any) -> None:
 
 
 def register(ctx):
+    callbacks = _runtime.callbacks()
+    configure_hook_callbacks(callbacks)
+    configure_command_runtime(_runtime, version=VERSION)
     runtime_config = _load_runtime_config()
     settings = load_settings(runtime_config)
     logger.info(
@@ -291,8 +289,11 @@ def register(ctx):
         settings.telegram.rich_messages,
         settings.cleanup.auto_delete,
     )
-    monkeypatch_ok = install_monkeypatches()
-    logger.info("hermes-progress-tail plugin hooks registered: monkeypatches=%s", monkeypatch_ok)
+    report = install_monkeypatches_report(callbacks)
+    _runtime.set_patch_report(report)
+    logger.info(
+        "hermes-progress-tail plugin hooks registered: monkeypatches=%s", report.any_installed
+    )
     ctx.register_hook("pre_gateway_dispatch", _on_pre_gateway_dispatch)
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_hook("post_tool_call", _on_post_tool_call)
@@ -302,38 +303,5 @@ def register(ctx):
     _register_progress_tail_commands(ctx)
 
 
-def _runtime_reasoning_enabled(agent: Any) -> bool:
-    if _should_suppress_agent_progress(agent):
-        return False
-    renderer = _get_renderer()
-    ctx = renderer.find_context(_agent_session_id(agent), _agent_session_key(agent))
-    return bool(ctx is not None and ctx.reasoning_enabled and renderer.settings.reasoning.enabled)
-
-
-def _runtime_telegram_settings() -> Any:
-    return _get_renderer().settings.telegram
-
-
-configure_hook_callbacks(
-    HookCallbacks(
-        on_reasoning_delta=lambda *args, **kwargs: on_reasoning_delta_from_agent(*args, **kwargs),
-        on_assistant_progress=lambda *args, **kwargs: on_assistant_progress_from_agent(
-            *args, **kwargs
-        ),
-        on_delegate_progress=lambda *args, **kwargs: on_delegate_progress_from_agent(
-            *args, **kwargs
-        ),
-        on_compression_status=lambda *args, **kwargs: on_compression_status_from_agent(
-            *args, **kwargs
-        ),
-        on_compression_lifecycle=lambda *args, **kwargs: on_compression_lifecycle_from_agent(
-            *args, **kwargs
-        ),
-        register_adapter_context=lambda *args, **kwargs: register_context_from_adapter_event(
-            *args, **kwargs
-        ),
-        on_gateway_stop=lambda *args, **kwargs: on_gateway_stop_from_runner(*args, **kwargs),
-        reasoning_enabled=_runtime_reasoning_enabled,
-        telegram_settings=_runtime_telegram_settings,
-    )
-)
+configure_hook_callbacks(_runtime.callbacks())
+configure_command_runtime(_runtime, version=VERSION)

@@ -14,10 +14,12 @@ def _renderer(*sessions):
 
 
 def _patch_runtime(monkeypatch, renderer, config=None):
-    from hermes_progress_tail.runtime import plugin
-
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: renderer)
-    monkeypatch.setattr(plugin, "_load_runtime_config", lambda: config or {})
+    runtime = SimpleNamespace(
+        get_renderer=lambda: renderer,
+        assistant_capture=commands._COMMAND_RUNTIME.assistant_capture,
+    )
+    monkeypatch.setattr(commands, "_COMMAND_RUNTIME", runtime)
+    monkeypatch.setattr(commands, "_load_runtime_config", lambda: config or {})
     monkeypatch.setattr(commands, "_latest_release_info", lambda: None)
 
 

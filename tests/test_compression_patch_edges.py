@@ -79,7 +79,9 @@ def test_default_import_absence(monkeypatch):
 
 @pytest.mark.parametrize("callback_result", [False, RuntimeError("capture")])
 def test_status_false_or_exception_delegates(monkeypatch, callback_result):
-    import hermes_progress_tail.runtime.plugin as plugin
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
 
     calls = []
 
@@ -93,15 +95,17 @@ def test_status_false_or_exception_delegates(monkeypatch, callback_result):
             raise callback_result
         return callback_result
 
-    monkeypatch.setattr(plugin, "on_compression_status_from_agent", callback)
-    assert compression.install_compression_status_monkeypatch(Agent)
+    callbacks = replace(current_hook_callbacks(), on_compression_status=callback)
+    assert compression.install_compression_status_monkeypatch(Agent, callbacks=callbacks)
     assert Agent()._emit_status("Compacting context", flag=1) == "native"
     assert calls == [("Compacting context", 1)]
     assert compression.uninstall_compression_status_monkeypatch(Agent)
 
 
 def test_lifecycle_callback_exceptions_and_native_failure(monkeypatch):
-    import hermes_progress_tail.runtime.plugin as plugin
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
 
     phases = []
 
@@ -109,7 +113,7 @@ def test_lifecycle_callback_exceptions_and_native_failure(monkeypatch):
         phases.append(data["phase"])
         raise RuntimeError("callback")
 
-    monkeypatch.setattr(plugin, "on_compression_lifecycle_from_agent", callback)
+    callbacks = replace(current_hook_callbacks(), on_compression_lifecycle=callback)
 
     class Agent:
         session_id = "old"
@@ -117,7 +121,7 @@ def test_lifecycle_callback_exceptions_and_native_failure(monkeypatch):
         def _compress_context(self, messages, system_message):
             raise ValueError("native")
 
-    assert compression.install_compression_lifecycle_monkeypatch(Agent)
+    assert compression.install_compression_lifecycle_monkeypatch(Agent, callbacks=callbacks)
     with pytest.raises(ValueError, match="native"):
         Agent()._compress_context([], "system")
     assert phases == ["started", "failed"]
@@ -125,7 +129,9 @@ def test_lifecycle_callback_exceptions_and_native_failure(monkeypatch):
 
 
 def test_completed_callback_exception_preserves_native_result(monkeypatch):
-    import hermes_progress_tail.runtime.plugin as plugin
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
 
     phases = []
     native = object()
@@ -135,24 +141,27 @@ def test_completed_callback_exception_preserves_native_result(monkeypatch):
         if data["phase"] == "completed":
             raise RuntimeError("completed callback")
 
-    monkeypatch.setattr(plugin, "on_compression_lifecycle_from_agent", callback)
+    callbacks = replace(current_hook_callbacks(), on_compression_lifecycle=callback)
 
     class Agent:
         def _compress_context(self, messages, system_message):
             return native
 
-    assert compression.install_compression_lifecycle_monkeypatch(Agent)
+    assert compression.install_compression_lifecycle_monkeypatch(Agent, callbacks=callbacks)
     assert Agent()._compress_context([], "system") is native
     assert phases == ["started", "completed"]
     assert compression.uninstall_compression_lifecycle_monkeypatch(Agent)
 
 
 def test_lifecycle_normalizes_malformed_status_and_counts(monkeypatch):
-    import hermes_progress_tail.runtime.plugin as plugin
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
 
     events = []
-    monkeypatch.setattr(
-        plugin, "on_compression_lifecycle_from_agent", lambda _agent, **data: events.append(data)
+    callbacks = replace(
+        current_hook_callbacks(),
+        on_compression_lifecycle=lambda _agent, **data: events.append(data),
     )
 
     class Compressor:
@@ -173,7 +182,7 @@ def test_lifecycle_normalizes_malformed_status_and_counts(monkeypatch):
             self.session_id = "new"
             return self.native
 
-    assert compression.install_compression_lifecycle_monkeypatch(Agent)
+    assert compression.install_compression_lifecycle_monkeypatch(Agent, callbacks=callbacks)
     result = Agent()._compress_context(iter([1]), "system", approx_tokens="bad")
     assert result is Agent.native
     completed = events[-1]

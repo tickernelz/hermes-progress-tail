@@ -42,12 +42,14 @@ def run(awaitable):
 
 
 def test_settings_failure_default_and_adapter_overrides(monkeypatch):
-    from hermes_progress_tail.runtime import plugin as runtime_plugin
+    from dataclasses import replace
 
-    monkeypatch.setattr(
-        runtime_plugin, "_get_renderer", lambda: (_ for _ in ()).throw(RuntimeError())
+    from hermes_progress_tail.hooks.contracts import current_hook_callbacks
+
+    callbacks = replace(
+        current_hook_callbacks(), telegram_settings=lambda: (_ for _ in ()).throw(RuntimeError())
     )
-    assert telegram._runtime_telegram_settings() is None
+    assert telegram._runtime_telegram_settings(callbacks) is None
     adapter = SimpleNamespace(_hermes_progress_tail_rich_disabled=True)
     adapter._hermes_progress_tail_rich_messages = True
     assert telegram._telegram_rich_enabled(adapter) is True
