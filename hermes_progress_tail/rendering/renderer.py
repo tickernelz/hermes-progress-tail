@@ -7,7 +7,6 @@ from typing import Any
 
 from ..models.state import (
     AssistantEvent,
-    AssistantLine,
     BackgroundJob,
     BackgroundJobEvent,
     DelegateEvent,
@@ -31,19 +30,14 @@ from .delivery import (
     _fit_message,
     _message_limit,
 )
+from .event_reducer import EventReducer
 from .finalization import (
     finalize_progress_message,
     has_background_jobs,
     reset_turn,
     should_flush_before_reset,
 )
-from .reasoning import (
-    normalize_reasoning_text,
-    render_reasoning_tail,
-    split_reasoning_blocks,
-    split_reasoning_stream_suffix,
-    trim_reasoning_fenced_tail,
-)
+from .reasoning import normalize_reasoning_text, render_reasoning_tail
 from .sections import (
     assistant_tail,
     compose_content,
@@ -80,7 +74,15 @@ class ProgressRenderer:
                 settings, self.delivery.cancel_delete, self.delivery.cancel_delayed_flush
             )
         )
-        self.reducer = reducer
+        self.reducer = (
+            reducer
+            if reducer is not None
+            else EventReducer(
+                settings,
+                self.delegate_renderer,
+                schedule_delegate_cleanup=self._schedule_delegate_cleanup,
+            )
+        )
         self.footer_info_provider = footer_info_provider
 
     @property
@@ -238,17 +240,11 @@ class ProgressRenderer:
                     pass
                 else:
                     return
-            if isinstance(event, ToolEvent) and not ctx.tools_enabled:
+            if isinstance(event, ToolEvent) and not self.reducer.accepts(ctx, event):
                 return
             if not isinstance(event, AssistantEvent):
                 self._clear_transient_assistant(ctx)
-            if isinstance(event, AssistantEvent) and not ctx.assistant_enabled:
-                return
-            if isinstance(event, DelegateEvent) and not ctx.delegates_enabled:
-                return
-            if isinstance(event, BackgroundJobEvent) and not self._background_jobs_enabled(ctx):
-                return
-            if isinstance(event, ReasoningEvent) and not ctx.reasoning_enabled:
+            if not self.reducer.accepts(ctx, event):
                 return
             ctx.last_event_at = time.monotonic()
             ctx.total_events += 1
@@ -298,7 +294,7 @@ class ProgressRenderer:
                 self._apply_background_job_event(ctx, event)
                 force = True
             elif isinstance(event, AssistantEvent):
-                pending = self._append_assistant(ctx, event)
+                pending = self.reducer.reduce(ctx, event).pending_chars
                 if (
                     not force
                     and ctx.message_id
@@ -308,7 +304,7 @@ class ProgressRenderer:
                 if not force and pending < self.settings.assistant.min_update_chars:
                     return
             else:
-                pending = self._append_reasoning(ctx, event)
+                pending = self.reducer.reduce(ctx, event).pending_chars
                 if (
                     not force
                     and ctx.message_id
@@ -382,64 +378,13 @@ class ProgressRenderer:
             self.purge(session_id=ctx.session_id)
 
     def _append_assistant(self, ctx: SessionContext, event: AssistantEvent) -> int:
-        text = str(event.text or "").strip()
-        if not text:
-            return 0
-        previous = ctx.assistant_latest_text
-        replace_latest = bool(previous and (text.startswith(previous) or previous.startswith(text)))
-        if ctx.assistant_transient and not event.transient:
-            ctx.assistant_lines.clear()
-            previous = ""
-            replace_latest = False
-            ctx.assistant_transient = False
-        if replace_latest and ctx.assistant_lines:
-            ctx.assistant_lines[-1] = AssistantLine(text=text, created_at=event.created_at)
-        else:
-            ctx.assistant_lines.append(AssistantLine(text=text, created_at=event.created_at))
-        max_lines = max(1, self.settings.assistant.max_lines)
-        if ctx.assistant_lines.maxlen != max_lines:
-            ctx.assistant_lines = type(ctx.assistant_lines)(
-                list(ctx.assistant_lines)[-max_lines:], maxlen=max_lines
-            )
-        delta_chars = len(text) - len(previous) if replace_latest else len(text)
-        ctx.assistant_pending_chars += max(1, delta_chars)
-        ctx.assistant_latest_text = text
-        ctx.last_assistant_chars = len(text)
-        ctx.last_assistant_at = event.created_at
-        ctx.assistant_transient = bool(event.transient)
-        return ctx.assistant_pending_chars
+        return self.reducer.append_assistant(ctx, event)
 
     def _clear_transient_assistant(self, ctx: SessionContext) -> None:
-        if not ctx.assistant_transient:
-            return
-        ctx.assistant_lines.clear()
-        ctx.assistant_latest_text = ""
-        ctx.assistant_pending_chars = 0
-        ctx.last_assistant_chars = 0
-        ctx.last_assistant_at = 0.0
-        ctx.assistant_transient = False
+        self.reducer.clear_transient_assistant(ctx)
 
     def _append_reasoning(self, ctx: SessionContext, event: ReasoningEvent) -> int:
-        if not event.text:
-            return 0
-        merged = ctx.reasoning_text + str(event.text)
-        max_chars = self.settings.reasoning.max_chars
-        buffer_limit = max(0, max_chars * 4)
-        if len(merged) > buffer_limit:
-            core, stream_suffix = split_reasoning_stream_suffix(
-                merged,
-                max_suffix_chars=max(0, buffer_limit - 1),
-            )
-            normalized = self._normalize_reasoning(core)
-            trim_limit = buffer_limit - len(stream_suffix)
-            trimmed = self._trim_reasoning_buffer(normalized, trim_limit) if trim_limit > 0 else ""
-            merged = trimmed + stream_suffix
-        ctx.reasoning_text = merged
-        ctx.reasoning_pending_chars += len(str(event.text))
-        ctx.last_reasoning_source = event.source or "structured_reasoning"
-        ctx.last_reasoning_chars = len(str(event.text))
-        ctx.last_reasoning_at = event.created_at
-        return ctx.reasoning_pending_chars
+        return self.reducer.append_reasoning(ctx, event)
 
     def _content(self, ctx: SessionContext) -> str:
         return compose_content(self, ctx)
@@ -538,26 +483,7 @@ class ProgressRenderer:
 
     @staticmethod
     def _trim_reasoning_buffer(text: str, max_chars: int) -> str:
-        fenced_tail = trim_reasoning_fenced_tail(text, max_chars)
-        if fenced_tail is not None:
-            return fenced_tail
-        blocks = split_reasoning_blocks(text)
-        if blocks and blocks[-1].heading:
-            latest = blocks[-1]
-            heading = latest.heading
-            if latest.heading_style == "bold":
-                heading = f"**{heading}**"
-            elif latest.heading_style == "colon":
-                heading = f"{heading}:"
-            elif latest.heading_style == "markdown":
-                heading = f"## {heading}"
-            latest_block = (heading + "\n" + latest.body).strip()
-            if len(latest_block) <= max_chars:
-                return latest_block
-            body_budget = max_chars - len(heading) - 1
-            if body_budget > 0:
-                return heading + "\n" + latest.body[-body_budget:].lstrip()
-        return text[-max_chars:].lstrip()
+        return EventReducer.trim_reasoning_buffer(text, max_chars)
 
     @staticmethod
     def _reset_turn(ctx: SessionContext) -> None:
