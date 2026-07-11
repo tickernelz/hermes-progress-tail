@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import runpy
+import sys
 from pathlib import Path
 
 import pytest
@@ -308,6 +309,9 @@ def test_compatibility_module_main_forwards_fully_patched_entrypoint(monkeypatch
         return 23
 
     monkeypatch.setattr(interactive, "main", fake_main)
+    # Match a fresh ``python -m`` invocation even when collection imported this
+    # wrapper earlier; otherwise runpy emits an order-dependent warning.
+    monkeypatch.delitem(sys.modules, "hermes_progress_tail.installer", raising=False)
     with pytest.raises(SystemExit) as raised:
         runpy.run_module("hermes_progress_tail.installer", run_name="__main__")
 
