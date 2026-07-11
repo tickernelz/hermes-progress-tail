@@ -67,7 +67,7 @@ def on_reasoning_delta_from_agent(
     session_id = _agent_session_id(agent)
     session_key = _agent_session_key(agent)
     ctx = _context_for_non_background_thread(renderer, session_id, session_key)
-    if ctx is None or not ctx.reasoning_enabled:
+    if ctx is None or not getattr(ctx, "routing", ctx).reasoning_enabled:
         return
     _update_environment_from_agent(ctx, agent)
     _schedule_render(
@@ -88,7 +88,10 @@ def on_compression_status_from_agent(agent: Any, text: str) -> bool:
     ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None:
         return False
-    if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
+    if (
+        not getattr(ctx, "routing", ctx).assistant_enabled
+        or not renderer.settings.assistant.enabled
+    ):
         return False
     _update_environment_from_agent(ctx, agent)
     return _schedule_render(
@@ -127,7 +130,11 @@ def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> 
     ctx = _context_for_non_background_thread(
         renderer, new_session_id or old_session_id, session_key
     )
-    if ctx is None or not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
+    if (
+        ctx is None
+        or not getattr(ctx, "routing", ctx).assistant_enabled
+        or not renderer.settings.assistant.enabled
+    ):
         return False
     _update_environment_from_agent(ctx, agent)
     if phase == "started":
@@ -207,7 +214,10 @@ def on_assistant_progress_from_agent(
             already_streamed=already_streamed,
         )
         return False
-    if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
+    if (
+        not getattr(ctx, "routing", ctx).assistant_enabled
+        or not renderer.settings.assistant.enabled
+    ):
         _record_assistant_capture(
             "disabled",
             session_id=ctx.session_id,
@@ -253,7 +263,7 @@ def on_delegate_progress_from_agent(
     session_id = _agent_session_id(parent_agent)
     session_key = _agent_session_key(parent_agent)
     ctx = _context_for_non_background_thread(renderer, session_id, session_key)
-    if ctx is None or not ctx.delegates_enabled:
+    if ctx is None or not getattr(ctx, "routing", ctx).delegates_enabled:
         return
     subagent_id = str(kwargs.get("subagent_id") or f"task-{kwargs.get('task_index', 0)}")
     event = DelegateEvent(

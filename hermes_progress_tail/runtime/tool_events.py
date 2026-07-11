@@ -378,7 +378,7 @@ def _on_pre_tool_call(
     ctx = _context_for_non_background_thread(renderer, lookup_session_id, lookup_session_key)
     if ctx is None:
         return None
-    if not ctx.tools_enabled:
+    if not getattr(ctx, "routing", ctx).tools_enabled:
         logger.debug(
             "hermes-progress-tail ignored tool event because tools disabled: tool=%s", tool_name
         )
@@ -399,7 +399,7 @@ def _on_pre_tool_call(
         tool_name,
         args or {},
         preview=preview,
-        preview_length=ctx.preview_length,
+        preview_length=getattr(ctx, "routing", ctx).preview_length,
         patch_detail=renderer.settings.patch.detail,
         patch_preview_chars=renderer.settings.patch.preview_chars,
         patch_max_files=renderer.settings.patch.max_files,
@@ -446,7 +446,7 @@ def _on_post_tool_call(
     ctx = _context_for_non_background_thread(renderer, lookup_session_id, lookup_session_key)
     if ctx is None:
         return None
-    if not ctx.tools_enabled:
+    if not getattr(ctx, "routing", ctx).tools_enabled:
         logger.debug(
             "hermes-progress-tail ignored post-tool event because tools disabled: tool=%s",
             tool_name,
@@ -469,7 +469,11 @@ def _on_post_tool_call(
     result_obj = _json_obj(result)
     if tool_name == "terminal" and _terminal_background_requested(args):
         process_id = str(result_obj.get("session_id") or "")
-        if process_id and renderer.settings.background_jobs.enabled and ctx.background_jobs_enabled:
+        if (
+            process_id
+            and renderer.settings.background_jobs.enabled
+            and getattr(ctx, "routing", ctx).background_jobs_enabled
+        ):
             _suppress_native_background_notify(process_id)
             _schedule_render(
                 ctx,
@@ -494,7 +498,7 @@ def _on_post_tool_call(
     base = format_tool_line(
         tool_name,
         args or {},
-        preview_length=ctx.preview_length,
+        preview_length=getattr(ctx, "routing", ctx).preview_length,
         patch_detail=renderer.settings.patch.detail,
         patch_preview_chars=renderer.settings.patch.preview_chars,
         patch_max_files=renderer.settings.patch.max_files,

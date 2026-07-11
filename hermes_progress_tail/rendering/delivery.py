@@ -43,7 +43,7 @@ class RendererDelivery:
         if (
             not force
             and ctx.delivery.message_id
-            and now - ctx.delivery.last_render_at < ctx.edit_interval
+            and now - ctx.delivery.last_render_at < ctx.routing.edit_interval
         ):
             return
         if ctx.delivery.message_id and now < ctx.delivery.edit_backoff_until and not ignore_backoff:
@@ -149,7 +149,7 @@ class RendererDelivery:
             ctx.delivery.disabled = True
 
     async def downgrade_to_snapshot(self, ctx: SessionContext, error: str, state: str) -> None:
-        ctx.strategy = "snapshot"
+        ctx.routing.strategy = "snapshot"
         ctx.delivery.can_edit = False
         ctx.delivery.edit_state = state
         ctx.diagnostics.downgrade_reason = error
@@ -173,7 +173,7 @@ class RendererDelivery:
                 async with ctx.lock:
                     if (
                         ctx.delivery.disabled
-                        or ctx.strategy != "live_tail"
+                        or ctx.routing.strategy != "live_tail"
                         or not self._content(ctx)
                     ):
                         return

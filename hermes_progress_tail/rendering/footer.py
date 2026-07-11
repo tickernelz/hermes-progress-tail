@@ -185,7 +185,7 @@ def _profile_label(env: EnvironmentSnapshot) -> str:
 
 
 def _strategy_label(ctx: SessionContext, env: EnvironmentSnapshot) -> str:
-    return str(env.strategy or ctx.strategy or "").strip()
+    return str(env.strategy or ctx.routing.strategy or "").strip()
 
 
 def _git_label(env: EnvironmentSnapshot) -> str:

@@ -50,15 +50,17 @@ class EventReducer:
 
     def accepts(self, ctx: SessionContext, event: ProgressEvent) -> bool:
         if isinstance(event, ToolEvent):
-            return bool(ctx.tools_enabled)
+            return bool(ctx.routing.tools_enabled)
         if isinstance(event, AssistantEvent):
-            return bool(ctx.assistant_enabled)
+            return bool(ctx.routing.assistant_enabled)
         if isinstance(event, ReasoningEvent):
-            return bool(ctx.reasoning_enabled)
+            return bool(ctx.routing.reasoning_enabled)
         if isinstance(event, DelegateEvent):
-            return bool(ctx.delegates_enabled)
+            return bool(ctx.routing.delegates_enabled)
         if isinstance(event, BackgroundJobEvent):
-            return bool(self.settings.background_jobs.enabled and ctx.background_jobs_enabled)
+            return bool(
+                self.settings.background_jobs.enabled and ctx.routing.background_jobs_enabled
+            )
         return False
 
     def reduce(

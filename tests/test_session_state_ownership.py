@@ -11,6 +11,20 @@ import pytest
 from hermes_progress_tail.models import state
 
 MIGRATED = {
+    "strategy": "strategy",
+    "lines": "lines",
+    "preview_length": "preview_length",
+    "edit_interval": "edit_interval",
+    "tools_enabled": "tools_enabled",
+    "assistant_enabled": "assistant_enabled",
+    "reasoning_enabled": "reasoning_enabled",
+    "delegates_enabled": "delegates_enabled",
+    "background_jobs_enabled": "background_jobs_enabled",
+    "timestamp": "timestamp",
+    "timestamp_format": "timestamp_format",
+    "agent_label": "agent_label",
+    "chat_type": "chat_type",
+    "source_message_id": "source_message_id",
     "message_id": "message_id",
     "can_edit": "can_edit",
     "disabled": "disabled",
@@ -65,10 +79,7 @@ FIELD_NAMES = [
     "thread_id",
     "adapter",
     "loop",
-    "strategy",
-    "lines",
-    "preview_length",
-    "edit_interval",
+    "routing",
     "generation",
     "owner_thread_id",
     "owner_thread_name",
@@ -80,16 +91,6 @@ FIELD_NAMES = [
     "assistant",
     "reasoning",
     "diagnostics",
-    "tools_enabled",
-    "assistant_enabled",
-    "reasoning_enabled",
-    "delegates_enabled",
-    "background_jobs_enabled",
-    "timestamp",
-    "timestamp_format",
-    "agent_label",
-    "chat_type",
-    "source_message_id",
     "lock",
     "environment",
 ]
@@ -170,6 +171,7 @@ LEGACY = [
 
 
 def prerequisites():
+    assert hasattr(state, "RoutingState"), "RoutingState owner is missing"
     assert hasattr(state, "DeliveryState"), "DeliveryState owner is missing"
     assert hasattr(state, "DiagnosticsState"), "DiagnosticsState owner is missing"
     assert hasattr(state, "ToolState"), "ToolState owner is missing"
@@ -192,6 +194,7 @@ def test_exact_canonical_fields_annotations_and_factories():
     expected = {f.name: f.type for f in fields(cls)}
     assert cls.__annotations__ == expected
     by_name = {f.name: f for f in fields(cls)}
+    assert by_name["routing"].default_factory is state.RoutingState
     assert by_name["delivery"].default_factory is state.DeliveryState
     assert by_name["diagnostics"].default_factory is state.DiagnosticsState
     assert by_name["tool"].default_factory is state.ToolState
@@ -227,6 +230,23 @@ def test_all_compatibility_properties_delegate_without_storage():
     assert all(isinstance(getattr(cls, name, None), property) for name in MIGRATED)
     for index, (flat, nested) in enumerate(MIGRATED.items(), 1):
         if flat in {
+            "strategy",
+            "lines",
+            "preview_length",
+            "edit_interval",
+            "tools_enabled",
+            "assistant_enabled",
+            "reasoning_enabled",
+            "delegates_enabled",
+            "background_jobs_enabled",
+            "timestamp",
+            "timestamp_format",
+            "agent_label",
+            "chat_type",
+            "source_message_id",
+        }:
+            owner = ctx.routing
+        elif flat in {
             "message_id",
             "can_edit",
             "disabled",
@@ -289,6 +309,8 @@ def test_owner_defaults_types_identity_and_conflicts():
         and first.assistant.lines is not second.assistant.lines
     )
     assert first.reasoning is not second.reasoning
+    assert isinstance(first.routing, state.RoutingState)
+    assert first.routing is not second.routing
     assert isinstance(first.delivery, state.DeliveryState)
     assert isinstance(first.diagnostics, state.DiagnosticsState)
     assert first.delivery is not second.delivery
@@ -369,6 +391,7 @@ def test_explicit_owner_construction_preserves_identity():
     background = state.BackgroundState()
     delivery = state.DeliveryState(message_id="owned")
     diagnostics = state.DiagnosticsState(last_error="owned")
+    routing = state.RoutingState(strategy="owned")
     third = state.SessionContext(
         "s",
         "k",
@@ -381,6 +404,7 @@ def test_explicit_owner_construction_preserves_identity():
         background=background,
         delivery=delivery,
         diagnostics=diagnostics,
+        routing=routing,
     )
     assert first.assistant is assistant
     assert second.reasoning is reasoning
@@ -388,6 +412,7 @@ def test_explicit_owner_construction_preserves_identity():
     assert third.background is background
     assert third.delivery is delivery
     assert third.diagnostics is diagnostics
+    assert third.routing is routing
 
 
 def test_delivery_diagnostics_exact_contract_defaults_and_import_order():

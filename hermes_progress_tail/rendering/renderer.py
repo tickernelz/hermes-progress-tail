@@ -166,7 +166,7 @@ class ProgressRenderer:
         if ctx is None:
             return
         async with ctx.lock:
-            if ctx.delivery.disabled or ctx.strategy == "off":
+            if ctx.delivery.disabled or ctx.routing.strategy == "off":
                 return
             if ctx.delivery.progress_state != "active":
                 if (
@@ -200,7 +200,7 @@ class ProgressRenderer:
                 if (
                     not force
                     and ctx.delivery.message_id
-                    and time.monotonic() - ctx.delivery.last_render_at < ctx.edit_interval
+                    and time.monotonic() - ctx.delivery.last_render_at < ctx.routing.edit_interval
                 ):
                     return
                 if not force and pending < self.settings.assistant.min_update_chars:
@@ -210,7 +210,7 @@ class ProgressRenderer:
                 if (
                     not force
                     and ctx.delivery.message_id
-                    and time.monotonic() - ctx.delivery.last_render_at < ctx.edit_interval
+                    and time.monotonic() - ctx.delivery.last_render_at < ctx.routing.edit_interval
                 ):
                     return
                 if not force and pending < self.settings.reasoning.min_update_chars:
@@ -220,12 +220,12 @@ class ProgressRenderer:
     async def _render_for_strategy(
         self, ctx: SessionContext, event: ProgressEvent, force: bool = False
     ) -> None:
-        if ctx.strategy == "summary_only":
+        if ctx.routing.strategy == "summary_only":
             return
-        if ctx.strategy == "live_tail":
+        if ctx.routing.strategy == "live_tail":
             await self._render_live(ctx, force=force)
             return
-        if ctx.strategy == "snapshot":
+        if ctx.routing.strategy == "snapshot":
             if (
                 isinstance(event, ReasoningEvent)
                 and self.settings.reasoning.no_edit_strategy == "off"
@@ -256,11 +256,11 @@ class ProgressRenderer:
             self._cancel_delayed_flush(ctx)
             progress_message_id = ctx.delivery.message_id
             if self._should_flush_before_reset(ctx):
-                if ctx.strategy == "live_tail" and self._content(ctx):
+                if ctx.routing.strategy == "live_tail" and self._content(ctx):
                     await self._render_live(ctx, force=True, ignore_backoff=True)
                     progress_message_id = ctx.delivery.message_id or progress_message_id
                 elif (
-                    ctx.strategy == "snapshot"
+                    ctx.routing.strategy == "snapshot"
                     and self.settings.no_edit.final_summary
                     and self._content(ctx)
                 ):
@@ -270,9 +270,9 @@ class ProgressRenderer:
             await self._finalize_progress_message(ctx)
             self._schedule_auto_delete(ctx, success=success)
             if ctx.delivery.progress_state == "background_active" and self._content(ctx):
-                if ctx.strategy == "live_tail":
+                if ctx.routing.strategy == "live_tail":
                     await self._render_live(ctx, force=True, ignore_backoff=True)
-                elif ctx.strategy == "snapshot" and self.settings.no_edit.final_summary:
+                elif ctx.routing.strategy == "snapshot" and self.settings.no_edit.final_summary:
                     await self._render_snapshot(ctx, force=True, final=True)
         if purge and (generation is None or self.sessions.get(ctx.session_id) is ctx):
             self.purge(session_id=ctx.session_id)
@@ -334,9 +334,9 @@ class ProgressRenderer:
                     if current is not branch:
                         return
                     self.delegate_renderer.prune_completed(ctx)
-                    if ctx.strategy == "live_tail":
+                    if ctx.routing.strategy == "live_tail":
                         await self._render_live(ctx, force=True)
-                    elif ctx.strategy == "snapshot":
+                    elif ctx.routing.strategy == "snapshot":
                         await self._render_snapshot(ctx, force=True)
             except asyncio.CancelledError:
                 raise

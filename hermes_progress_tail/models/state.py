@@ -20,6 +20,7 @@ from .state_records import (
     DiagnosticsState,
     EnvironmentSnapshot,
     ReasoningState,
+    RoutingState,
     ToolState,
 )
 
@@ -35,10 +36,7 @@ class SessionContext(SessionStateCompatibility):
     thread_id: str | None
     adapter: Any
     loop: Any
-    strategy: str = "auto"
-    lines: int = 3
-    preview_length: int = 120
-    edit_interval: float = 1.5
+    routing: RoutingState = field(default_factory=RoutingState)
     generation: int = 0
     owner_thread_id: int = 0
     owner_thread_name: str = ""
@@ -50,16 +48,7 @@ class SessionContext(SessionStateCompatibility):
     assistant: AssistantState = field(default_factory=AssistantState)
     reasoning: ReasoningState = field(default_factory=ReasoningState)
     diagnostics: DiagnosticsState = field(default_factory=DiagnosticsState)
-    tools_enabled: bool = True
-    assistant_enabled: bool = True
-    reasoning_enabled: bool = True
-    delegates_enabled: bool = True
-    background_jobs_enabled: bool = True
-    timestamp: bool | None = None
-    timestamp_format: str = ""
-    agent_label: str = ""
-    chat_type: str = ""
-    source_message_id: str | None = None
+
     lock: Any = field(default_factory=asyncio.Lock)
     environment: EnvironmentSnapshot = field(default_factory=EnvironmentSnapshot)
 
@@ -72,11 +61,11 @@ class SessionContext(SessionStateCompatibility):
         thread_id,
         adapter,
         loop,
-        strategy="auto",
+        strategy=_MISSING,
         *,
-        lines=3,
-        preview_length=120,
-        edit_interval=1.5,
+        lines=_MISSING,
+        preview_length=_MISSING,
+        edit_interval=_MISSING,
         generation=0,
         owner_thread_id=0,
         owner_thread_name="",
@@ -114,16 +103,16 @@ class SessionContext(SessionStateCompatibility):
         last_error=_MISSING,
         downgrade_reason=_MISSING,
         downgrade_at=_MISSING,
-        tools_enabled=True,
-        assistant_enabled=True,
-        reasoning_enabled=True,
-        delegates_enabled=True,
-        background_jobs_enabled=True,
-        timestamp=None,
-        timestamp_format="",
-        agent_label="",
-        chat_type="",
-        source_message_id=None,
+        tools_enabled=_MISSING,
+        assistant_enabled=_MISSING,
+        reasoning_enabled=_MISSING,
+        delegates_enabled=_MISSING,
+        background_jobs_enabled=_MISSING,
+        timestamp=_MISSING,
+        timestamp_format=_MISSING,
+        agent_label=_MISSING,
+        chat_type=_MISSING,
+        source_message_id=_MISSING,
         lock=_MISSING,
         environment=_MISSING,
         compaction_count=_MISSING,
@@ -154,10 +143,26 @@ class SessionContext(SessionStateCompatibility):
         self.thread_id = thread_id
         self.adapter = adapter
         self.loop = loop
-        self.strategy = strategy
-        self.lines = lines
-        self.preview_length = preview_length
-        self.edit_interval = edit_interval
+        routing_legacy = {
+            "strategy": strategy,
+            "lines": lines,
+            "preview_length": preview_length,
+            "edit_interval": edit_interval,
+            "tools_enabled": tools_enabled,
+            "assistant_enabled": assistant_enabled,
+            "reasoning_enabled": reasoning_enabled,
+            "delegates_enabled": delegates_enabled,
+            "background_jobs_enabled": background_jobs_enabled,
+            "timestamp": timestamp,
+            "timestamp_format": timestamp_format,
+            "agent_label": agent_label,
+            "chat_type": chat_type,
+            "source_message_id": source_message_id,
+        }
+        routing_legacy = {k: v for k, v in routing_legacy.items() if v is not _MISSING}
+        if routing is not None and routing_legacy:
+            raise TypeError("routing cannot be combined with legacy routing fields")
+        self.routing = routing if routing is not None else RoutingState(**routing_legacy)
         self.generation = generation
         self.owner_thread_id = owner_thread_id
         self.owner_thread_name = owner_thread_name
@@ -234,20 +239,10 @@ class SessionContext(SessionStateCompatibility):
         self.diagnostics = (
             diagnostics if diagnostics is not None else DiagnosticsState(**diagnostics_legacy)
         )
-        self.tools_enabled = tools_enabled
-        self.assistant_enabled = assistant_enabled
-        self.reasoning_enabled = reasoning_enabled
-        self.delegates_enabled = delegates_enabled
-        self.background_jobs_enabled = background_jobs_enabled
-        self.timestamp = timestamp
-        self.timestamp_format = timestamp_format
-        self.agent_label = agent_label
-        self.chat_type = chat_type
-        self.source_message_id = source_message_id
+
         self.lock = asyncio.Lock() if lock is _MISSING else lock
         self.environment = EnvironmentSnapshot() if environment is _MISSING else environment
-        if routing is not None:
-            raise TypeError("routing owner is not available until a future migration")
+
         assistant_legacy = {
             "lines": assistant_lines,
             "latest_text": assistant_latest_text,

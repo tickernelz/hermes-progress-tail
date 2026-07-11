@@ -39,11 +39,11 @@ class SessionRegistry:
                 self._cancel_delete(existing)
                 self._reuse_progress(existing, ctx)
             self._reuse_session(existing, ctx, reuse_progress)
-        ctx.resize(ctx.lines)
-        if ctx.strategy == "auto":
-            ctx.strategy = "live_tail" if adapter_supports_edit(ctx.adapter) else "snapshot"
-        if ctx.strategy == "live_tail" and not adapter_supports_edit(ctx.adapter):
-            ctx.strategy = "snapshot"
+        ctx.resize(ctx.routing.lines)
+        if ctx.routing.strategy == "auto":
+            ctx.routing.strategy = "live_tail" if adapter_supports_edit(ctx.adapter) else "snapshot"
+        if ctx.routing.strategy == "live_tail" and not adapter_supports_edit(ctx.adapter):
+            ctx.routing.strategy = "snapshot"
         self.sessions[ctx.session_id] = ctx
         if ctx.session_key:
             self.session_keys[ctx.session_key] = ctx.session_id
@@ -95,8 +95,8 @@ class SessionRegistry:
 
     @staticmethod
     def same_source_message(existing: SessionContext, incoming: SessionContext) -> bool:
-        existing_source = str(existing.source_message_id or "")
-        incoming_source = str(incoming.source_message_id or "")
+        existing_source = str(existing.routing.source_message_id or "")
+        incoming_source = str(incoming.routing.source_message_id or "")
         return not existing_source or not incoming_source or existing_source == incoming_source
 
     def find_context(self, session_id: str = "", session_key: str = "") -> SessionContext | None:
@@ -147,7 +147,8 @@ class SessionRegistry:
             for sid, ctx in self.sessions.items()
             if (not platform or ctx.platform == platform)
             and now - ctx.diagnostics.last_event_at
-            > ctx.lines * ctx.edit_interval + self.settings.renderer.stale_ttl_seconds
+            > ctx.routing.lines * ctx.routing.edit_interval
+            + self.settings.renderer.stale_ttl_seconds
         ]
         for sid in stale:
             self.purge(sid)

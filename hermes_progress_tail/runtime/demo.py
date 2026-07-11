@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from ..models.state import DelegateEvent, SessionContext, TodoItem
+from ..models.state import DelegateEvent, RoutingState, SessionContext, TodoItem
 from ..rendering.renderer import ProgressRenderer
 from ..settings.config import load_settings
 
@@ -28,10 +28,8 @@ def _demo_command(*, plain: bool = False, failed: bool = False) -> str:
         None,
         None,
         None,
-        "live_tail",
-        timestamp=False,
+        routing=RoutingState(strategy="live_tail", timestamp=False, agent_label="Hermes"),
     )
-    ctx.agent_label = "Hermes"
     ctx.tool.todo_items = (
         TodoItem("Inspect renderer", "completed"),
         TodoItem("Build deterministic demo", "in_progress"),

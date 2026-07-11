@@ -63,7 +63,7 @@ def _update_environment_from_agent(
             git_ahead=int(git.get("ahead") or 0),
             git_behind=int(git.get("behind") or 0),
             worktree=str(git.get("worktree") or ""),
-            strategy=ctx.strategy,
+            strategy=getattr(ctx, "routing", ctx).strategy,
             reasoning_effort=_agent_reasoning_effort(agent),
         )
     except Exception:
@@ -338,7 +338,7 @@ def _replace_environment_cwd(ctx: SessionContext, cwd: str | Path, *, source: st
         return
     git = _runtime_git_snapshot(path)
     env = ctx.environment or EnvironmentSnapshot(
-        profile=_runtime_profile_name(), strategy=ctx.strategy
+        profile=_runtime_profile_name(), strategy=getattr(ctx, "routing", ctx).strategy
     )
     ctx.environment = replace(
         env,
@@ -349,6 +349,6 @@ def _replace_environment_cwd(ctx: SessionContext, cwd: str | Path, *, source: st
         git_behind=int(git.get("behind") or 0),
         worktree=str(git.get("worktree") or ""),
         profile=env.profile or _runtime_profile_name(),
-        strategy=env.strategy or ctx.strategy,
+        strategy=env.strategy or getattr(ctx, "routing", ctx).strategy,
     )
     ctx._progress_tail_cwd_source = source

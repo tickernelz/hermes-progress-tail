@@ -532,7 +532,7 @@ def _command(raw_args: str = "") -> str:
                     else getattr(ctx, "last_reasoning_chars", 0)
                 )
                 lines.append(
-                    f"session {label}: strategy={ctx.strategy} disabled={delivery.disabled} events={diagnostics.total_events}"
+                    f"session {label}: strategy={getattr(ctx, 'routing', ctx).strategy} disabled={delivery.disabled} events={diagnostics.total_events}"
                 )
                 if diagnostics.downgrade_reason:
                     lines.append(

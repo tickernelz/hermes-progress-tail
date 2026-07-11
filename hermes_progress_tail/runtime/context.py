@@ -12,7 +12,7 @@ from ..gateway.compat import (
     source_message_id,
     source_thread_id,
 )
-from ..models.state import SessionContext
+from ..models.state import RoutingState, SessionContext
 from ..settings.config import resolve_platform_settings
 
 if TYPE_CHECKING:
@@ -242,20 +242,22 @@ def _register_context(
         thread_id=source_thread_id(source),
         adapter=adapter,
         loop=loop,
-        chat_type=source_chat_type(source),
-        source_message_id=source_message_id(source),
-        strategy=settings.strategy,
-        lines=settings.lines,
-        preview_length=settings.preview_length,
-        edit_interval=settings.edit_interval,
-        tools_enabled=settings.tools_enabled,
-        assistant_enabled=settings.assistant_enabled,
-        reasoning_enabled=settings.reasoning_enabled,
-        delegates_enabled=settings.delegates_enabled,
-        background_jobs_enabled=settings.background_jobs_enabled,
-        timestamp=settings.timestamp,
-        timestamp_format=settings.timestamp_format,
-        agent_label=renderer.settings.renderer.agent_label,
+        routing=RoutingState(
+            strategy=settings.strategy,
+            lines=settings.lines,
+            preview_length=settings.preview_length,
+            edit_interval=settings.edit_interval,
+            tools_enabled=settings.tools_enabled,
+            assistant_enabled=settings.assistant_enabled,
+            reasoning_enabled=settings.reasoning_enabled,
+            delegates_enabled=settings.delegates_enabled,
+            background_jobs_enabled=settings.background_jobs_enabled,
+            timestamp=settings.timestamp,
+            timestamp_format=settings.timestamp_format,
+            agent_label=renderer.settings.renderer.agent_label,
+            chat_type=source_chat_type(source),
+            source_message_id=source_message_id(source),
+        ),
         owner_thread_id=0,
         owner_thread_name="",
     )

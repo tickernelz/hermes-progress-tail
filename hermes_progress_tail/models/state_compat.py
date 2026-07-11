@@ -7,6 +7,118 @@ class SessionStateCompatibility:
     """Explicit legacy flat accessors for nested state owners."""
 
     @property
+    def strategy(self):
+        return self.routing.strategy
+
+    @strategy.setter
+    def strategy(self, value):
+        self.routing.strategy = value
+
+    @property
+    def lines(self):
+        return self.routing.lines
+
+    @lines.setter
+    def lines(self, value):
+        self.routing.lines = value
+
+    @property
+    def preview_length(self):
+        return self.routing.preview_length
+
+    @preview_length.setter
+    def preview_length(self, value):
+        self.routing.preview_length = value
+
+    @property
+    def edit_interval(self):
+        return self.routing.edit_interval
+
+    @edit_interval.setter
+    def edit_interval(self, value):
+        self.routing.edit_interval = value
+
+    @property
+    def tools_enabled(self):
+        return self.routing.tools_enabled
+
+    @tools_enabled.setter
+    def tools_enabled(self, value):
+        self.routing.tools_enabled = value
+
+    @property
+    def assistant_enabled(self):
+        return self.routing.assistant_enabled
+
+    @assistant_enabled.setter
+    def assistant_enabled(self, value):
+        self.routing.assistant_enabled = value
+
+    @property
+    def reasoning_enabled(self):
+        return self.routing.reasoning_enabled
+
+    @reasoning_enabled.setter
+    def reasoning_enabled(self, value):
+        self.routing.reasoning_enabled = value
+
+    @property
+    def delegates_enabled(self):
+        return self.routing.delegates_enabled
+
+    @delegates_enabled.setter
+    def delegates_enabled(self, value):
+        self.routing.delegates_enabled = value
+
+    @property
+    def background_jobs_enabled(self):
+        return self.routing.background_jobs_enabled
+
+    @background_jobs_enabled.setter
+    def background_jobs_enabled(self, value):
+        self.routing.background_jobs_enabled = value
+
+    @property
+    def timestamp(self):
+        return self.routing.timestamp
+
+    @timestamp.setter
+    def timestamp(self, value):
+        self.routing.timestamp = value
+
+    @property
+    def timestamp_format(self):
+        return self.routing.timestamp_format
+
+    @timestamp_format.setter
+    def timestamp_format(self, value):
+        self.routing.timestamp_format = value
+
+    @property
+    def agent_label(self):
+        return self.routing.agent_label
+
+    @agent_label.setter
+    def agent_label(self, value):
+        self.routing.agent_label = value
+
+    @property
+    def chat_type(self):
+        return self.routing.chat_type
+
+    @chat_type.setter
+    def chat_type(self, value):
+        self.routing.chat_type = value
+
+    @property
+    def source_message_id(self):
+        return self.routing.source_message_id
+
+    @source_message_id.setter
+    def source_message_id(self, value):
+        self.routing.source_message_id = value
+
+    @property
     def metadata(self) -> dict[str, str | bool] | None:
         if not self.thread_id:
             return None

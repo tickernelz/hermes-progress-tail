@@ -86,6 +86,24 @@ class EnvironmentSnapshot:
 
 
 @dataclass
+class RoutingState:
+    strategy: str = "auto"
+    lines: int = 3
+    preview_length: int = 120
+    edit_interval: float = 1.5
+    tools_enabled: bool = True
+    assistant_enabled: bool = True
+    reasoning_enabled: bool = True
+    delegates_enabled: bool = True
+    background_jobs_enabled: bool = True
+    timestamp: bool | None = None
+    timestamp_format: str = ""
+    agent_label: str = ""
+    chat_type: str = ""
+    source_message_id: str | None = None
+
+
+@dataclass
 class AssistantState:
     lines: deque[AssistantLine] = field(default_factory=lambda: deque(maxlen=3))
     latest_text: str = ""

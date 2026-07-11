@@ -66,7 +66,7 @@ def assistant_tail(lines: tuple[AssistantLine, ...], *, max_lines: int, max_char
 
 
 def debug_section(ctx: SessionContext, *, section: Callable[[str, str, str], str]) -> str:
-    lines = [f"strategy={ctx.strategy}", f"events={ctx.diagnostics.total_events}"]
+    lines = [f"strategy={ctx.routing.strategy}", f"events={ctx.diagnostics.total_events}"]
     if ctx.delivery.edit_state != "editable":
         lines.append(f"edit_state={ctx.delivery.edit_state}")
     if ctx.diagnostics.downgrade_reason:
@@ -83,10 +83,10 @@ def format_tool_line_for_context(
     timestamp_enabled: bool,
     timestamp_format: str,
 ) -> str:
-    enabled = timestamp_enabled if ctx.timestamp is None else ctx.timestamp
+    enabled = timestamp_enabled if ctx.routing.timestamp is None else ctx.routing.timestamp
     if not enabled:
         return event.line
-    fmt = ctx.timestamp_format or timestamp_format
+    fmt = ctx.routing.timestamp_format or timestamp_format
     timestamp = timestamp_text(event.created_at, fmt)
     return f"[{timestamp}] {event.line}"
 
@@ -94,8 +94,10 @@ def format_tool_line_for_context(
 def todo_section(ctx: SessionContext, *, settings: Settings) -> str:
     if not ctx.tool.todo_items:
         return ""
-    timestamp_enabled = settings.tools.timestamp if ctx.timestamp is None else ctx.timestamp
-    timestamp_format = ctx.timestamp_format or settings.tools.timestamp_format
+    timestamp_enabled = (
+        settings.tools.timestamp if ctx.routing.timestamp is None else ctx.routing.timestamp
+    )
+    timestamp_format = ctx.routing.timestamp_format or settings.tools.timestamp_format
     timestamp = timestamp_text(ctx.tool.todo_updated_at, timestamp_format)
     title = f"Todo [{timestamp}]" if timestamp_enabled else "Todo"
     if settings.renderer.density == "compact":
