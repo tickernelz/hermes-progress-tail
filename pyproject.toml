@@ -7,6 +7,7 @@ dependencies = ["PyYAML>=6"]
 
 [project.optional-dependencies]
 dev = [
+  "coverage[toml]>=7.6",
   "pre-commit>=4.3.0",
   "pytest>=8",
   "ruff>=0.15.12",
@@ -24,6 +25,15 @@ exclude = ["assets*", "tests*"]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["hermes_progress_tail"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
 
 [tool.ruff]
 target-version = "py310"

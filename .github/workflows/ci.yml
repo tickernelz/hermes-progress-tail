@@ -44,7 +44,14 @@ jobs:
         run: python scripts/check_structure.py
 
       - name: Tests
+        if: matrix.python-version != '3.12'
         run: python -m pytest
+
+      - name: Tests with production coverage
+        if: matrix.python-version == '3.12'
+        run: |
+          coverage run -m pytest
+          coverage report
 
       - name: Compile Python
         run: python -m compileall -q .
