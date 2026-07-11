@@ -121,17 +121,22 @@ def test_architecture_default_composition_has_no_placeholder_collaborators():
     settings = load_settings({})
     renderer = ProgressRenderer(settings)
     assert isinstance(renderer.delivery, delivery_type)
-    assert renderer.registry is None
+    registry_type = getattr(
+        importlib.import_module("hermes_progress_tail.rendering.session"), "SessionRegistry", None
+    )
+    assert isinstance(renderer.registry, registry_type)
     assert renderer.reducer is None
     assert "_SettingsCollaborator" not in RENDERER_PATH.read_text(encoding="utf-8")
 
     assert renderer.settings is settings
     assert renderer.delivery.settings is settings
+    assert renderer.registry.settings is settings
     assert renderer.delegate_renderer.settings is settings
     replacement = load_settings({"progress_tail": {"tools": {"lines": 7}}})
     renderer.replace_settings(replacement)
     assert renderer.settings is replacement
     assert renderer.delivery.settings is replacement
+    assert renderer.registry.settings is replacement
     assert renderer.delegate_renderer.settings is replacement
     with pytest.raises(AttributeError):
         renderer.settings = settings

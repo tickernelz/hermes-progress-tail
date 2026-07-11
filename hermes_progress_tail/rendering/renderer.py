@@ -53,13 +53,7 @@ from .sections import (
     timestamp_text,
     todo_section,
 )
-from .session import (
-    _same_source_message,
-    find_context,
-    migrate_context,
-    purge,
-    register_context,
-)
+from .session import SessionRegistry
 from .tool_helpers import tool_line_fingerprint, tool_line_terminal_status
 
 logger = logging.getLogger(__name__)
@@ -79,15 +73,27 @@ class ProgressRenderer:
         self._settings = settings
         self.delegate_renderer = delegate_renderer or DelegateProgressRenderer(settings)
         self.delivery = delivery or RendererDelivery(settings, self._content)
-        self.registry = registry
+        self.registry = (
+            registry
+            if registry is not None
+            else SessionRegistry(
+                settings, self.delivery.cancel_delete, self.delivery.cancel_delayed_flush
+            )
+        )
         self.reducer = reducer
         self.footer_info_provider = footer_info_provider
-        self.sessions: dict[str, SessionContext] = {}
-        self.session_keys: dict[str, str] = {}
 
     @property
     def settings(self) -> Settings:
         return self._settings
+
+    @property
+    def sessions(self) -> dict[str, SessionContext]:
+        return self.registry.sessions
+
+    @property
+    def session_keys(self) -> dict[str, str]:
+        return self.registry.session_keys
 
     def replace_settings(self, settings: Settings) -> None:
         self._settings = settings
@@ -147,20 +153,20 @@ class ProgressRenderer:
         return _edit_backoff_seconds(error, kind, failure_count)
 
     def register_context(self, ctx):
-        return register_context(self, ctx)
+        return self.registry.register_context(ctx)
 
     @staticmethod
     def _same_source_message(existing, incoming):
-        return _same_source_message(existing, incoming)
+        return SessionRegistry.same_source_message(existing, incoming)
 
     def find_context(self, session_id="", session_key=""):
-        return find_context(self, session_id, session_key)
+        return self.registry.find_context(session_id, session_key)
 
     def migrate_context(self, old_session_id, new_session_id, session_key=""):
-        return migrate_context(self, old_session_id, new_session_id, session_key)
+        return self.registry.migrate_context(old_session_id, new_session_id, session_key)
 
     def purge(self, session_id="", platform=""):
-        return purge(self, session_id, platform)
+        return self.registry.purge(session_id, platform)
 
     def _record_tool_lifecycle(self, ctx, event, line):
         if event.tool_name == "todo":
