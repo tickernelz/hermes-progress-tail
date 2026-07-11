@@ -188,3 +188,37 @@ def test_installer_value_error_returns_two(monkeypatch, capsys):
 
     assert interactive.main(["install"]) == 2
     assert capsys.readouterr().err == "error: bad config\n"
+
+
+@pytest.mark.parametrize(
+    ("action", "installer_name"),
+    [("install", "install_many"), ("uninstall", "uninstall_many")],
+)
+def test_installer_value_error_closes_prompt_file(
+    monkeypatch, tmp_path, capsys, action, installer_name
+):
+    prompt_path = tmp_path / "answers.txt"
+    prompt_path.write_text("answer\n", encoding="utf-8")
+    observed = {}
+
+    def select(_home, prompt_stream, *, action):
+        observed["stream"] = prompt_stream
+        return ["work"], False
+
+    def install_options(_home, prompt_stream):
+        observed["stream"] = prompt_stream
+        return [], False, False, {}, False
+
+    monkeypatch.setattr(interactive, "_select_profiles_interactive", select)
+    monkeypatch.setattr(interactive, "_interactive_install_options", install_options)
+    monkeypatch.setattr(
+        installer,
+        installer_name,
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad config")),
+    )
+
+    status = interactive.main([action, "--interactive", "--prompt-input", str(prompt_path)])
+
+    assert status == 2
+    assert capsys.readouterr().err == "error: bad config\n"
+    assert observed["stream"].closed

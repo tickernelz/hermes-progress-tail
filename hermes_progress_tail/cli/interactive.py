@@ -338,64 +338,64 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: cannot open prompt input {args.prompt_input}: {exc}", file=sys.stderr)
             return 2
     try:
-        if args.interactive and args.action == "install":
-            profiles, all_profiles, set_display_off, feature_overrides, force_default_config = (
-                _interactive_install_options(hermes_home.expanduser().resolve(), prompt_stream)
-            )
-        elif args.interactive and args.action == "uninstall":
-            profiles, all_profiles = _select_profiles_interactive(
-                hermes_home.expanduser().resolve(), prompt_stream, action="uninstall"
-            )
-    except (EOFError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        try:
+            if args.interactive and args.action == "install":
+                profiles, all_profiles, set_display_off, feature_overrides, force_default_config = (
+                    _interactive_install_options(hermes_home.expanduser().resolve(), prompt_stream)
+                )
+            elif args.interactive and args.action == "uninstall":
+                profiles, all_profiles = _select_profiles_interactive(
+                    hermes_home.expanduser().resolve(), prompt_stream, action="uninstall"
+                )
+        except (EOFError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if not (args.interactive and args.action in {"install", "uninstall"}):
+            if args.telegram_flood_safe:
+                from .installer import TELEGRAM_FLOOD_SAFE_CONFIG
+
+                feature_overrides.update(
+                    {key: dict(value) for key, value in TELEGRAM_FLOOD_SAFE_CONFIG.items()}
+                )
+            toggles = {
+                "tools": args.enable_tools,
+                "delegates": args.enable_delegates,
+                "reasoning": args.enable_reasoning,
+            }
+            for section, value in toggles.items():
+                if value:
+                    feature_overrides.setdefault(section, {})["enabled"] = value == "on"
+            if args.enable_todo:
+                feature_overrides.setdefault("todo", {})["sticky"] = args.enable_todo == "on"
+            if args.renderer_style:
+                feature_overrides.setdefault("renderer", {})["style"] = args.renderer_style
+            if args.renderer_density:
+                feature_overrides.setdefault("renderer", {})["density"] = args.renderer_density
+        try:
+            if args.action == "install":
+                result = install_many(
+                    hermes_home,
+                    Path(args.source_dir),
+                    profiles=profiles,
+                    all_profiles=all_profiles,
+                    set_display_off=set_display_off,
+                    dry_run=args.dry_run,
+                    feature_overrides=feature_overrides,
+                    force_default_config=force_default_config,
+                )
+            else:
+                result = uninstall_many(
+                    hermes_home,
+                    profiles=profiles,
+                    all_profiles=all_profiles,
+                    dry_run=args.dry_run,
+                )
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        for msg in result.messages:
+            print(msg)
+        return 0
+    finally:
         if prompt_file is not None:
             prompt_file.close()
-        return 2
-    if not (args.interactive and args.action in {"install", "uninstall"}):
-        if args.telegram_flood_safe:
-            from .installer import TELEGRAM_FLOOD_SAFE_CONFIG
-
-            feature_overrides.update(
-                {key: dict(value) for key, value in TELEGRAM_FLOOD_SAFE_CONFIG.items()}
-            )
-        toggles = {
-            "tools": args.enable_tools,
-            "delegates": args.enable_delegates,
-            "reasoning": args.enable_reasoning,
-        }
-        for section, value in toggles.items():
-            if value:
-                feature_overrides.setdefault(section, {})["enabled"] = value == "on"
-        if args.enable_todo:
-            feature_overrides.setdefault("todo", {})["sticky"] = args.enable_todo == "on"
-        if args.renderer_style:
-            feature_overrides.setdefault("renderer", {})["style"] = args.renderer_style
-        if args.renderer_density:
-            feature_overrides.setdefault("renderer", {})["density"] = args.renderer_density
-    try:
-        if args.action == "install":
-            result = install_many(
-                hermes_home,
-                Path(args.source_dir),
-                profiles=profiles,
-                all_profiles=all_profiles,
-                set_display_off=set_display_off,
-                dry_run=args.dry_run,
-                feature_overrides=feature_overrides,
-                force_default_config=force_default_config,
-            )
-        else:
-            result = uninstall_many(
-                hermes_home,
-                profiles=profiles,
-                all_profiles=all_profiles,
-                dry_run=args.dry_run,
-            )
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    for msg in result.messages:
-        print(msg)
-    if prompt_file is not None:
-        prompt_file.close()
-    return 0
