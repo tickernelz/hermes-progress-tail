@@ -176,6 +176,112 @@ def test_write_yaml_replace_failure_preserves_old_config_and_cleans_temp(tmp_pat
     assert not list(tmp_path.glob(".config.yaml.*"))
 
 
+def test_config_rollback_restores_before_cleanup_failure(tmp_path, monkeypatch):
+    source = _plugin_source(tmp_path)
+    home = tmp_path / "home"
+    target = home / "plugins" / installer.PLUGIN_NAME
+    target.mkdir(parents=True)
+    (target / "old.txt").write_text("old", encoding="utf-8")
+    original = OSError("config denied")
+    monkeypatch.setattr(installer, "_write_yaml", lambda *args: (_ for _ in ()).throw(original))
+    real_rmtree = installer.shutil.rmtree
+
+    def fail_new_cleanup(path, *args, **kwargs):
+        if ".discard." in Path(path).name:
+            raise OSError("cleanup denied")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(installer.shutil, "rmtree", fail_new_cleanup)
+    with pytest.raises(OSError, match="config denied") as raised:
+        installer.install(home, source)
+    assert raised.value is original
+    assert (target / "old.txt").read_text(encoding="utf-8") == "old"
+
+
+def test_replace_failure_restores_before_stage_cleanup(tmp_path, monkeypatch):
+    source = _plugin_source(tmp_path)
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "old.txt").write_text("old", encoding="utf-8")
+    real_rename = Path.rename
+    real_rmtree = installer.shutil.rmtree
+
+    def fail_stage_rename(path, destination):
+        if ".stage." in path.name:
+            raise OSError("placement denied")
+        return real_rename(path, destination)
+
+    def fail_stage_cleanup(path, *args, **kwargs):
+        if ".stage." in Path(path).name:
+            raise OSError("cleanup denied")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "rename", fail_stage_rename)
+    monkeypatch.setattr(installer.shutil, "rmtree", fail_stage_cleanup)
+    with pytest.raises(OSError, match="placement denied"):
+        installer._copy_plugin(source, target)
+    assert (target / "old.txt").read_text(encoding="utf-8") == "old"
+
+
+def test_rollback_collision_sentinel_is_untouched(tmp_path):
+    source = _plugin_source(tmp_path)
+    target = tmp_path / "target"
+    target.mkdir()
+    sentinel = tmp_path / ".target.rollback"
+    sentinel.mkdir()
+    (sentinel / "keep.txt").write_text("keep", encoding="utf-8")
+    installer._copy_plugin(source, target)
+    assert (sentinel / "keep.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_copy_committed_cleanup_failure_is_successful(tmp_path, monkeypatch):
+    source = _plugin_source(tmp_path)
+    target = tmp_path / "target"
+    target.mkdir()
+    real_rmtree = installer.shutil.rmtree
+
+    def fail_rollback_cleanup(path, *args, **kwargs):
+        if ".rollback" in Path(path).name:
+            raise OSError("cleanup denied")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(installer.shutil, "rmtree", fail_rollback_cleanup)
+    installer._copy_plugin(source, target)
+    assert (target / "payload.txt").read_text(encoding="utf-8") == "new"
+
+
+def test_install_committed_cleanup_failure_still_removes_legacy(tmp_path, monkeypatch):
+    source = _plugin_source(tmp_path)
+    home = tmp_path / "home"
+    target = home / "plugins" / installer.PLUGIN_NAME
+    target.mkdir(parents=True)
+    legacy = home / "plugins" / installer.LEGACY_PLUGIN_NAME
+    legacy.mkdir()
+    real_rmtree = installer.shutil.rmtree
+
+    def fail_rollback_cleanup(path, *args, **kwargs):
+        if ".rollback" in Path(path).name:
+            raise OSError("cleanup denied")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(installer.shutil, "rmtree", fail_rollback_cleanup)
+    installer.install(home, source)
+    assert not legacy.exists()
+    assert (target / "payload.txt").exists()
+
+
+def test_write_yaml_preserves_original_error_when_temp_unlink_fails(tmp_path, monkeypatch):
+    config = tmp_path / "config.yaml"
+    original = OSError("replace denied")
+    monkeypatch.setattr(installer.os, "replace", lambda *args: (_ for _ in ()).throw(original))
+    monkeypatch.setattr(
+        Path, "unlink", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("unlink denied"))
+    )
+    with pytest.raises(OSError, match="replace denied") as raised:
+        installer._write_yaml(config, {"new": True})
+    assert raised.value is original
+
+
 def test_default_source_search_uses_package_layout_and_reports_no_match(tmp_path, monkeypatch):
     package = _package_source(tmp_path)
     fake_module = package / "cli" / "installer.py"

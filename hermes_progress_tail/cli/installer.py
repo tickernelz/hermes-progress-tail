@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import os
 import shutil
@@ -15,98 +16,61 @@ from .profiles import _resolve_profile_targets
 
 PLUGIN_NAME = "hermes-progress-tail"
 LEGACY_PLUGIN_NAME = "tool-progress-tail"
+# fmt: off
 DEFAULT_CONFIG = {
     "enabled": True,
     "tools": {
-        "enabled": True,
-        "lines": 3,
-        "preview_length": 120,
-        "show_completed": True,
-        "show_duration": True,
-        "timestamp": True,
+        "enabled": True, "lines": 3, "preview_length": 120,
+        "show_completed": True, "show_duration": True, "timestamp": True,
         "timestamp_format": "%H:%M",
     },
     "delegates": {
-        "enabled": True,
-        "max_delegates": 4,
-        "lines_per_delegate": 2,
-        "max_goal_chars": 48,
-        "max_line_chars": 120,
-        "show_model": False,
-        "show_tool_count": True,
-        "show_completion": True,
-        "completed_ttl_seconds": 5,
-        "thinking": "off",
+        "enabled": True, "max_delegates": 4, "lines_per_delegate": 2,
+        "max_goal_chars": 48, "max_line_chars": 120, "show_model": False,
+        "show_tool_count": True, "show_completion": True,
+        "completed_ttl_seconds": 5, "thinking": "off",
     },
     "todo": {
-        "sticky": True,
-        "hide_tool_line": True,
-        "max_pending": 3,
-        "max_completed": 3,
-        "max_cancelled": 2,
-        "max_item_chars": 40,
+        "sticky": True, "hide_tool_line": True, "max_pending": 3,
+        "max_completed": 3, "max_cancelled": 2, "max_item_chars": 40,
     },
     "patch": {"detail": "smart", "preview_chars": 48, "max_files": 3},
     "assistant": {
-        "enabled": True,
-        "max_lines": 3,
-        "max_chars": 500,
+        "enabled": True, "max_lines": 3, "max_chars": 500,
         "min_update_chars": 160,
     },
     "reasoning": {
-        "enabled": True,
-        "max_lines": 3,
-        "max_chars": 600,
-        "min_update_chars": 300,
-        "no_edit_strategy": "off",
+        "enabled": True, "max_lines": 3, "max_chars": 600,
+        "min_update_chars": 300, "no_edit_strategy": "off",
     },
     "background_jobs": {
-        "enabled": True,
-        "list_running": True,
-        "show_completed": True,
-        "completed_ttl_seconds": 5,
-        "max_jobs": 4,
-        "head_lines": 2,
-        "tail_lines": 3,
-        "max_line_chars": 120,
-        "update_interval_seconds": 10,
-        "suppress_native_notify": True,
-        "suppress_watch_notifications": True,
+        "enabled": True, "list_running": True, "show_completed": True,
+        "completed_ttl_seconds": 5, "max_jobs": 4, "head_lines": 2,
+        "tail_lines": 3, "max_line_chars": 120, "update_interval_seconds": 10,
+        "suppress_native_notify": True, "suppress_watch_notifications": True,
     },
     "native_gateway": {"suppress": True},
     "cleanup": {
-        "auto_delete": False,
-        "delay_seconds": 5,
-        "delete_on_success": True,
-        "delete_on_failure": False,
-        "delete_background_active": False,
+        "auto_delete": False, "delay_seconds": 5, "delete_on_success": True,
+        "delete_on_failure": False, "delete_background_active": False,
     },
     "footer": {"enabled": True, "density": "normal", "max_path_chars": 56},
     "telegram": {
-        "rich_messages": True,
-        "verification_table": True,
-        "thinking_blocks": True,
-        "max_table_rows": 8,
-        "compact_success": True,
-        "max_detail_items": 8,
+        "rich_messages": True, "verification_table": True,
+        "thinking_blocks": True, "max_table_rows": 8,
+        "compact_success": True, "max_detail_items": 8,
     },
     "renderer": {
-        "strategy": "auto",
-        "edit_interval": 5.0,
-        "stale_ttl_seconds": 900,
-        "redact_secrets": True,
-        "mode": "focused",
-        "style": "emoji",
-        "density": "normal",
-        "agent_label": "",
+        "strategy": "auto", "edit_interval": 5.0, "stale_ttl_seconds": 900,
+        "redact_secrets": True, "mode": "focused", "style": "emoji",
+        "density": "normal", "agent_label": "",
     },
     "no_edit": {
-        "interval_seconds": 30,
-        "min_new_events": 3,
-        "final_summary": True,
+        "interval_seconds": 30, "min_new_events": 3, "final_summary": True,
         "max_snapshots_per_turn": 5,
     },
 }
+# fmt: on
 
 TELEGRAM_FLOOD_SAFE_CONFIG = {
     "assistant": {"min_update_chars": 160},
@@ -141,7 +105,8 @@ def _write_yaml(path: Path, data: dict[str, Any]) -> None:
             stream.write(text)
         os.replace(temporary, path)
     except BaseException:
-        temporary.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            temporary.unlink(missing_ok=True)
         raise
 
 
@@ -163,7 +128,8 @@ def _replace_plugin(source_dir: Path, target_dir: Path) -> Path | None:
     parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f".{target_dir.name}.stage.", dir=parent))
     stage.rmdir()
-    previous = parent / f".{target_dir.name}.rollback"
+    previous = Path(tempfile.mkdtemp(prefix=f".{target_dir.name}.rollback.", dir=parent))
+    previous.rmdir()
     ignore = shutil.ignore_patterns(
         ".git",
         ".hermes",
@@ -186,23 +152,26 @@ def _replace_plugin(source_dir: Path, target_dir: Path) -> Path | None:
         if not (stage / "plugin.yaml").exists() and _is_package_source_dir(source_dir):
             (stage / "plugin.yaml").write_text(_generated_plugin_yaml(), encoding="utf-8")
         if target_dir.exists():
-            if previous.exists():
-                shutil.rmtree(previous)
             target_dir.rename(previous)
         stage.rename(target_dir)
         return previous if previous.exists() else None
-    except BaseException:
-        if stage.exists():
-            shutil.rmtree(stage)
+    except BaseException as error:
         if previous.exists() and not target_dir.exists():
-            previous.rename(target_dir)
+            try:
+                previous.rename(target_dir)
+            except BaseException:
+                raise RuntimeError(f"could not restore plugin target {target_dir}") from error
+        if stage.exists():
+            with contextlib.suppress(OSError):
+                shutil.rmtree(stage)
         raise
 
 
 def _copy_plugin(source_dir: Path, target_dir: Path) -> None:
     previous = _replace_plugin(source_dir, target_dir)
     if previous:
-        shutil.rmtree(previous)
+        with contextlib.suppress(OSError):
+            shutil.rmtree(previous)
 
 
 def _is_plugin_source_dir(path: Path) -> bool:
@@ -505,14 +474,29 @@ def install(
     previous = _replace_plugin(source_dir, target_dir)
     try:
         _write_yaml(config_path, updated)
-    except BaseException:
+    except BaseException as error:
+        discard = None
         if target_dir.exists():
-            shutil.rmtree(target_dir)
+            discard = Path(
+                tempfile.mkdtemp(prefix=f".{target_dir.name}.discard.", dir=target_dir.parent)
+            )
+            discard.rmdir()
+            try:
+                target_dir.rename(discard)
+            except BaseException:
+                raise RuntimeError(f"could not quarantine plugin target {target_dir}") from error
         if previous:
-            previous.rename(target_dir)
+            try:
+                previous.rename(target_dir)
+            except BaseException:
+                raise RuntimeError(f"could not restore plugin target {target_dir}") from error
+        if discard:
+            with contextlib.suppress(OSError):
+                shutil.rmtree(discard)
         raise
     if previous:
-        shutil.rmtree(previous)
+        with contextlib.suppress(OSError):
+            shutil.rmtree(previous)
     if legacy_dir.exists():
         shutil.rmtree(legacy_dir)
         result.messages.append(f"Removed legacy plugin {legacy_dir}")
