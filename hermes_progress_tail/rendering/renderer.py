@@ -4,6 +4,7 @@ import asyncio
 import time
 from typing import Any
 
+from ..models.release import no_footer_info
 from ..models.state import (
     AssistantEvent,
     BackgroundJobEvent,
@@ -69,7 +70,9 @@ class ProgressRenderer:
                 schedule_delegate_cleanup=self._schedule_delegate_cleanup,
             )
         )
-        self.footer_info_provider = footer_info_provider
+        self.footer_info_provider = (
+            no_footer_info if footer_info_provider is None else footer_info_provider
+        )
 
     @property
     def settings(self) -> Settings:

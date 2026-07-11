@@ -76,7 +76,9 @@ def compose_focused_content(renderer, ctx: SessionContext) -> str:
     if announcement:
         parts.append(focused_block("Announcements", announcement, platform=ctx.platform))
 
-    footer = focused_footer(ctx, settings=settings)
+    footer = focused_footer(
+        ctx, settings=settings, footer_info_provider=renderer.footer_info_provider
+    )
     if footer:
         parts.append(footer)
 

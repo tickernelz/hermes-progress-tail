@@ -8,11 +8,12 @@ from typing import Any
 
 from ..hooks.contracts import configure_hook_callbacks
 from ..hooks.monkeypatches import install_monkeypatches, install_monkeypatches_report
+from ..models.release import FooterInfo
 from ..models.state import SessionContext
-from ..rendering.footer import configure_version_provider
 from ..rendering.renderer import ProgressRenderer
 from ..settings.config import load_settings
 from . import agent_events as _agent_events_module
+from . import commands as _commands_module
 from . import context as _context_module
 from . import tool_events as _tool_events_module
 from .agent_events import (
@@ -209,7 +210,22 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 VERSION = "0.2.04"
-_runtime = PluginRuntime()
+
+
+def _footer_info() -> FooterInfo:
+    latest = _commands_module._latest_release_info(timeout=0.35) or {}
+    return FooterInfo(
+        current_version=VERSION,
+        latest_tag=str(latest.get("tag_name") or ""),
+        latest_url=str(latest.get("html_url") or ""),
+    )
+
+
+def _plugin_renderer_factory(settings):
+    return ProgressRenderer(settings, footer_info_provider=_footer_info)
+
+
+_runtime = PluginRuntime(renderer_factory=_plugin_renderer_factory)
 _runtime.load_runtime_config = lambda: _load_runtime_config()
 _renderer: ProgressRenderer | None = _runtime.renderer
 _ASSISTANT_CAPTURE: dict[str, Any] = _runtime.assistant_capture
@@ -288,7 +304,6 @@ def _configure_module_ports() -> None:
     _agent_events_module.configure_runtime_provider(_AGENT_EVENTS_PORT)
     _context_module.configure_runtime_provider(_RENDERER_PORT)
     _tool_events_module.configure_runtime_provider(_RENDERER_PORT)
-    configure_version_provider(lambda: VERSION)
 
 
 def register(ctx):

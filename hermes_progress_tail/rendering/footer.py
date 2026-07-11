@@ -2,28 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..models.release import FooterInfo, FooterInfoProvider, is_newer_version, no_footer_info
 from ..models.state import EnvironmentSnapshot, SessionContext
 from ..settings.config import Settings
 from ..utils.redaction import simplify_path
 from ..utils.text import truncate_text
 
 
-def _safe_version_provider():
-    return ""
-
-
-_runtime_provider = _safe_version_provider
-
-
-def configure_version_provider(provider):
-    global _runtime_provider
-    _runtime_provider = provider
-
-
-def focused_footer(ctx: SessionContext, *, settings: Settings) -> str:
+def focused_footer(
+    ctx: SessionContext,
+    *,
+    settings: Settings,
+    footer_info_provider: FooterInfoProvider = no_footer_info,
+) -> str:
     if not settings.footer.enabled:
         return ""
-    body = footer_body(ctx, settings=settings)
+    body = footer_body(ctx, settings=settings, footer_info_provider=footer_info_provider)
     if not body:
         return ""
     from .focused import focused_block
@@ -31,10 +25,15 @@ def focused_footer(ctx: SessionContext, *, settings: Settings) -> str:
     return focused_block("Status", body, platform=ctx.platform)
 
 
-def sectioned_footer(ctx: SessionContext, *, settings: Settings) -> str:
+def sectioned_footer(
+    ctx: SessionContext,
+    *,
+    settings: Settings,
+    footer_info_provider: FooterInfoProvider = no_footer_info,
+) -> str:
     if not settings.footer.enabled:
         return ""
-    body = footer_body(ctx, settings=settings)
+    body = footer_body(ctx, settings=settings, footer_info_provider=footer_info_provider)
     if not body:
         return ""
     from .sections import section
@@ -42,11 +41,16 @@ def sectioned_footer(ctx: SessionContext, *, settings: Settings) -> str:
     return section("Status", "🧭", body, style=settings.renderer.style)
 
 
-def footer_body(ctx: SessionContext, *, settings: Settings) -> str:
+def footer_body(
+    ctx: SessionContext,
+    *,
+    settings: Settings,
+    footer_info_provider: FooterInfoProvider = no_footer_info,
+) -> str:
     env = ctx.environment or EnvironmentSnapshot()
     if not _has_runtime_signal(env):
         return ""
-    update = _footer_update_label()
+    update = _footer_update_label(_safe_footer_info(footer_info_provider))
     density = settings.footer.density
     if density == "compact":
         return _compact_footer(ctx, env, settings=settings, update=update)
@@ -254,41 +258,21 @@ def _short_model(model: str) -> str:
     return value
 
 
-def _footer_update_label() -> str:
-    latest = _latest_release_info()
-    if not latest:
+def _safe_footer_info(provider: FooterInfoProvider) -> FooterInfo:
+    try:
+        info = provider()
+        return info if isinstance(info, FooterInfo) else FooterInfo()
+    except Exception:
+        return FooterInfo()
+
+
+def _footer_update_label(info: FooterInfo) -> str:
+    latest_tag = str(info.latest_tag or "").strip()
+    if not latest_tag or not is_newer_version(info.current_version, latest_tag):
         return ""
-    latest_tag = str(latest.get("tag_name") or "").strip()
-    if not latest_tag or not _is_newer_version(_current_version(), latest_tag):
-        return ""
-    latest_url = str(latest.get("html_url") or "").strip()
+    latest_url = str(info.latest_url or "").strip()
     label = f"⬆️ update `{latest_tag}`"
     return f"{label} · {latest_url}" if latest_url else label
-
-
-def _latest_release_info(timeout: float = 0.35) -> dict[str, str] | None:
-    try:
-        from ..runtime.commands import _latest_release_info as latest_release_info
-
-        return latest_release_info(timeout=timeout)
-    except Exception:
-        return None
-
-
-def _is_newer_version(current: str, latest: str) -> bool:
-    try:
-        from ..runtime.commands import _is_newer_version as is_newer_version
-
-        return bool(is_newer_version(current, latest))
-    except Exception:
-        return False
-
-
-def _current_version() -> str:
-    try:
-        return str(_runtime_provider() or "")
-    except Exception:
-        return ""
 
 
 def _compact_count(value: int) -> str:

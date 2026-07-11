@@ -40,7 +40,11 @@ def compose_content(renderer, ctx: SessionContext) -> str:
     announcement = announcements.official_announcements_markdown()
     if announcement:
         parts.append(renderer._section("Announcements", "📣", announcement))
-    footer = sectioned_footer(ctx, settings=renderer.settings)
+    footer = sectioned_footer(
+        ctx,
+        settings=renderer.settings,
+        footer_info_provider=renderer.footer_info_provider,
+    )
     if footer:
         parts.append(footer)
     content = "\n\n".join(parts)

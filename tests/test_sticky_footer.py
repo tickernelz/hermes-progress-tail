@@ -7,6 +7,7 @@ import pytest
 
 import hermes_progress_tail.rendering.footer as footer_module
 from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.models.release import FooterInfo
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import EnvironmentSnapshot, SessionContext, ToolEvent
 from tests.support.rendering import EditableAdapter
@@ -126,14 +127,12 @@ def test_footer_renders_per_progress_compaction_count_and_resets_on_new_context(
 
 def test_focused_footer_shows_github_latest_release_update_only_when_newer(monkeypatch):
     async def run():
-        monkeypatch.setattr(
-            footer_module,
-            "_latest_release_info",
-            lambda: {"tag_name": "v0.2.05", "html_url": "https://example.test/v0.2.05"},
-            raising=False,
-        )
+        def update_info():
+            return FooterInfo("0.2.04", "v0.2.05", "https://example.test/v0.2.05")
+
         adapter = EditableAdapter()
         renderer = make_renderer()
+        renderer.footer_info_provider = update_info
         env = EnvironmentSnapshot(
             context_tokens=82_000,
             context_window=256_000,
@@ -157,14 +156,9 @@ def test_focused_footer_shows_github_latest_release_update_only_when_newer(monke
         assert "https://example.test/v0.2.05" in content
         assert content.rfind("**__Status__**") > content.rfind("**__Tools__**")
 
-        monkeypatch.setattr(
-            footer_module,
-            "_latest_release_info",
-            lambda: {"tag_name": "v0.2.04", "html_url": "https://example.test/v0.2.04"},
-            raising=False,
-        )
         adapter2 = EditableAdapter()
         renderer2 = make_renderer()
+        renderer2.footer_info_provider = lambda: FooterInfo("0.2.04", "v0.2.04", "")
         ctx2 = make_ctx(adapter2, env=env)
         renderer2.register_context(ctx2)
 
@@ -185,11 +179,11 @@ def test_footer_update_check_uses_github_release_not_local_git_status(monkeypatc
 
         def latest_release():
             calls.append("github")
-            return None
+            return FooterInfo()
 
-        monkeypatch.setattr(footer_module, "_latest_release_info", latest_release, raising=False)
         adapter = EditableAdapter()
         renderer = make_renderer()
+        renderer.footer_info_provider = latest_release
         env = EnvironmentSnapshot(
             model="gpt-5.5",
             provider="custom",

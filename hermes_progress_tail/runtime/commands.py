@@ -13,6 +13,8 @@ from typing import Any, Protocol
 from ..hooks.install_report import PatchInstallReport, safe_patch_reason
 from ..hooks.monkeypatches import _CAPABILITY_SPECS
 from ..hooks.platform import _legacy_global_suppression_warnings
+from ..models.release import is_newer_version as _is_newer_version
+from ..models.release import version_parts
 from ..settings.config import find_retired_config_keys, find_unknown_config_keys
 from ..utils.redaction import redact_text
 from .config_runtime import (
@@ -21,6 +23,8 @@ from .config_runtime import (
     _load_runtime_settings,
 )
 from .demo import _demo_command
+
+_version_parts = version_parts
 
 _GITHUB_LATEST_RELEASE_URL = (
     "https://api.github.com/repos/tickernelz/hermes-progress-tail/releases/latest"
@@ -122,24 +126,6 @@ def _fresh_latest_release_info() -> dict[str, str] | None:
         return _latest_release_info(refresh=True)
     except TypeError:
         return _latest_release_info()
-
-
-def _version_parts(value: str) -> tuple[int, ...]:
-    match = re.search(r"(\d+(?:\.\d+){0,3})", str(value or ""))
-    if not match:
-        return ()
-    return tuple(int(part) for part in match.group(1).split("."))
-
-
-def _is_newer_version(current: str, latest: str) -> bool:
-    current_parts = _version_parts(current)
-    latest_parts = _version_parts(latest)
-    if not current_parts or not latest_parts:
-        return False
-    width = max(len(current_parts), len(latest_parts))
-    return latest_parts + (0,) * (width - len(latest_parts)) > current_parts + (0,) * (
-        width - len(current_parts)
-    )
 
 
 def _markdown_table(rows: list[tuple[str, str]]) -> str:

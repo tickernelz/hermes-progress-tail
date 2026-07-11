@@ -103,11 +103,10 @@ def test_context_renderer_is_obtained_from_module_local_injected_port():
     assert context._renderer_provider() is sentinel
 
 
-def test_footer_version_is_obtained_from_configured_provider_and_has_safe_default():
-    footer = importlib.reload(importlib.import_module("hermes_progress_tail.rendering.footer"))
-    assert isinstance(footer._current_version(), str)
-    _configure(footer, lambda: "9.8.7-test")
-    assert footer._current_version() == "9.8.7-test"
+def test_footer_information_has_safe_immutable_default():
+    release = importlib.import_module("hermes_progress_tail.models.release")
+    assert release.no_footer_info() == release.FooterInfo()
+    assert release.FooterInfo.__dataclass_params__.frozen
 
 
 def test_runtime_event_modules_accept_independent_local_ports():
@@ -127,7 +126,6 @@ def test_plugin_import_wires_all_module_local_ports_and_repeated_register_is_ide
         importlib.import_module("hermes_progress_tail.runtime.agent_events"),
         importlib.import_module("hermes_progress_tail.runtime.context"),
         importlib.import_module("hermes_progress_tail.runtime.tool_events"),
-        importlib.import_module("hermes_progress_tail.rendering.footer"),
     ]
     assert all(any(name.startswith("configure_") for name in vars(module)) for module in modules)
 
