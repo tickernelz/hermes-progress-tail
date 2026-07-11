@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import os
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,11 +46,7 @@ DEFAULT_CONFIG = {
         "max_cancelled": 2,
         "max_item_chars": 40,
     },
-    "patch": {
-        "detail": "smart",
-        "preview_chars": 48,
-        "max_files": 3,
-    },
+    "patch": {"detail": "smart", "preview_chars": 48, "max_files": 3},
     "assistant": {
         "enabled": True,
         "max_lines": 3,
@@ -75,9 +73,7 @@ DEFAULT_CONFIG = {
         "suppress_native_notify": True,
         "suppress_watch_notifications": True,
     },
-    "native_gateway": {
-        "suppress": True,
-    },
+    "native_gateway": {"suppress": True},
     "cleanup": {
         "auto_delete": False,
         "delay_seconds": 5,
@@ -85,11 +81,7 @@ DEFAULT_CONFIG = {
         "delete_on_failure": False,
         "delete_background_active": False,
     },
-    "footer": {
-        "enabled": True,
-        "density": "normal",
-        "max_path_chars": 56,
-    },
+    "footer": {"enabled": True, "density": "normal", "max_path_chars": 56},
     "telegram": {
         "rich_messages": True,
         "verification_table": True,
@@ -141,7 +133,16 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+            stream.write(text)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def _backup_config(hermes_home: Path) -> Path | None:
@@ -155,9 +156,14 @@ def _backup_config(hermes_home: Path) -> Path | None:
     return dest
 
 
-def _copy_plugin(source_dir: Path, target_dir: Path) -> None:
-    if target_dir.exists():
-        shutil.rmtree(target_dir)
+def _replace_plugin(source_dir: Path, target_dir: Path) -> Path | None:
+    if target_dir.is_symlink() or (target_dir.exists() and not target_dir.is_dir()):
+        raise OSError(f"plugin target is not a directory: {target_dir}")
+    parent = target_dir.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{target_dir.name}.stage.", dir=parent))
+    stage.rmdir()
+    previous = parent / f".{target_dir.name}.rollback"
     ignore = shutil.ignore_patterns(
         ".git",
         ".hermes",
@@ -175,9 +181,28 @@ def _copy_plugin(source_dir: Path, target_dir: Path) -> None:
         "uv.lock",
         "venv",
     )
-    shutil.copytree(source_dir, target_dir, ignore=ignore)
-    if not (target_dir / "plugin.yaml").exists() and _is_package_source_dir(source_dir):
-        (target_dir / "plugin.yaml").write_text(_generated_plugin_yaml(), encoding="utf-8")
+    try:
+        shutil.copytree(source_dir, stage, ignore=ignore)
+        if not (stage / "plugin.yaml").exists() and _is_package_source_dir(source_dir):
+            (stage / "plugin.yaml").write_text(_generated_plugin_yaml(), encoding="utf-8")
+        if target_dir.exists():
+            if previous.exists():
+                shutil.rmtree(previous)
+            target_dir.rename(previous)
+        stage.rename(target_dir)
+        return previous if previous.exists() else None
+    except BaseException:
+        if stage.exists():
+            shutil.rmtree(stage)
+        if previous.exists() and not target_dir.exists():
+            previous.rename(target_dir)
+        raise
+
+
+def _copy_plugin(source_dir: Path, target_dir: Path) -> None:
+    previous = _replace_plugin(source_dir, target_dir)
+    if previous:
+        shutil.rmtree(previous)
 
 
 def _is_plugin_source_dir(path: Path) -> bool:
@@ -477,11 +502,20 @@ def install(
     backup = _backup_config(hermes_home)
     if backup:
         result.messages.append(f"Backed up config to {backup}")
+    previous = _replace_plugin(source_dir, target_dir)
+    try:
+        _write_yaml(config_path, updated)
+    except BaseException:
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        if previous:
+            previous.rename(target_dir)
+        raise
+    if previous:
+        shutil.rmtree(previous)
     if legacy_dir.exists():
         shutil.rmtree(legacy_dir)
         result.messages.append(f"Removed legacy plugin {legacy_dir}")
-    _copy_plugin(source_dir, target_dir)
-    _write_yaml(config_path, updated)
     result.messages.append(f"{action} plugin at {target_dir}")
     result.messages.append("Restart Hermes gateway for changes to take effect")
     return result

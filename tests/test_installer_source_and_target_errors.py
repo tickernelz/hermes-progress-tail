@@ -82,29 +82,41 @@ def test_copy_plugin_rejects_non_directory_target_without_damaging_it(tmp_path, 
         assert (target / "keep.txt").read_text(encoding="utf-8") == "keep"
 
 
-def test_copy_failure_leaves_no_partial_target_when_copytree_fails_before_creation(
-    tmp_path, monkeypatch
-):
+@pytest.mark.parametrize("existing", [False, True])
+def test_copy_failure_cleans_partial_stage_and_restores_target(tmp_path, monkeypatch, existing):
     source = _plugin_source(tmp_path)
     target = tmp_path / "target"
+    if existing:
+        target.mkdir()
+        (target / "old.txt").write_text("old", encoding="utf-8")
 
-    def fail_copytree(*args, **kwargs):
+    def fail_copytree(source, destination, **kwargs):
+        destination.mkdir()
+        (destination / "partial.txt").write_text("partial", encoding="utf-8")
         raise OSError("copy denied")
 
     monkeypatch.setattr(installer.shutil, "copytree", fail_copytree)
     with pytest.raises(OSError, match="copy denied"):
         installer._copy_plugin(source, target)
 
-    assert not target.exists()
+    assert target.is_dir() is existing
+    if existing:
+        assert (target / "old.txt").read_text(encoding="utf-8") == "old"
     assert source.exists()
+    assert not list(tmp_path.glob(".target.*"))
 
 
-def test_install_write_failure_preserves_backup_and_copied_plugin(tmp_path, monkeypatch):
+@pytest.mark.parametrize("existing", [False, True])
+def test_install_write_failure_restores_plugin_and_config(tmp_path, monkeypatch, existing):
     source = _plugin_source(tmp_path)
     home = tmp_path / "home"
     home.mkdir()
     original = "plugins:\n  enabled: [other]\n"
     (home / "config.yaml").write_text(original, encoding="utf-8")
+    target = home / "plugins" / installer.PLUGIN_NAME
+    if existing:
+        target.mkdir(parents=True)
+        (target / "old.txt").write_text("old", encoding="utf-8")
 
     def fail_write(path, data):
         raise OSError("write denied")
@@ -114,13 +126,17 @@ def test_install_write_failure_preserves_backup_and_copied_plugin(tmp_path, monk
         installer.install(home, source)
 
     assert (home / "config.yaml").read_text(encoding="utf-8") == original
-    assert (home / "plugins" / installer.PLUGIN_NAME / "payload.txt").exists()
+    assert target.is_dir() is existing
+    if existing:
+        assert (target / "old.txt").read_text(encoding="utf-8") == "old"
+        assert not (target / "payload.txt").exists()
+    assert not list((home / "plugins").glob(f".{installer.PLUGIN_NAME}.*"))
     backups = list((home / installer.PLUGIN_NAME / "backups").glob("*/config.yaml"))
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == original
 
 
-def test_install_copy_failure_keeps_config_and_backup_but_removes_old_target(tmp_path, monkeypatch):
+def test_install_copy_failure_restores_old_target_and_keeps_config(tmp_path, monkeypatch):
     source = _plugin_source(tmp_path)
     home = tmp_path / "home"
     target = home / "plugins" / installer.PLUGIN_NAME
@@ -129,7 +145,9 @@ def test_install_copy_failure_keeps_config_and_backup_but_removes_old_target(tmp
     original = "plugins:\n  enabled: []\n"
     (home / "config.yaml").write_text(original, encoding="utf-8")
 
-    def fail_copytree(*args, **kwargs):
+    def fail_copytree(source, destination, **kwargs):
+        destination.mkdir()
+        (destination / "partial.txt").write_text("partial", encoding="utf-8")
         raise OSError("copy denied")
 
     monkeypatch.setattr(installer.shutil, "copytree", fail_copytree)
@@ -137,9 +155,25 @@ def test_install_copy_failure_keeps_config_and_backup_but_removes_old_target(tmp
         installer.install(home, source)
 
     assert (home / "config.yaml").read_text(encoding="utf-8") == original
-    assert not target.exists()
+    assert (target / "old.txt").read_text(encoding="utf-8") == "old"
+    assert not list(target.parent.glob(f".{installer.PLUGIN_NAME}.*"))
     backups = list((home / installer.PLUGIN_NAME / "backups").glob("*/config.yaml"))
     assert len(backups) == 1
+
+
+def test_write_yaml_replace_failure_preserves_old_config_and_cleans_temp(tmp_path, monkeypatch):
+    config = tmp_path / "config.yaml"
+    config.write_text("old: true\n", encoding="utf-8")
+
+    def fail_replace(source, destination):
+        raise OSError("replace denied")
+
+    monkeypatch.setattr(installer.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="replace denied"):
+        installer._write_yaml(config, {"new": True})
+
+    assert config.read_text(encoding="utf-8") == "old: true\n"
+    assert not list(tmp_path.glob(".config.yaml.*"))
 
 
 def test_default_source_search_uses_package_layout_and_reports_no_match(tmp_path, monkeypatch):
