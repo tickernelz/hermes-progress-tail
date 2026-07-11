@@ -1,4 +1,4 @@
-import asyncio  # noqa: I001 - keep shared helpers in one import
+import asyncio
 
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.delegate_renderer import DelegateProgressRenderer
@@ -8,6 +8,8 @@ from hermes_progress_tail.state import (
 )
 from tests.support.rendering import (
     EditableAdapter,
+)
+from tests.support.rendering import (
     make_live_context as make_ctx,
 )
 
