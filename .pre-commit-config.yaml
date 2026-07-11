@@ -12,3 +12,8 @@ repos:
         entry: python scripts/check_structure.py
         language: system
         pass_filenames: false
+      - id: session-context-inventory
+        name: SessionContext constructor inventory
+        entry: python scripts/check_session_context_inventory.py
+        language: system
+        pass_filenames: false
