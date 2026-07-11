@@ -1,3 +1,4 @@
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -6,7 +7,7 @@ from hermes_progress_tail.runtime import environment as env
 
 
 def test_git_cache_fresh_expired_separate_and_resolve_failure(monkeypatch, tmp_path):
-    env._GIT_CACHE.clear()
+    monkeypatch.setattr(env, "_GIT_CACHE", {})
     calls = []
     monkeypatch.setattr(
         env, "_load_git_snapshot", lambda path: calls.append(path) or {"n": len(calls)}
@@ -28,7 +29,6 @@ def test_git_cache_fresh_expired_separate_and_resolve_failure(monkeypatch, tmp_p
 
     monkeypatch.setattr(env.time, "monotonic", lambda: 20.0)
     assert env._git_snapshot(BadPath()) == {"n": 4}
-    env._GIT_CACHE.clear()
 
 
 def test_load_git_snapshot_non_worktree_and_detached(monkeypatch, tmp_path):
@@ -107,7 +107,7 @@ def test_git_command_contract_and_failures(monkeypatch, tmp_path):
         env.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1, stdout="x")
     )
     assert env._git_command(tmp_path, "x") == ""
-    for error in (TimeoutError(), OSError()):
+    for error in (subprocess.TimeoutExpired(["git", "x"], 0.15), OSError("generic")):
         monkeypatch.setattr(
             env.subprocess, "run", lambda *a, _error=error, **k: (_ for _ in ()).throw(_error)
         )

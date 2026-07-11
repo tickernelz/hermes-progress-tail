@@ -48,6 +48,26 @@ def test_runtime_settings_are_freshly_delegated(monkeypatch):
     assert seen == [{"progress_tail": {}}, {"progress_tail": {"enabled": False}}]
 
 
+def test_runtime_settings_delegate_real_nested_conversion(monkeypatch):
+    platform_override = {"strategy": "snapshot", "tools_enabled": False}
+    monkeypatch.setattr(
+        runtime,
+        "_load_runtime_config",
+        lambda: {
+            "progress_tail": {
+                "tools": {"preview_length": 42, "lines": "invalid"},
+                "platforms": {"telegram": platform_override},
+            }
+        },
+    )
+
+    settings = runtime._load_runtime_settings()
+
+    assert settings.tools.preview_length == 42
+    assert settings.tools.lines == 3
+    assert settings.platforms == {"telegram": platform_override}
+
+
 @pytest.mark.parametrize(
     "config,expected",
     [

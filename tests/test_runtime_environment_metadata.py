@@ -28,6 +28,7 @@ def test_update_agent_none_terminal_precedence_and_atomic_failure(monkeypatch, t
     env._update_environment_from_agent(value, None)
     assert value.environment is current
     value._progress_tail_cwd_source = "terminal"
+    value.strategy = "snapshot"
     monkeypatch.setattr(
         env,
         "_runtime_git_snapshot",
@@ -46,6 +47,7 @@ def test_update_agent_none_terminal_precedence_and_atomic_failure(monkeypatch, t
         provider="p",
         reasoning_effort=" high ",
         context_length=100,
+        context_compressor=SimpleNamespace(last_prompt_tokens=73),
     )
     env._update_environment_from_agent(value, agent)
     assert value.environment.cwd == str(tmp_path / "terminal")
@@ -55,13 +57,21 @@ def test_update_agent_none_terminal_precedence_and_atomic_failure(monkeypatch, t
         "profile",
     )
     assert (
+        value.environment.context_tokens,
+        value.environment.context_window,
+        value.environment.context_kind,
+    ) == (73, 100, "est")
+    assert (
         value.environment.git_branch,
         value.environment.git_dirty,
         value.environment.git_ahead,
-    ) == ("main", True, 2)
+        value.environment.git_behind,
+        value.environment.worktree,
+        value.environment.strategy,
+    ) == ("main", True, 2, 1, "repo", "snapshot")
     assert value.environment.reasoning_effort == "high"
     before = value.environment
-    monkeypatch.setattr(env, "_runtime_git_snapshot", lambda cwd: {"ahead": "bad"})
+    monkeypatch.setattr(env, "_runtime_git_snapshot", lambda cwd: {"behind": "bad"})
     env._update_environment_from_agent(value, agent)
     assert value.environment is before
 
