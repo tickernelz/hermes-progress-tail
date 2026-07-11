@@ -1,3 +1,5 @@
+from tests.support.rendering import Result
+
 import asyncio
 from types import SimpleNamespace
 
@@ -10,11 +12,6 @@ from hermes_progress_tail.monkeypatches import (
 from hermes_progress_tail.state import SessionContext, ToolEvent
 
 
-class Result:
-    def __init__(self, success=True, message_id=None, error=""):
-        self.success = success
-        self.message_id = message_id
-        self.error = error
 
 
 class EditableAdapter:

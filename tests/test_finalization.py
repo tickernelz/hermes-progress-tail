@@ -1,3 +1,5 @@
+from tests.support.rendering import Result
+
 import asyncio
 
 from hermes_progress_tail.config import load_settings
@@ -5,11 +7,6 @@ from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import BackgroundJobEvent, ReasoningEvent, SessionContext, ToolEvent
 
 
-class Result:
-    def __init__(self, success=True, message_id=None, error=""):
-        self.success = success
-        self.message_id = message_id
-        self.error = error
 
 
 class EditableAdapter:

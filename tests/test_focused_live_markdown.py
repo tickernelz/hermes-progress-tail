@@ -1,3 +1,5 @@
+from tests.support.rendering import Result, EditableAdapter
+
 import asyncio
 
 from hermes_progress_tail.config import load_settings
@@ -5,30 +7,8 @@ from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.state import AssistantEvent, ReasoningEvent, SessionContext, ToolEvent
 
 
-class Result:
-    def __init__(self, success=True, message_id=None, error=""):
-        self.success = success
-        self.message_id = message_id
-        self.error = error
 
 
-class EditableAdapter:
-    name = "editable"
-
-    def __init__(self):
-        self.sent = []
-        self.edits = []
-        self.next_id = 1
-
-    async def send(self, chat_id, content, metadata=None):
-        message_id = f"m{self.next_id}"
-        self.next_id += 1
-        self.sent.append((chat_id, content, metadata))
-        return Result(True, message_id)
-
-    async def edit_message(self, chat_id, message_id, content):
-        self.edits.append((chat_id, message_id, content))
-        return Result(True, message_id)
 
 
 def make_renderer():
