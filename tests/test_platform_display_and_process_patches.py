@@ -34,7 +34,12 @@ def test_display_install_suppresses_owned_settings_and_restores(display):
     assert display.resolve_display_setting(OWNED, "telegram", "unrelated") == "native"
     assert platform.uninstall_gateway_display_suppression_monkeypatch(display)
     assert display.resolve_display_setting is original
+    assert not hasattr(display, "_hermes_progress_tail_gateway_display_patched")
     assert platform.uninstall_gateway_display_suppression_monkeypatch(display) is False
+    assert platform.install_gateway_display_suppression_monkeypatch(display) is True
+    assert platform.uninstall_gateway_display_suppression_monkeypatch(display) is True
+    assert display.resolve_display_setting is original
+    assert not hasattr(display, "_hermes_progress_tail_gateway_display_patched")
 
 
 def test_display_keyword_arguments_and_non_ownership_passthrough(display):
@@ -95,7 +100,12 @@ def test_process_install_suppresses_owned_success_and_watch_then_restores(proces
     assert process.format_process_notification({**route, "type": "watch_match"}) is None
     assert platform.uninstall_process_notification_monkeypatch(process)
     assert process.format_process_notification is original
+    assert not hasattr(process, "_hermes_progress_tail_process_notification_patched")
     assert platform.uninstall_process_notification_monkeypatch(process) is False
+    assert platform.install_process_notification_monkeypatch(process) is True
+    assert platform.uninstall_process_notification_monkeypatch(process) is True
+    assert process.format_process_notification is original
+    assert not hasattr(process, "_hermes_progress_tail_process_notification_patched")
 
 
 def test_process_passthrough_for_unowned_invalid_and_unsuppressed_events(process):

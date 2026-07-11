@@ -50,7 +50,13 @@ def test_adapter_install_remembers_bound_owner_passthrough_and_teardown():
     assert platform.uninstall_adapter_monkeypatches(Adapter) is True
     assert Adapter.set_message_handler is original_set
     assert Adapter.handle_message is original_handle
+    assert not hasattr(Adapter, "_hermes_progress_tail_adapter_patched")
     assert platform.uninstall_adapter_monkeypatches(Adapter) is False
+    assert platform.install_adapter_monkeypatches(Adapter) is True
+    assert platform.uninstall_adapter_monkeypatches(Adapter) is True
+    assert Adapter.set_message_handler is original_set
+    assert Adapter.handle_message is original_handle
+    assert not hasattr(Adapter, "_hermes_progress_tail_adapter_patched")
 
 
 def test_adapter_bound_handler_and_internal_registration_are_observable(monkeypatch):
@@ -78,6 +84,12 @@ def test_adapter_bound_handler_and_internal_registration_are_observable(monkeypa
 
 
 def test_adapter_callback_and_remembering_failures_do_not_break_passthrough(monkeypatch):
+    calls = []
+
+    def raising_registration(owner, event):
+        calls.append((owner, event))
+        raise RuntimeError("callback failed")
+
     class HostileAdapter(Adapter):
         def __setattr__(self, name, value):
             if name.startswith("_hermes_progress_tail"):
@@ -86,12 +98,14 @@ def test_adapter_callback_and_remembering_failures_do_not_break_passthrough(monk
 
     monkeypatch.setattr(
         "hermes_progress_tail.runtime.plugin.register_context_from_adapter_event",
-        lambda *_: (_ for _ in ()).throw(RuntimeError("callback failed")),
+        raising_registration,
     )
     adapter = HostileAdapter()
+    event = SimpleNamespace(internal=True)
     assert platform.install_adapter_monkeypatches(HostileAdapter)
     assert adapter.set_message_handler(lambda: None) == "installed"
-    assert asyncio.run(adapter.handle_message(SimpleNamespace(internal=True))) == "handled"
+    assert asyncio.run(adapter.handle_message(event)) == "handled"
+    assert calls == [(adapter, event)]
     assert platform.uninstall_adapter_monkeypatches(HostileAdapter)
 
 
@@ -131,7 +145,12 @@ def test_interrupt_stop_reasons_notify_after_native_call(monkeypatch, args, kwar
     assert calls == [((12, "telegram", args, kwargs), {"session_key": "12", "source": "telegram"})]
     assert platform.uninstall_gateway_interrupt_monkeypatch(Runner)
     assert Runner._interrupt_and_clear_session is original
+    assert not hasattr(Runner, "_hermes_progress_tail_gateway_interrupt_patched")
     assert platform.uninstall_gateway_interrupt_monkeypatch(Runner) is False
+    assert platform.install_gateway_interrupt_monkeypatch(Runner) is True
+    assert platform.uninstall_gateway_interrupt_monkeypatch(Runner) is True
+    assert Runner._interrupt_and_clear_session is original
+    assert not hasattr(Runner, "_hermes_progress_tail_gateway_interrupt_patched")
 
 
 def test_interrupt_non_stop_and_callback_failure_preserve_native_result(monkeypatch):
