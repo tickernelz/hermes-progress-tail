@@ -1,4 +1,4 @@
-import asyncio
+import asyncio  # noqa: I001 - keep shared helpers in one import
 import time
 
 from hermes_progress_tail.config import load_settings
@@ -17,8 +17,6 @@ from tests.support.rendering import (
     NoEditAdapter,
     SequenceEditAdapter,
     SequenceSendAdapter,
-)
-from tests.support.rendering import (
     make_live_context as make_ctx,
 )
 

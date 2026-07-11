@@ -1,4 +1,3 @@
-
 import pytest
 
 from hermes_progress_tail.config import load_settings
