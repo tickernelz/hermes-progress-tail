@@ -118,6 +118,21 @@ def test_latest_release_network_failure_caches_none(monkeypatch):
         commands._LATEST_RELEASE_CACHE.update(old)
 
 
+def test_latest_release_malformed_json_caches_none(monkeypatch):
+    old = dict(commands._LATEST_RELEASE_CACHE)
+    checked_at = 1234.5
+    try:
+        monkeypatch.setattr(commands.time, "time", lambda: checked_at)
+        monkeypatch.setattr(commands.urllib.request, "urlopen", lambda *a, **k: _Response(b"{"))
+
+        assert commands._latest_release_info(refresh=True) is None
+        expected_cache = {"checked_at": checked_at, "info": None}
+        assert expected_cache == commands._LATEST_RELEASE_CACHE
+    finally:
+        commands._LATEST_RELEASE_CACHE.clear()
+        commands._LATEST_RELEASE_CACHE.update(old)
+
+
 def _write_tar(path, members):
     with tarfile.open(path, "w:gz") as archive:
         for member, data in members:
