@@ -8,26 +8,84 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
+from ..hooks.install_report import PatchInstallReport, safe_patch_reason
+from ..hooks.monkeypatches import _CAPABILITY_SPECS
 from ..hooks.platform import _legacy_global_suppression_warnings
 from ..settings.config import find_retired_config_keys, find_unknown_config_keys
 from ..utils.redaction import redact_text
-from .config_runtime import _background_job_config_warnings, _load_runtime_config
+from .config_runtime import (
+    _background_job_config_warnings,
+    _load_runtime_config,
+    _load_runtime_settings,
+)
 from .demo import _demo_command
 
 _GITHUB_LATEST_RELEASE_URL = (
     "https://api.github.com/repos/tickernelz/hermes-progress-tail/releases/latest"
 )
 _LATEST_RELEASE_CACHE: dict[str, object] = {"checked_at": 0.0, "info": None}
-_COMMAND_RUNTIME: Any = None
+
+
+class CommandRuntime(Protocol):
+    def get_renderer(self) -> Any: ...
+
+    assistant_capture: dict[str, Any]
+    patch_report: PatchInstallReport
+
+    def load_runtime_config(self) -> dict: ...
+
+
+class _DefaultCommandRuntime:
+    assistant_capture: dict[str, Any] = {}
+    patch_report = PatchInstallReport()
+    _renderer: Any = None
+
+    def get_renderer(self) -> Any:
+        if self._renderer is None:
+            from ..rendering.renderer import ProgressRenderer
+
+            self._renderer = ProgressRenderer(_load_runtime_settings())
+        return self._renderer
+
+    def load_runtime_config(self) -> dict:
+        return _load_runtime_config()
+
+
+_COMMAND_RUNTIME: CommandRuntime = _DefaultCommandRuntime()
 _COMMAND_VERSION = ""
 
 
-def configure_command_runtime(runtime: Any, *, version: str) -> None:
+def configure_command_runtime(runtime: CommandRuntime, *, version: str) -> None:
     global _COMMAND_RUNTIME, _COMMAND_VERSION
     _COMMAND_RUNTIME = runtime
     _COMMAND_VERSION = version
+
+
+def _patch_health_rows(report: PatchInstallReport, *, doctor: bool) -> list[str]:
+    expected = {spec.name: spec.target for spec in _CAPABILITY_SPECS}
+    statuses = {status.name: status for status in report.statuses}
+    installed = sum(bool(status.installed) for status in report.statuses if status.name in expected)
+    healthy = set(statuses) == set(expected) and installed == len(expected)
+    rows = [f"hooks={'healthy' if healthy else 'degraded'} installed={installed}/11"]
+    if not doctor:
+        return rows
+    for name, target in expected.items():
+        status = statuses.get(name)
+        if status is not None and status.installed:
+            continue
+        if status is None:
+            category = "target_api_missing"
+            reason = "status absent from patch report"
+        else:
+            category = status.failure_category.value
+            target = status.target
+            reason = status.reason
+        safe_reason = safe_patch_reason(reason).replace("Traceback", "").strip()
+        suffix = f" reason={safe_reason}" if safe_reason else ""
+        rows.append(f"hook {name}: {category} target={target}{suffix}")
+    return rows
 
 
 def _latest_release_info(timeout: float = 1.5, *, refresh: bool = False) -> dict[str, str] | None:
@@ -381,7 +439,7 @@ def _command(raw_args: str = "") -> str:
         except Exception:
             command_menu_active = False
         settings = renderer.settings
-        runtime_config = _load_runtime_config()
+        runtime_config = _COMMAND_RUNTIME.load_runtime_config()
         display = (
             runtime_config.get("display") if isinstance(runtime_config.get("display"), dict) else {}
         )
@@ -423,6 +481,7 @@ def _command(raw_args: str = "") -> str:
             f"delegate_monkeypatch={delegate_monkeypatch_active}",
             f"command_menu_monkeypatch={command_menu_active}",
         ]
+        lines.extend(_patch_health_rows(_COMMAND_RUNTIME.patch_report, doctor=args == "doctor"))
         if args == "doctor":
             lines.extend(_legacy_global_suppression_warnings(runtime_config))
             lines.extend(_background_job_config_warnings(settings))

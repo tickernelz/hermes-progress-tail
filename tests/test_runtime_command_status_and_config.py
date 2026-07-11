@@ -3,6 +3,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.hooks.install_report import PatchInstallReport
 from hermes_progress_tail.runtime import commands
 
 
@@ -17,9 +18,10 @@ def _patch_runtime(monkeypatch, renderer, config=None):
     runtime = SimpleNamespace(
         get_renderer=lambda: renderer,
         assistant_capture=commands._COMMAND_RUNTIME.assistant_capture,
+        patch_report=PatchInstallReport(),
+        load_runtime_config=lambda: config or {},
     )
     monkeypatch.setattr(commands, "_COMMAND_RUNTIME", runtime)
-    monkeypatch.setattr(commands, "_load_runtime_config", lambda: config or {})
     monkeypatch.setattr(commands, "_latest_release_info", lambda: None)
 
 

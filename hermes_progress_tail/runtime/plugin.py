@@ -203,6 +203,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 VERSION = "0.2.04"
 _runtime = PluginRuntime()
+_runtime.load_runtime_config = lambda: _load_runtime_config()
 _renderer: ProgressRenderer | None = _runtime.renderer
 _ASSISTANT_CAPTURE: dict[str, Any] = _runtime.assistant_capture
 
