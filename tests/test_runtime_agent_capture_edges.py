@@ -130,7 +130,7 @@ def test_lifecycle_guards(monkeypatch, phase, suppress, ctx):
     "text,ctx,local,global_,scheduled,streamed,status,result",
     [
         (" ", True, True, True, True, False, "empty", False),
-        ("secret AKIAABCDEFGHIJKLMNOP", False, True, True, True, False, "no_context", False),
+        ("secret sk-abcdefghijklmnop", False, True, True, True, False, "no_context", False),
         ("x", True, False, True, True, False, "disabled", False),
         ("x", True, True, False, True, False, "disabled", False),
         ("x", True, True, True, False, False, "schedule_failed", False),
@@ -147,8 +147,12 @@ def test_assistant_capture_edges(
     assert ae.on_assistant_progress_from_agent(object(), text, already_streamed=streamed) is result
     capture = plugin._ASSISTANT_CAPTURE
     assert capture["status"] == status
+    assert capture["session_id"] == ("" if status == "empty" else "sid")
     assert capture["session_key_present"] is (status not in {"empty", "background_review"})
     assert capture["already_streamed"] is streamed
+    expected_preview = "secret [redacted_token]" if status == "no_context" else text.strip()
+    assert capture["text_preview"] == expected_preview
+    assert "sk-abcdefghijklmnop" not in capture["text_preview"]
 
 
 def test_assistant_background_and_delegate_normalization(monkeypatch):

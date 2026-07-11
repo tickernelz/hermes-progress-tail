@@ -134,6 +134,35 @@ def test_gateway_stop_outcomes(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize("exact", [False, True])
+def test_gateway_stop_platform_fallback_and_schedule_failure(monkeypatch, exact):
+    target, submitted = ctx(), []
+
+    async def finalize(**kw):
+        pass
+
+    renderer = NS(
+        find_context=lambda *a: target if exact else None,
+        sessions={"target": target},
+        finalize=finalize,
+    )
+    plugin(monkeypatch, renderer)
+    runtime = ae._runtime_plugin()
+    runtime._finalize_target_context = ae._finalize_target_context
+    runtime._schedule_finalize = ae._schedule_finalize
+
+    def reject(coro, loop):
+        submitted.append(loop)
+        coro.close()
+        raise RuntimeError("schedule failed")
+
+    monkeypatch.setattr(ae.asyncio, "run_coroutine_threadsafe", reject)
+    assert ae.on_gateway_stop_from_runner(
+        session_key="k-sid" if exact else "missing", source=NS(platform="discord")
+    )
+    assert submitted == [target.loop]
+
+
 def test_reset_inline_reasoning_guards(monkeypatch):
     ae._reset_inline_reasoning(None)
     import hermes_progress_tail.hooks.monkeypatches as hooks

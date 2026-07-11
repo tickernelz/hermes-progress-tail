@@ -149,14 +149,32 @@ def test_pre_dispatch_guards(
     monkeypatch.setattr(
         rc, "resolve_platform_settings", lambda *a: NS(enabled=enabled, strategy="auto")
     )
+    gateway, store, selected_adapter = object(), object(), object()
+    resolution, calls = [], []
     monkeypatch.setattr(
-        rc, "_pre_gateway_session_context", lambda g, st, s: (s, NS(session_key="k"), session)
+        rc,
+        "_pre_gateway_session_context",
+        lambda g, st, s: resolution.append((g, st, s)) or (s, NS(session_key="k"), session),
     )
-    monkeypatch.setattr(rc, "_adapter_for", lambda *a: object() if adapter else None)
-    calls = []
-    monkeypatch.setattr(rc, "_register_context", lambda **kw: calls.append(kw))
-    rc._on_pre_gateway_dispatch(NS(source=event_source), object(), object())
-    assert bool(calls) is called
+    monkeypatch.setattr(rc, "_adapter_for", lambda *a: selected_adapter if adapter else None)
+    monkeypatch.setattr(
+        rc, "_register_context", lambda **kw: calls.append({**kw, "origin": "gateway"})
+    )
+    rc._on_pre_gateway_dispatch(NS(source=event_source), gateway, store)
+    if called:
+        assert resolution == [(gateway, store, event_source)]
+        assert calls == [
+            {
+                "renderer": r,
+                "source": event_source,
+                "adapter": selected_adapter,
+                "session_id": "s",
+                "session_key": "k",
+                "origin": "gateway",
+            }
+        ]
+    else:
+        assert calls == []
 
 
 def _context_contract(ctx, src, adapter, sid, key, loop):
