@@ -103,6 +103,8 @@ def test_profile_selection_without_discovered_profiles_uses_default(tmp_path, ca
         ("0,2", (["default", "work"], False)),
         ("1,base,main,custom", (["personal", "default", "default", "custom"], False)),
         (",,", (["default"], False)),
+        ("-1,+1,1.0", (["-1", "+1", "1.0"], False)),
+        ("1,,work,", (["personal", "work"], False)),
     ],
 )
 def test_profile_selection_variants(monkeypatch, tmp_path, answer, expected):

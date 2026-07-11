@@ -134,6 +134,8 @@ def test_interactive_install_uses_prompt_file_and_closes_it(monkeypatch, tmp_pat
 
 
 def test_interactive_uninstall_routes_profile_selection(monkeypatch, tmp_path):
+    prompt_path = tmp_path / "uninstall.txt"
+    prompt_path.write_text("work\n", encoding="utf-8")
     selected = []
     monkeypatch.setattr(
         interactive,
@@ -150,16 +152,58 @@ def test_interactive_uninstall_routes_profile_selection(monkeypatch, tmp_path):
     )
     home = tmp_path / "home"
 
-    assert interactive.main(["uninstall", "--hermes-home", str(home), "--interactive"]) == 0
+    assert (
+        interactive.main(
+            [
+                "uninstall",
+                "--hermes-home",
+                str(home),
+                "--interactive",
+                "--prompt-input",
+                str(prompt_path),
+            ]
+        )
+        == 0
+    )
     assert selected[0][0] == home.resolve()
+    assert selected[0][1].closed
     assert selected[0][2] == "uninstall"
     assert calls == [((home,), {"profiles": ["work"], "all_profiles": False, "dry_run": False})]
 
 
-def test_missing_prompt_file_returns_two(tmp_path, capsys):
+def test_missing_prompt_file_returns_exact_deterministic_error(monkeypatch, tmp_path, capsys):
     missing = tmp_path / "missing.txt"
+    error = PermissionError("prompt denied")
+    monkeypatch.setattr(
+        type(missing), "open", lambda *_args, **_kwargs: (_ for _ in ()).throw(error)
+    )
     assert interactive.main(["install", "--interactive", "--prompt-input", str(missing)]) == 2
-    assert capsys.readouterr().err.startswith(f"error: cannot open prompt input {missing}:")
+    assert capsys.readouterr().err == f"error: cannot open prompt input {missing}: prompt denied\n"
+
+
+@pytest.mark.parametrize("action", ["install", "uninstall"])
+def test_noninteractive_prompt_file_success_closes_without_reading(
+    monkeypatch, tmp_path, capsys, action
+):
+    prompt_path = tmp_path / f"{action}.txt"
+    prompt_path.write_text("unused\n", encoding="utf-8")
+    opened = []
+    original_open = type(prompt_path).open
+
+    def tracking_open(path, *args, **kwargs):
+        stream = original_open(path, *args, **kwargs)
+        opened.append(stream)
+        return stream
+
+    monkeypatch.setattr(type(prompt_path), "open", tracking_open)
+    monkeypatch.setattr(
+        installer, f"{action}_many", lambda *_args, **_kwargs: result(f"{action}ed")
+    )
+    status = interactive.main([action, "--prompt-input", str(prompt_path)])
+
+    assert status == 0
+    assert capsys.readouterr().out == f"{action}ed\n"
+    assert opened[0].closed
 
 
 @pytest.mark.parametrize("error", [EOFError("ended"), ValueError("malformed")])
