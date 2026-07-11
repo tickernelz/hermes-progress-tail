@@ -40,6 +40,9 @@ jobs:
           bash -n install.sh
           bash -n uninstall.sh
 
+      - name: Repository structure
+        run: python scripts/check_structure.py
+
       - name: Tests
         run: python -m pytest
 

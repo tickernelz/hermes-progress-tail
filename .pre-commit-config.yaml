@@ -5,3 +5,10 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+  - repo: local
+    hooks:
+      - id: repository-structure
+        name: repository structure
+        entry: python scripts/check_structure.py
+        language: system
+        pass_filenames: false
