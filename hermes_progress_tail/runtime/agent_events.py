@@ -3,19 +3,35 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, Protocol
 
 from ..gateway.compat import platform_name
 from ..models.state import AssistantEvent, DelegateEvent, ReasoningEvent
 from ..utils.redaction import redact_text
+from .context import _context_for
+from .environment import _agent_session_id, _agent_session_key, _update_environment_from_agent
+from .origin import _is_background_review_thread, _should_suppress_agent_progress
+from .tool_events import _context_for_non_background_thread, _schedule_render
 
 logger = logging.getLogger(__name__)
 
 
-def _runtime_plugin():
-    from . import plugin as runtime_plugin
+class RuntimePort(Protocol):
+    assistant_capture: dict[str, Any]
 
-    return runtime_plugin
+    def get_renderer(self) -> Any: ...
+
+
+_runtime_provider: RuntimePort | None = None
+
+
+def configure_runtime_provider(provider: RuntimePort) -> None:
+    global _runtime_provider
+    _runtime_provider = provider
+
+
+def _runtime_plugin():
+    return _runtime_provider
 
 
 def _record_assistant_capture(
@@ -27,7 +43,7 @@ def _record_assistant_capture(
     already_streamed: bool = False,
 ) -> None:
     runtime_plugin = _runtime_plugin()
-    runtime_plugin._ASSISTANT_CAPTURE.update(
+    runtime_plugin.assistant_capture.update(
         {
             "status": status,
             "session_id": str(session_id or ""),
@@ -45,16 +61,16 @@ def on_reasoning_delta_from_agent(
     if not text:
         return
     runtime_plugin = _runtime_plugin()
-    if runtime_plugin._should_suppress_agent_progress(agent):
+    if _should_suppress_agent_progress(agent):
         return
-    renderer = runtime_plugin._get_renderer()
-    session_id = runtime_plugin._agent_session_id(agent)
-    session_key = runtime_plugin._agent_session_key(agent)
-    ctx = runtime_plugin._context_for_non_background_thread(renderer, session_id, session_key)
+    renderer = runtime_plugin.get_renderer()
+    session_id = _agent_session_id(agent)
+    session_key = _agent_session_key(agent)
+    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None or not ctx.reasoning_enabled:
         return
-    runtime_plugin._update_environment_from_agent(ctx, agent)
-    runtime_plugin._schedule_render(
+    _update_environment_from_agent(ctx, agent)
+    _schedule_render(
         ctx, ReasoningEvent(ctx.session_id, ctx.session_key, ctx.platform, text, source=source)
     )
 
@@ -64,18 +80,18 @@ def on_compression_status_from_agent(agent: Any, text: str) -> bool:
     if not clean:
         return False
     runtime_plugin = _runtime_plugin()
-    if runtime_plugin._should_suppress_agent_progress(agent):
+    if _should_suppress_agent_progress(agent):
         return False
-    renderer = runtime_plugin._get_renderer()
-    session_id = runtime_plugin._agent_session_id(agent)
-    session_key = runtime_plugin._agent_session_key(agent)
-    ctx = runtime_plugin._context_for_non_background_thread(renderer, session_id, session_key)
+    renderer = runtime_plugin.get_renderer()
+    session_id = _agent_session_id(agent)
+    session_key = _agent_session_key(agent)
+    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None:
         return False
     if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
         return False
-    runtime_plugin._update_environment_from_agent(ctx, agent)
-    return runtime_plugin._schedule_render(
+    _update_environment_from_agent(ctx, agent)
+    return _schedule_render(
         ctx,
         AssistantEvent(
             ctx.session_id,
@@ -98,24 +114,22 @@ def _compression_status_tail_text(text: str) -> str:
 
 def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> bool:
     runtime_plugin = _runtime_plugin()
-    if runtime_plugin._should_suppress_agent_progress(agent):
+    if _should_suppress_agent_progress(agent):
         return False
-    renderer = runtime_plugin._get_renderer()
+    renderer = runtime_plugin.get_renderer()
     old_session_id = str(data.get("old_session_id") or "")
-    new_session_id = str(
-        data.get("new_session_id") or runtime_plugin._agent_session_id(agent) or old_session_id
-    )
-    session_key = runtime_plugin._agent_session_key(agent)
+    new_session_id = str(data.get("new_session_id") or _agent_session_id(agent) or old_session_id)
+    session_key = _agent_session_key(agent)
     if old_session_id and new_session_id and old_session_id != new_session_id:
-        candidate = runtime_plugin._context_for(renderer, old_session_id, session_key)
+        candidate = _context_for(renderer, old_session_id, session_key)
         if candidate is not None:
             renderer.migrate_context(old_session_id, new_session_id, session_key=session_key)
-    ctx = runtime_plugin._context_for_non_background_thread(
+    ctx = _context_for_non_background_thread(
         renderer, new_session_id or old_session_id, session_key
     )
     if ctx is None or not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
         return False
-    runtime_plugin._update_environment_from_agent(ctx, agent)
+    _update_environment_from_agent(ctx, agent)
     if phase == "started":
         text = "Compacting context — summarizing earlier conversation"
     elif phase == "completed":
@@ -125,7 +139,7 @@ def on_compression_lifecycle_from_agent(agent: Any, phase: str, **data: Any) -> 
         text = "Context compaction failed — continuing unchanged"
     else:
         return False
-    return runtime_plugin._schedule_render(
+    return _schedule_render(
         ctx,
         AssistantEvent(
             ctx.session_id,
@@ -171,20 +185,20 @@ def on_assistant_progress_from_agent(
 ) -> bool:
     clean = str(text or "").strip()
     runtime_plugin = _runtime_plugin()
-    if runtime_plugin._should_suppress_agent_progress(agent):
-        runtime_plugin._record_assistant_capture(
+    if _should_suppress_agent_progress(agent):
+        _record_assistant_capture(
             "background_review", text=clean, already_streamed=already_streamed
         )
         return False
     if not clean:
-        runtime_plugin._record_assistant_capture("empty", already_streamed=already_streamed)
+        _record_assistant_capture("empty", already_streamed=already_streamed)
         return False
-    renderer = runtime_plugin._get_renderer()
-    session_id = runtime_plugin._agent_session_id(agent)
-    session_key = runtime_plugin._agent_session_key(agent)
-    ctx = runtime_plugin._context_for_non_background_thread(renderer, session_id, session_key)
+    renderer = runtime_plugin.get_renderer()
+    session_id = _agent_session_id(agent)
+    session_key = _agent_session_key(agent)
+    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None:
-        runtime_plugin._record_assistant_capture(
+        _record_assistant_capture(
             "no_context",
             session_id=session_id,
             session_key=session_key,
@@ -193,7 +207,7 @@ def on_assistant_progress_from_agent(
         )
         return False
     if not ctx.assistant_enabled or not renderer.settings.assistant.enabled:
-        runtime_plugin._record_assistant_capture(
+        _record_assistant_capture(
             "disabled",
             session_id=ctx.session_id,
             session_key=ctx.session_key,
@@ -201,8 +215,8 @@ def on_assistant_progress_from_agent(
             already_streamed=already_streamed,
         )
         return False
-    runtime_plugin._update_environment_from_agent(ctx, agent)
-    scheduled = runtime_plugin._schedule_render(
+    _update_environment_from_agent(ctx, agent)
+    scheduled = _schedule_render(
         ctx,
         AssistantEvent(
             ctx.session_id,
@@ -212,7 +226,7 @@ def on_assistant_progress_from_agent(
             already_streamed=already_streamed,
         ),
     )
-    runtime_plugin._record_assistant_capture(
+    _record_assistant_capture(
         "scheduled" if scheduled else "schedule_failed",
         session_id=ctx.session_id,
         session_key=ctx.session_key,
@@ -232,12 +246,12 @@ def on_delegate_progress_from_agent(
 ) -> None:
     _ = args
     runtime_plugin = _runtime_plugin()
-    if runtime_plugin._should_suppress_agent_progress(parent_agent):
+    if _should_suppress_agent_progress(parent_agent):
         return
-    renderer = runtime_plugin._get_renderer()
-    session_id = runtime_plugin._agent_session_id(parent_agent)
-    session_key = runtime_plugin._agent_session_key(parent_agent)
-    ctx = runtime_plugin._context_for_non_background_thread(renderer, session_id, session_key)
+    renderer = runtime_plugin.get_renderer()
+    session_id = _agent_session_id(parent_agent)
+    session_key = _agent_session_key(parent_agent)
+    ctx = _context_for_non_background_thread(renderer, session_id, session_key)
     if ctx is None or not ctx.delegates_enabled:
         return
     subagent_id = str(kwargs.get("subagent_id") or f"task-{kwargs.get('task_index', 0)}")
@@ -259,7 +273,7 @@ def on_delegate_progress_from_agent(
         duration_seconds=_float_kw(kwargs.get("duration_seconds"), 0.0),
         summary=str(kwargs.get("summary") or ""),
     )
-    runtime_plugin._schedule_render(ctx, event)
+    _schedule_render(ctx, event)
 
 
 def _int_kw(value: Any, default: int) -> int:
@@ -282,8 +296,7 @@ def _finalize_target_context(
     platform: str = "",
     session_key: str = "",
 ):
-    runtime_plugin = _runtime_plugin()
-    if runtime_plugin._is_background_review_thread():
+    if _is_background_review_thread():
         return None
     ctx = renderer.find_context(session_id, session_key)
     if ctx is not None:
@@ -307,8 +320,8 @@ def _schedule_finalize(
     success: bool = True,
 ) -> None:
     runtime_plugin = _runtime_plugin()
-    renderer = runtime_plugin._get_renderer()
-    ctx = runtime_plugin._finalize_target_context(renderer, session_id, platform, session_key)
+    renderer = runtime_plugin.get_renderer()
+    ctx = _finalize_target_context(renderer, session_id, platform, session_key)
     if ctx is None or ctx.loop is None:
         return
     generation = ctx.generation
@@ -340,13 +353,11 @@ def on_gateway_stop_from_runner(
     _ = gateway
     runtime_plugin = _runtime_plugin()
     platform = platform_name(source) if source is not None else ""
-    renderer = runtime_plugin._get_renderer()
-    ctx = runtime_plugin._finalize_target_context(
-        renderer, session_key=session_key, platform=platform
-    )
+    renderer = runtime_plugin.get_renderer()
+    ctx = _finalize_target_context(renderer, session_key=session_key, platform=platform)
     if ctx is None:
         return False
-    runtime_plugin._schedule_finalize(
+    _schedule_finalize(
         session_id=ctx.session_id,
         session_key=ctx.session_key,
         platform=ctx.platform,
@@ -367,32 +378,28 @@ def _reset_inline_reasoning(agent: Any) -> None:
 
 
 def _on_post_llm_call(session_id: str = "", agent: Any = None, **_: Any):
-    runtime_plugin = _runtime_plugin()
     _reset_inline_reasoning(agent)
-    if runtime_plugin._should_suppress_agent_progress(agent):
+    if _should_suppress_agent_progress(agent):
         return None
-    runtime_plugin._schedule_finalize(
-        session_id=session_id, session_key=runtime_plugin._agent_session_key(agent)
-    )
+    _schedule_finalize(session_id=session_id, session_key=_agent_session_key(agent))
     return None
 
 
 def _on_session_reset(session_id: str = "", platform: str = "", agent: Any = None, **_: Any):
     _reset_inline_reasoning(agent)
     runtime_plugin = _runtime_plugin()
-    runtime_plugin._get_renderer().purge(session_id=session_id, platform=platform)
+    runtime_plugin.get_renderer().purge(session_id=session_id, platform=platform)
     return None
 
 
 def _on_session_finalize(session_id: str = "", platform: str = "", agent: Any = None, **_: Any):
     _reset_inline_reasoning(agent)
-    runtime_plugin = _runtime_plugin()
-    if runtime_plugin._should_suppress_agent_progress(agent):
+    if _should_suppress_agent_progress(agent):
         return None
-    runtime_plugin._schedule_finalize(
+    _schedule_finalize(
         session_id=session_id,
         platform=platform,
-        session_key=runtime_plugin._agent_session_key(agent),
+        session_key=_agent_session_key(agent),
         purge=True,
     )
     return None

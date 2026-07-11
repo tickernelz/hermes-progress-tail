@@ -19,18 +19,23 @@ def harness(monkeypatch, *, ctx=True, suppress=False, scheduled=True):
     calls = []
     capture = {}
     plugin = NS(
-        _ASSISTANT_CAPTURE=capture,
-        _should_suppress_agent_progress=lambda agent: suppress,
-        _get_renderer=lambda: renderer,
-        _agent_session_id=lambda agent: "sid",
-        _agent_session_key=lambda agent: "key",
-        _context_for_non_background_thread=lambda *a: context if ctx else None,
-        _context_for=lambda *a: context if ctx else None,
-        _update_environment_from_agent=lambda *a: calls.append(("environment", a)),
-        _schedule_render=lambda *a, **k: calls.append(("render", a, k)) or scheduled,
+        assistant_capture=capture,
+        get_renderer=lambda: renderer,
     )
-    plugin._record_assistant_capture = ae._record_assistant_capture
-    monkeypatch.setattr(ae, "_runtime_plugin", lambda: plugin)
+    monkeypatch.setattr(ae, "_runtime_provider", plugin)
+    monkeypatch.setattr(ae, "_should_suppress_agent_progress", lambda agent: suppress)
+    monkeypatch.setattr(ae, "_agent_session_id", lambda agent: "sid")
+    monkeypatch.setattr(ae, "_agent_session_key", lambda agent: "key")
+    monkeypatch.setattr(
+        ae, "_context_for_non_background_thread", lambda *a: context if ctx else None
+    )
+    monkeypatch.setattr(ae, "_context_for", lambda *a: context if ctx else None)
+    monkeypatch.setattr(
+        ae, "_update_environment_from_agent", lambda *a: calls.append(("environment", a))
+    )
+    monkeypatch.setattr(
+        ae, "_schedule_render", lambda *a, **k: calls.append(("render", a, k)) or scheduled
+    )
     return plugin, renderer, context, calls
 
 
@@ -145,7 +150,7 @@ def test_assistant_capture_edges(
     context.assistant_enabled = local
     renderer.settings.assistant.enabled = global_
     assert ae.on_assistant_progress_from_agent(object(), text, already_streamed=streamed) is result
-    capture = plugin._ASSISTANT_CAPTURE
+    capture = plugin.assistant_capture
     assert capture["status"] == status
     assert capture["session_id"] == ("" if status == "empty" else "sid")
     assert capture["session_key_present"] is (status not in {"empty", "background_review"})
@@ -158,7 +163,7 @@ def test_assistant_capture_edges(
 def test_assistant_background_and_delegate_normalization(monkeypatch):
     plugin, _, _, calls = harness(monkeypatch, suppress=True)
     assert ae.on_assistant_progress_from_agent(object(), "x") is False
-    assert plugin._ASSISTANT_CAPTURE["status"] == "background_review"
+    assert plugin.assistant_capture["status"] == "background_review"
     assert calls == []
     _, _, _, calls = harness(monkeypatch)
     ae.on_delegate_progress_from_agent(
@@ -277,7 +282,7 @@ def test_lifecycle_disabled_guards(monkeypatch, local, global_):
 )
 def test_lifecycle_completed_integrated_variants(monkeypatch, data, text):
     plugin, renderer, context, calls = harness(monkeypatch)
-    plugin._context_for = lambda *a: None
+    monkeypatch.setattr(ae, "_context_for", lambda *a: None)
     migrated = []
     renderer.migrate_context = lambda *a, **k: migrated.append(1)
     assert ae.on_compression_lifecycle_from_agent(

@@ -5,18 +5,17 @@ import pytest
 
 from hermes_progress_tail.runtime import agent_events as ae
 
+_SCHEDULE_FINALIZE = ae._schedule_finalize
+
 
 def plugin(monkeypatch, renderer, *, background=False):
     calls = []
-    p = NS(
-        _get_renderer=lambda: renderer,
-        _is_background_review_thread=lambda: background,
-        _finalize_target_context=ae._finalize_target_context,
-        _schedule_finalize=lambda **kw: calls.append(kw),
-        _should_suppress_agent_progress=lambda agent: background,
-        _agent_session_key=lambda agent: "key",
-    )
-    monkeypatch.setattr(ae, "_runtime_plugin", lambda: p)
+    p = NS(get_renderer=lambda: renderer, assistant_capture={})
+    monkeypatch.setattr(ae, "_runtime_provider", p)
+    monkeypatch.setattr(ae, "_is_background_review_thread", lambda: background)
+    monkeypatch.setattr(ae, "_schedule_finalize", lambda *args, **kw: calls.append(kw))
+    monkeypatch.setattr(ae, "_should_suppress_agent_progress", lambda agent: background)
+    monkeypatch.setattr(ae, "_agent_session_key", lambda agent: "key")
     return calls
 
 
@@ -67,7 +66,8 @@ def test_schedule_finalize_success_and_done_error(monkeypatch):
 
     renderer = NS(finalize=finalize)
     p_calls = plugin(monkeypatch, renderer)
-    ae._runtime_plugin()._finalize_target_context = lambda *a: target
+    monkeypatch.setattr(ae, "_schedule_finalize", _SCHEDULE_FINALIZE)
+    monkeypatch.setattr(ae, "_finalize_target_context", lambda *a: target)
 
     class Future:
         def add_done_callback(self, callback):
@@ -96,7 +96,8 @@ def test_schedule_finalize_success_and_done_error(monkeypatch):
 def test_schedule_finalize_missing_target_or_loop(monkeypatch, target):
     renderer = NS()
     plugin(monkeypatch, renderer)
-    ae._runtime_plugin()._finalize_target_context = lambda *a: target
+    monkeypatch.setattr(ae, "_schedule_finalize", _SCHEDULE_FINALIZE)
+    monkeypatch.setattr(ae, "_finalize_target_context", lambda *a: target)
     ae._schedule_finalize()
 
 
@@ -108,7 +109,8 @@ def test_schedule_finalize_submission_exception_closes(monkeypatch):
 
     renderer = NS(finalize=finalize)
     plugin(monkeypatch, renderer)
-    ae._runtime_plugin()._finalize_target_context = lambda *a: target
+    monkeypatch.setattr(ae, "_schedule_finalize", _SCHEDULE_FINALIZE)
+    monkeypatch.setattr(ae, "_finalize_target_context", lambda *a: target)
     seen = []
 
     def reject(coro, loop):
@@ -124,10 +126,10 @@ def test_schedule_finalize_submission_exception_closes(monkeypatch):
 def test_gateway_stop_outcomes(monkeypatch):
     renderer = NS()
     calls = plugin(monkeypatch, renderer)
-    ae._runtime_plugin()._finalize_target_context = lambda *a, **k: None
+    monkeypatch.setattr(ae, "_finalize_target_context", lambda *a, **k: None)
     assert ae.on_gateway_stop_from_runner(session_key="x") is False
     target = ctx()
-    ae._runtime_plugin()._finalize_target_context = lambda *a, **k: target
+    monkeypatch.setattr(ae, "_finalize_target_context", lambda *a, **k: target)
     assert ae.on_gateway_stop_from_runner(session_key="x", source=NS(platform="discord")) is True
     assert calls == [
         {"session_id": "sid", "session_key": "k-sid", "platform": "discord", "success": False}
@@ -147,9 +149,7 @@ def test_gateway_stop_platform_fallback_and_schedule_failure(monkeypatch, exact)
         finalize=finalize,
     )
     plugin(monkeypatch, renderer)
-    runtime = ae._runtime_plugin()
-    runtime._finalize_target_context = ae._finalize_target_context
-    runtime._schedule_finalize = ae._schedule_finalize
+    monkeypatch.setattr(ae, "_schedule_finalize", _SCHEDULE_FINALIZE)
 
     def reject(coro, loop):
         submitted.append(loop)
@@ -186,7 +186,7 @@ def test_post_llm_reset_suppression_and_foreground(monkeypatch):
     agent = object()
     assert ae._on_post_llm_call("sid", agent) is None
     assert reset == [agent] and calls == []
-    ae._runtime_plugin()._should_suppress_agent_progress = lambda a: False
+    monkeypatch.setattr(ae, "_should_suppress_agent_progress", lambda a: False)
     ae._on_post_llm_call("sid", agent)
     assert calls == [{"session_id": "sid", "session_key": "key"}]
 
@@ -202,6 +202,6 @@ def test_session_reset_and_finalize(monkeypatch):
     assert calls == [
         {"session_id": "sid", "platform": "discord", "session_key": "key", "purge": True}
     ]
-    ae._runtime_plugin()._should_suppress_agent_progress = lambda a: True
+    monkeypatch.setattr(ae, "_should_suppress_agent_progress", lambda a: True)
     ae._on_session_finalize("x", agent=object())
     assert len(calls) == 1

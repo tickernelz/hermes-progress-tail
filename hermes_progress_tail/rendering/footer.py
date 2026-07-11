@@ -8,6 +8,18 @@ from ..utils.redaction import simplify_path
 from ..utils.text import truncate_text
 
 
+def _safe_version_provider():
+    return ""
+
+
+_runtime_provider = _safe_version_provider
+
+
+def configure_version_provider(provider):
+    global _runtime_provider
+    _runtime_provider = provider
+
+
 def focused_footer(ctx: SessionContext, *, settings: Settings) -> str:
     if not settings.footer.enabled:
         return ""
@@ -273,9 +285,7 @@ def _is_newer_version(current: str, latest: str) -> bool:
 
 def _current_version() -> str:
     try:
-        from ..runtime import plugin as runtime_plugin
-
-        return str(runtime_plugin.VERSION or "")
+        return str(_runtime_provider() or "")
     except Exception:
         return ""
 

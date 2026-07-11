@@ -122,3 +122,19 @@ def test_runtime_git_snapshot_override_and_exception_fallback(monkeypatch, tmp_p
     monkeypatch.setattr(plugin, "_git_snapshot", lambda cwd: (_ for _ in ()).throw(RuntimeError()))
     monkeypatch.setattr(env, "_git_snapshot", lambda cwd: {"branch": "local"})
     assert env._runtime_git_snapshot(tmp_path) == {"branch": "local"}
+
+
+def test_environment_git_provider_is_configurable_and_plugin_forwards_monkeypatch(
+    monkeypatch, tmp_path
+):
+    from hermes_progress_tail.runtime import plugin
+
+    seen = []
+    env.configure_environment_providers(
+        git_snapshot=lambda cwd: seen.append(cwd) or {"branch": "x"}
+    )
+    assert env._runtime_git_snapshot(tmp_path) == {"branch": "x"}
+    assert seen == [tmp_path]
+    plugin._configure_environment_providers()
+    monkeypatch.setattr(plugin, "_git_snapshot", lambda cwd: {"branch": "patched"})
+    assert env._runtime_git_snapshot(tmp_path) == {"branch": "patched"}

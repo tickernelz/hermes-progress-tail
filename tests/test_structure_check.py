@@ -105,3 +105,25 @@ def test_cli_reports_deterministic_diagnostics_and_exits_one(tmp_path):
         "alpha.py: 601 lines (limit 600)",
     ]
     assert result.stderr == ""
+
+
+def test_dependency_rail_resolves_relative_aliased_and_absolute_forms(tmp_path):
+    _git(tmp_path, "init", "-q")
+    fixtures = {
+        "hermes_progress_tail/hooks/a.py": "from ..runtime import plugin as p\n",
+        "hermes_progress_tail/runtime/a.py": "from .plugin import register\n",
+        "hermes_progress_tail/rendering/a.py": "import hermes_progress_tail.runtime.plugin as p\n",
+        "hermes_progress_tail/runtime/plugin.py": "from . import container\n",
+        "hermes_progress_tail/plugin.py": "from .runtime import plugin\n",
+    }
+    for name, source in fixtures.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source)
+    _git(tmp_path, "add", ".")
+    dependencies = [item for item in repository_violations(tmp_path) if hasattr(item, "imported")]
+    assert [(item.path.relative_to(tmp_path).as_posix(), item.line) for item in dependencies] == [
+        ("hermes_progress_tail/hooks/a.py", 1),
+        ("hermes_progress_tail/rendering/a.py", 1),
+        ("hermes_progress_tail/runtime/a.py", 1),
+    ]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ from ..models.state import EnvironmentSnapshot, SessionContext
 
 logger = logging.getLogger(__name__)
 _GIT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+GitSnapshotProvider = Callable[[Path], dict[str, Any]]
+ProfileNameProvider = Callable[[], str]
 
 
 def _agent_session_id(agent: Any) -> str:
@@ -187,19 +190,34 @@ def _positive_int(value: Any) -> int:
     return parsed if parsed > 0 else 0
 
 
-def _runtime_profile_name() -> str:
-    try:
-        from . import plugin as runtime_plugin
-
-        func = getattr(runtime_plugin, "_runtime_profile_name", None)
-        if callable(func) and func is not _runtime_profile_name:
-            return str(func() or "")
-    except Exception:
-        pass
+def _host_active_profile_name() -> str:
     try:
         from hermes_cli.profiles import get_active_profile_name
 
         return str(get_active_profile_name() or "")
+    except Exception:
+        return ""
+
+
+_git_snapshot_provider: GitSnapshotProvider
+_profile_name_provider: ProfileNameProvider = _host_active_profile_name
+
+
+def configure_environment_providers(
+    *,
+    git_snapshot: GitSnapshotProvider | None = None,
+    profile_name: ProfileNameProvider | None = None,
+) -> None:
+    global _git_snapshot_provider, _profile_name_provider
+    if git_snapshot is not None:
+        _git_snapshot_provider = git_snapshot
+    if profile_name is not None:
+        _profile_name_provider = profile_name
+
+
+def _runtime_profile_name() -> str:
+    try:
+        return str(_profile_name_provider() or "")
     except Exception:
         return ""
 
@@ -217,6 +235,9 @@ def _git_snapshot(cwd: Path) -> dict[str, Any]:
     data = _load_git_snapshot(path)
     _GIT_CACHE[key] = (now, data)
     return data
+
+
+_git_snapshot_provider = _git_snapshot
 
 
 def _load_git_snapshot(cwd: Path) -> dict[str, Any]:
@@ -282,17 +303,10 @@ def _git_command(cwd: Path, *args: str) -> str:
 
 
 def _runtime_git_snapshot(cwd: Path) -> dict[str, Any]:
-    # Keep plugin._git_snapshot monkeypatches from tests/debug sessions effective
-    # after this helper moved out of runtime.plugin.
     try:
-        from . import plugin as runtime_plugin
-
-        func = getattr(runtime_plugin, "_git_snapshot", None)
-        if callable(func) and func is not _git_snapshot:
-            return func(cwd)
+        return _git_snapshot_provider(cwd)
     except Exception:
-        pass
-    return _git_snapshot(cwd)
+        return _git_snapshot(cwd)
 
 
 def _update_environment_from_terminal(

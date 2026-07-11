@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from hermes_progress_tail.models.state import BackgroundJobEvent, SessionContext, ToolEvent
-from hermes_progress_tail.runtime import plugin, tool_events
+from hermes_progress_tail.runtime import tool_events
 
 
 def _ctx(*, loop=None, tools=True, background=True):
@@ -107,7 +107,9 @@ def test_schedule_render_handles_no_loop_callback_failure_and_scheduling_failure
         handled.append((event, force))
 
     renderer = SimpleNamespace(handle_event=handle_event)
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: renderer)
+    monkeypatch.setattr(
+        tool_events, "_runtime_provider", SimpleNamespace(get_renderer=lambda: renderer)
+    )
     assert not tool_events._schedule_render(_ctx(), ToolEvent("sid", "key", "discord", "x"))
 
     class Future:
@@ -143,14 +145,18 @@ def test_pre_tool_guards_and_running_background_fields(monkeypatch):
     renderer = _renderer()
     ctx = _ctx()
     events = []
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: renderer)
-    monkeypatch.setattr(plugin, "_resolve_tool_agent", lambda *a: (None, None))
-    monkeypatch.setattr(plugin, "_should_suppress_agent_progress", lambda agent: False)
-    monkeypatch.setattr(plugin, "_tool_context_lookup_ids", lambda *a: ("sid", ""))
-    monkeypatch.setattr(plugin, "_context_for_non_background_thread", lambda *a: ctx)
-    monkeypatch.setattr(plugin, "_update_environment_from_agent", lambda *a, **k: None)
-    monkeypatch.setattr(plugin, "_update_environment_from_terminal", lambda *a: None)
-    monkeypatch.setattr(plugin, "_schedule_render", lambda context, event: events.append(event))
+    monkeypatch.setattr(
+        tool_events, "_runtime_provider", SimpleNamespace(get_renderer=lambda: renderer)
+    )
+    monkeypatch.setattr(tool_events, "_resolve_tool_agent", lambda *a: (None, None))
+    monkeypatch.setattr(tool_events, "_should_suppress_agent_progress", lambda agent: False)
+    monkeypatch.setattr(tool_events, "_tool_context_lookup_ids", lambda *a: ("sid", ""))
+    monkeypatch.setattr(tool_events, "_context_for_non_background_thread", lambda *a: ctx)
+    monkeypatch.setattr(tool_events, "_update_environment_from_agent", lambda *a, **k: None)
+    monkeypatch.setattr(tool_events, "_update_environment_from_terminal", lambda *a: None)
+    monkeypatch.setattr(
+        tool_events, "_schedule_render", lambda context, event: events.append(event)
+    )
 
     ctx.tools_enabled = False
     assert tool_events._on_pre_tool_call("terminal") is None
@@ -163,7 +169,7 @@ def test_pre_tool_guards_and_running_background_fields(monkeypatch):
     assert events[-1].tool_name == "terminal"
     assert events[-1].line.endswith(" · background")
 
-    monkeypatch.setattr(plugin, "_context_for_non_background_thread", lambda *a: None)
+    monkeypatch.setattr(tool_events, "_context_for_non_background_thread", lambda *a: None)
     assert tool_events._on_pre_tool_call("terminal") is None
 
 
@@ -173,16 +179,22 @@ def test_post_tool_emits_background_and_completed_result_fields(monkeypatch):
     events = []
     polls = []
     suppressed = []
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: renderer)
-    monkeypatch.setattr(plugin, "_resolve_tool_agent", lambda *a: (None, None))
-    monkeypatch.setattr(plugin, "_should_suppress_agent_progress", lambda agent: False)
-    monkeypatch.setattr(plugin, "_tool_context_lookup_ids", lambda *a: ("sid", ""))
-    monkeypatch.setattr(plugin, "_context_for_non_background_thread", lambda *a: ctx)
-    monkeypatch.setattr(plugin, "_update_environment_from_agent", lambda *a, **k: None)
-    monkeypatch.setattr(plugin, "_update_environment_from_terminal", lambda *a: None)
-    monkeypatch.setattr(plugin, "_schedule_render", lambda context, event: events.append(event))
-    monkeypatch.setattr(plugin, "_schedule_background_job_poll", lambda c, pid: polls.append(pid))
-    monkeypatch.setattr(plugin, "_suppress_native_background_notify", suppressed.append)
+    monkeypatch.setattr(
+        tool_events, "_runtime_provider", SimpleNamespace(get_renderer=lambda: renderer)
+    )
+    monkeypatch.setattr(tool_events, "_resolve_tool_agent", lambda *a: (None, None))
+    monkeypatch.setattr(tool_events, "_should_suppress_agent_progress", lambda agent: False)
+    monkeypatch.setattr(tool_events, "_tool_context_lookup_ids", lambda *a: ("sid", ""))
+    monkeypatch.setattr(tool_events, "_context_for_non_background_thread", lambda *a: ctx)
+    monkeypatch.setattr(tool_events, "_update_environment_from_agent", lambda *a, **k: None)
+    monkeypatch.setattr(tool_events, "_update_environment_from_terminal", lambda *a: None)
+    monkeypatch.setattr(
+        tool_events, "_schedule_render", lambda context, event: events.append(event)
+    )
+    monkeypatch.setattr(
+        tool_events, "_schedule_background_job_poll", lambda c, pid: polls.append(pid)
+    )
+    monkeypatch.setattr(tool_events, "_suppress_native_background_notify", suppressed.append)
 
     tool_events._on_post_tool_call(
         "terminal",

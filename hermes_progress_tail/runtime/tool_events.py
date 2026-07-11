@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from contextlib import suppress
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ..models.state import (
     AssistantEvent,
@@ -18,9 +18,23 @@ from ..models.state import (
 )
 from ..rendering.formatter import extract_todo_items, format_tool_line
 from .context import _context_for
-from .origin import _is_background_review_thread
+from .environment import _update_environment_from_agent, _update_environment_from_terminal
+from .origin import _is_background_review_thread, _should_suppress_agent_progress
 
 logger = logging.getLogger(__name__)
+
+
+class RuntimePort(Protocol):
+    def get_renderer(self) -> Any: ...
+
+
+_runtime_provider: RuntimePort | None = None
+
+
+def configure_runtime_provider(provider: RuntimePort) -> None:
+    global _runtime_provider
+    _runtime_provider = provider
+
 
 if TYPE_CHECKING:
     from ..rendering.renderer import ProgressRenderer
@@ -32,9 +46,8 @@ def _schedule_render(
     *,
     force: bool = False,
 ) -> bool:
-    from . import plugin as runtime_plugin
-
-    renderer = runtime_plugin._get_renderer()
+    runtime_plugin = _runtime_provider
+    renderer = runtime_plugin.get_renderer()
     if ctx.loop is None:
         logger.debug(
             "hermes-progress-tail render skipped: no event loop for session_id=%s session_key_present=%s event=%s",
@@ -63,7 +76,7 @@ def _schedule_render(
 
         future.add_done_callback(_consume_done)
         if isinstance(event, BackgroundJobEvent) and _background_job_event_is_terminal(event):
-            runtime_plugin._schedule_background_job_cleanup(ctx, event.process_id)
+            _schedule_background_job_cleanup(ctx, event.process_id)
         return True
     except Exception as exc:
         logger.debug("hermes-progress-tail schedule failed: %s", exc)
@@ -128,17 +141,16 @@ def _terminal_background_requested(args: dict | None) -> bool:
 def _suppress_native_background_notify(process_id: str) -> None:
     if not process_id:
         return
-    from . import plugin as runtime_plugin
-
+    runtime_plugin = _runtime_provider
     try:
         from tools.process_registry import process_registry
 
         session = process_registry.get(process_id)
         if session is not None:
-            if runtime_plugin._get_renderer().settings.background_jobs.suppress_native_notify:
+            if runtime_plugin.get_renderer().settings.background_jobs.suppress_native_notify:
                 session.notify_on_complete = False
                 session.watcher_interval = 0
-            if runtime_plugin._get_renderer().settings.background_jobs.suppress_watch_notifications:
+            if runtime_plugin.get_renderer().settings.background_jobs.suppress_watch_notifications:
                 session.watch_patterns = []
         process_registry.pending_watchers[:] = [
             watcher
@@ -152,20 +164,19 @@ def _suppress_native_background_notify(process_id: str) -> None:
 
 
 def _schedule_background_job_cleanup(ctx: SessionContext, process_id: str) -> None:
-    from . import plugin as runtime_plugin
-
+    runtime_plugin = _runtime_provider
     if (
         not process_id
         or ctx.loop is None
-        or not runtime_plugin._get_renderer().settings.background_jobs.enabled
+        or not runtime_plugin.get_renderer().settings.background_jobs.enabled
     ):
         return
 
     async def _cleanup() -> None:
         await asyncio.sleep(
-            runtime_plugin._get_renderer().settings.background_jobs.completed_ttl_seconds
+            runtime_plugin.get_renderer().settings.background_jobs.completed_ttl_seconds
         )
-        runtime_plugin._schedule_render(
+        _schedule_render(
             ctx,
             BackgroundJobEvent(
                 ctx.session_id,
@@ -181,12 +192,11 @@ def _schedule_background_job_cleanup(ctx: SessionContext, process_id: str) -> No
 
 
 def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
-    from . import plugin as runtime_plugin
-
+    runtime_plugin = _runtime_provider
     if (
         not process_id
         or ctx.loop is None
-        or not runtime_plugin._get_renderer().settings.background_jobs.enabled
+        or not runtime_plugin.get_renderer().settings.background_jobs.enabled
     ):
         return
     job = ctx.background_jobs.get(process_id)
@@ -197,7 +207,7 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
         try:
             while True:
                 await asyncio.sleep(
-                    runtime_plugin._get_renderer().settings.background_jobs.update_interval_seconds
+                    runtime_plugin.get_renderer().settings.background_jobs.update_interval_seconds
                 )
                 try:
                     from tools.process_registry import process_registry
@@ -206,7 +216,7 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
                 except Exception:
                     session = None
                 if session is None:
-                    runtime_plugin._schedule_render(
+                    _schedule_render(
                         ctx,
                         BackgroundJobEvent(
                             ctx.session_id,
@@ -223,7 +233,7 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
                 existing = ctx.background_jobs.get(process_id)
                 if existing is not None and not exited and output == existing.last_output:
                     continue
-                runtime_plugin._schedule_render(
+                _schedule_render(
                     ctx,
                     BackgroundJobEvent(
                         ctx.session_id,
@@ -352,25 +362,20 @@ def _on_pre_tool_call(
     agent: Any = None,
     **_: Any,
 ):
-    from . import plugin as runtime_plugin
-
-    renderer = runtime_plugin._get_renderer()
-    agent, messages = runtime_plugin._resolve_tool_agent(
-        agent, tool_name, session_id, task_id, tool_call_id
-    )
-    if runtime_plugin._should_suppress_agent_progress(agent):
+    runtime_plugin = _runtime_provider
+    renderer = runtime_plugin.get_renderer()
+    agent, messages = _resolve_tool_agent(agent, tool_name, session_id, task_id, tool_call_id)
+    if _should_suppress_agent_progress(agent):
         logger.debug(
             "hermes-progress-tail ignored background-review tool event: tool=%s thread=%s",
             tool_name,
             threading.current_thread().name,
         )
         return None
-    lookup_session_id, lookup_session_key = runtime_plugin._tool_context_lookup_ids(
+    lookup_session_id, lookup_session_key = _tool_context_lookup_ids(
         tool_name, session_id, task_id, tool_call_id
     )
-    ctx = runtime_plugin._context_for_non_background_thread(
-        renderer, lookup_session_id, lookup_session_key
-    )
+    ctx = _context_for_non_background_thread(renderer, lookup_session_id, lookup_session_key)
     if ctx is None:
         return None
     if not ctx.tools_enabled:
@@ -387,9 +392,9 @@ def _on_pre_tool_call(
         threading.current_thread().name,
         tool_call_id,
     )
-    runtime_plugin._update_environment_from_agent(ctx, agent, messages=messages)
+    _update_environment_from_agent(ctx, agent, messages=messages)
     if tool_name == "terminal":
-        runtime_plugin._update_environment_from_terminal(ctx, args, task_id)
+        _update_environment_from_terminal(ctx, args, task_id)
     line = format_tool_line(
         tool_name,
         args or {},
@@ -410,7 +415,7 @@ def _on_pre_tool_call(
         tool_name=tool_name,
         todo_items=extract_todo_items(args or {}) if tool_name == "todo" else (),
     )
-    runtime_plugin._schedule_render(ctx, event)
+    _schedule_render(ctx, event)
     return None
 
 
@@ -425,25 +430,20 @@ def _on_post_tool_call(
     agent: Any = None,
     **_: Any,
 ):
-    from . import plugin as runtime_plugin
-
-    renderer = runtime_plugin._get_renderer()
-    agent, messages = runtime_plugin._resolve_tool_agent(
-        agent, tool_name, session_id, task_id, tool_call_id
-    )
-    if runtime_plugin._should_suppress_agent_progress(agent):
+    runtime_plugin = _runtime_provider
+    renderer = runtime_plugin.get_renderer()
+    agent, messages = _resolve_tool_agent(agent, tool_name, session_id, task_id, tool_call_id)
+    if _should_suppress_agent_progress(agent):
         logger.debug(
             "hermes-progress-tail ignored background-review post-tool event: tool=%s thread=%s",
             tool_name,
             threading.current_thread().name,
         )
         return None
-    lookup_session_id, lookup_session_key = runtime_plugin._tool_context_lookup_ids(
+    lookup_session_id, lookup_session_key = _tool_context_lookup_ids(
         tool_name, session_id, task_id, tool_call_id
     )
-    ctx = runtime_plugin._context_for_non_background_thread(
-        renderer, lookup_session_id, lookup_session_key
-    )
+    ctx = _context_for_non_background_thread(renderer, lookup_session_id, lookup_session_key)
     if ctx is None:
         return None
     if not ctx.tools_enabled:
@@ -463,15 +463,15 @@ def _on_post_tool_call(
         duration_ms,
         tool_call_id,
     )
-    runtime_plugin._update_environment_from_agent(ctx, agent, messages=messages)
+    _update_environment_from_agent(ctx, agent, messages=messages)
     if tool_name == "terminal":
-        runtime_plugin._update_environment_from_terminal(ctx, args, task_id)
+        _update_environment_from_terminal(ctx, args, task_id)
     result_obj = _json_obj(result)
     if tool_name == "terminal" and _terminal_background_requested(args):
         process_id = str(result_obj.get("session_id") or "")
         if process_id and renderer.settings.background_jobs.enabled and ctx.background_jobs_enabled:
-            runtime_plugin._suppress_native_background_notify(process_id)
-            runtime_plugin._schedule_render(
+            _suppress_native_background_notify(process_id)
+            _schedule_render(
                 ctx,
                 BackgroundJobEvent(
                     ctx.session_id,
@@ -488,7 +488,7 @@ def _on_post_tool_call(
                 ),
             )
             if not result_obj.get("exited"):
-                runtime_plugin._schedule_background_job_poll(ctx, process_id)
+                _schedule_background_job_poll(ctx, process_id)
     if not renderer.settings.tools.show_completed:
         return None
     base = format_tool_line(
@@ -506,7 +506,7 @@ def _on_post_tool_call(
     if duration:
         suffix += f" · {duration}"
     line = f"{marker} {base} {suffix}"
-    runtime_plugin._schedule_render(
+    _schedule_render(
         ctx,
         ToolEvent(
             ctx.session_id,

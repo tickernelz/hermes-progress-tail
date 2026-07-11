@@ -3,13 +3,18 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from ..hooks.contracts import configure_hook_callbacks
 from ..hooks.monkeypatches import install_monkeypatches, install_monkeypatches_report
 from ..models.state import SessionContext
+from ..rendering.footer import configure_version_provider
 from ..rendering.renderer import ProgressRenderer
 from ..settings.config import load_settings
+from . import agent_events as _agent_events_module
+from . import context as _context_module
+from . import tool_events as _tool_events_module
 from .agent_events import (
     _compact_count,
     _compression_lifecycle_completed_text,
@@ -72,6 +77,7 @@ from .environment import (
     _estimate_request_tokens,
     _git_command,
     _git_snapshot,
+    _host_active_profile_name,
     _load_git_snapshot,
     _positive_attr,
     _positive_int,
@@ -80,6 +86,7 @@ from .environment import (
     _terminal_live_cwd,
     _update_environment_from_agent,
     _update_environment_from_terminal,
+    configure_environment_providers,
 )
 from .origin import (
     _is_background_review_agent,
@@ -208,7 +215,12 @@ _renderer: ProgressRenderer | None = _runtime.renderer
 _ASSISTANT_CAPTURE: dict[str, Any] = _runtime.assistant_capture
 
 
+def get_renderer() -> ProgressRenderer:
+    return _get_renderer()
+
+
 def _get_renderer() -> ProgressRenderer:
+    _configure_module_ports()
     global _renderer
     if _renderer is not _runtime.renderer:
         _runtime.renderer = _renderer
@@ -266,7 +278,21 @@ def _register_progress_tail_commands(ctx: Any) -> None:
     )
 
 
+_RENDERER_PORT = SimpleNamespace(get_renderer=lambda: _get_renderer())
+_AGENT_EVENTS_PORT = SimpleNamespace(
+    get_renderer=lambda: _get_renderer(), assistant_capture=_ASSISTANT_CAPTURE
+)
+
+
+def _configure_module_ports() -> None:
+    _agent_events_module.configure_runtime_provider(_AGENT_EVENTS_PORT)
+    _context_module.configure_runtime_provider(_RENDERER_PORT)
+    _tool_events_module.configure_runtime_provider(_RENDERER_PORT)
+    configure_version_provider(lambda: VERSION)
+
+
 def register(ctx):
+    _configure_module_ports()
     callbacks = _runtime.callbacks()
     configure_hook_callbacks(callbacks)
     configure_command_runtime(_runtime, version=VERSION)
@@ -291,9 +317,11 @@ def register(ctx):
         settings.cleanup.auto_delete,
     )
     report = install_monkeypatches_report(callbacks)
-    _runtime.set_patch_report(report)
+    if hasattr(report, "any_installed"):
+        _runtime.set_patch_report(report)
     logger.info(
-        "hermes-progress-tail plugin hooks registered: monkeypatches=%s", report.any_installed
+        "hermes-progress-tail plugin hooks registered: monkeypatches=%s",
+        getattr(report, "any_installed", bool(report.statuses)),
     )
     ctx.register_hook("pre_gateway_dispatch", _on_pre_gateway_dispatch)
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
@@ -304,5 +332,21 @@ def register(ctx):
     _register_progress_tail_commands(ctx)
 
 
+_environment_profile_name = _runtime_profile_name
+
+
+def _forward_profile_name() -> str:
+    provider = _runtime_profile_name
+    return _host_active_profile_name() if provider is _environment_profile_name else provider()
+
+
+def _configure_environment_providers() -> None:
+    configure_environment_providers(
+        git_snapshot=lambda cwd: _git_snapshot(cwd), profile_name=_forward_profile_name
+    )
+
+
+_configure_module_ports()
 configure_hook_callbacks(_runtime.callbacks())
 configure_command_runtime(_runtime, version=VERSION)
+_configure_environment_providers()

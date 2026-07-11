@@ -1,9 +1,12 @@
 import asyncio
+from types import SimpleNamespace
 
+import hermes_progress_tail.plugin as plugin
 from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.monkeypatches import install_monkeypatches, uninstall_monkeypatches
 from hermes_progress_tail.plugin import _on_pre_gateway_dispatch, _on_pre_tool_call
 from hermes_progress_tail.renderer import ProgressRenderer
+from hermes_progress_tail.runtime import agent_events
 from hermes_progress_tail.state import AssistantEvent, ReasoningEvent, SessionContext
 from tests.support.rendering import EditableAdapter
 
@@ -150,7 +153,6 @@ def test_assistant_progress_can_be_disabled_per_platform():
 
 
 def test_assistant_progress_uses_private_gateway_session_key(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
     from hermes_progress_tail.plugin import on_assistant_progress_from_agent
 
     agent = type("Agent", (), {"session_id": "s1", "_gateway_session_key": "k1"})()
@@ -165,9 +167,13 @@ def test_assistant_progress_uses_private_gateway_session_key(monkeypatch):
             assert session_key == "k1"
             return ctx
 
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
     monkeypatch.setattr(
-        plugin, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
+        agent_events,
+        "_runtime_provider",
+        SimpleNamespace(get_renderer=lambda: Renderer(), assistant_capture={}),
+    )
+    monkeypatch.setattr(
+        agent_events, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
     )
 
     assert on_assistant_progress_from_agent(agent, "Need inspect private key") is True
@@ -177,7 +183,6 @@ def test_assistant_progress_uses_private_gateway_session_key(monkeypatch):
 
 
 def test_assistant_progress_renders_already_streamed_but_does_not_suppress_native(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
     from hermes_progress_tail.plugin import on_assistant_progress_from_agent
 
     agent = type("Agent", (), {"session_id": "s1", "_gateway_session_key": "k1"})()
@@ -190,9 +195,13 @@ def test_assistant_progress_renders_already_streamed_but_does_not_suppress_nativ
         def find_context(self, session_id, session_key=""):
             return ctx if (session_id, session_key) == ("s1", "k1") else None
 
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
     monkeypatch.setattr(
-        plugin, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
+        agent_events,
+        "_runtime_provider",
+        SimpleNamespace(get_renderer=lambda: Renderer(), assistant_capture={}),
+    )
+    monkeypatch.setattr(
+        agent_events, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
     )
 
     assert (
@@ -209,7 +218,6 @@ def test_assistant_progress_renders_already_streamed_but_does_not_suppress_nativ
 def test_monkeypatch_falls_back_to_original_interim_send_when_render_cannot_schedule(
     monkeypatch,
 ):
-    import hermes_progress_tail.plugin as plugin
     from hermes_progress_tail.plugin import on_assistant_progress_from_agent
 
     agent = type("Agent", (), {"session_id": "s1", "gateway_session_key": "k1"})()
@@ -221,15 +229,17 @@ def test_monkeypatch_falls_back_to_original_interim_send_when_render_cannot_sche
         def find_context(self, session_id, session_key=""):
             return ctx
 
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
+    monkeypatch.setattr(
+        agent_events,
+        "_runtime_provider",
+        SimpleNamespace(get_renderer=lambda: Renderer(), assistant_capture={}),
+    )
 
     assert on_assistant_progress_from_agent(agent, "lost if suppressed") is False
 
 
 def test_monkeypatch_captures_interim_assistant_commentary_and_suppresses_default_send(monkeypatch):
     async def run():
-        import hermes_progress_tail.plugin as plugin
-
         adapter = EditableAdapter()
         plugin._renderer = None
         monkeypatch.setattr(
@@ -337,7 +347,6 @@ def test_monkeypatch_computes_already_streamed_from_agent_checker(monkeypatch):
 
 
 def test_assistant_progress_falls_back_to_unique_session_context(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
     from hermes_progress_tail.plugin import on_assistant_progress_from_agent
 
     agent = type("Agent", (), {"session_id": "s1", "_gateway_session_key": "stale-key"})()
@@ -354,9 +363,13 @@ def test_assistant_progress_falls_back_to_unique_session_context(monkeypatch):
         def find_context(self, session_id, session_key=""):
             return ctx if (session_id, session_key) == ("s1", "fresh-key") else None
 
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
     monkeypatch.setattr(
-        plugin, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
+        agent_events,
+        "_runtime_provider",
+        SimpleNamespace(get_renderer=lambda: Renderer(), assistant_capture={}),
+    )
+    monkeypatch.setattr(
+        agent_events, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
     )
 
     assert on_assistant_progress_from_agent(agent, "Need fallback context") is True
@@ -365,7 +378,6 @@ def test_assistant_progress_falls_back_to_unique_session_context(monkeypatch):
 
 
 def test_pre_tool_call_does_not_emit_fake_assistant_progress(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
 
     ctx = SessionContext("s1", "k1", "discord", "chat", None, EditableAdapter(), None, "live_tail")
     scheduled = []
@@ -378,9 +390,13 @@ def test_pre_tool_call_does_not_emit_fake_assistant_progress(monkeypatch):
         def find_context(self, session_id, session_key=""):
             return ctx if session_id == "s1" or session_key == "k1" else None
 
-    monkeypatch.setattr(plugin, "_get_renderer", lambda: Renderer())
     monkeypatch.setattr(
-        plugin, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
+        agent_events,
+        "_runtime_provider",
+        SimpleNamespace(get_renderer=lambda: Renderer(), assistant_capture={}),
+    )
+    monkeypatch.setattr(
+        agent_events, "_schedule_render", lambda found_ctx, event: scheduled.append(event) or True
     )
 
     _on_pre_tool_call("search_files", {"pattern": "foo"}, session_id="s1", task_id="k1")
@@ -389,7 +405,6 @@ def test_pre_tool_call_does_not_emit_fake_assistant_progress(monkeypatch):
 
 
 def test_status_reports_assistant_capture_diagnostics(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
     from hermes_progress_tail.runtime import commands
 
     plugin._renderer = None

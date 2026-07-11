@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ..gateway.compat import (
     platform_name,
@@ -19,6 +19,27 @@ if TYPE_CHECKING:
     from ..rendering.renderer import ProgressRenderer
 
 logger = logging.getLogger(__name__)
+
+
+class RuntimePort(Protocol):
+    def get_renderer(self) -> Any: ...
+
+
+_runtime_provider: RuntimePort | None = None
+
+
+def configure_runtime_provider(provider: RuntimePort) -> None:
+    global _runtime_provider
+    _runtime_provider = provider
+
+
+def _renderer_provider():
+    return _runtime_provider.get_renderer()
+
+
+def _operational_renderer():
+    renderer = _renderer_provider()
+    return renderer
 
 
 def _context_for(renderer: ProgressRenderer, session_id: str = "", session_key: str = ""):
@@ -255,9 +276,7 @@ def _register_context(
 
 
 def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: Any):
-    from . import plugin as runtime_plugin
-
-    renderer = runtime_plugin._get_renderer()
+    renderer = _operational_renderer()
     source = getattr(event, "source", None)
     if source is None:
         return None
@@ -285,9 +304,7 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
 
 
 def register_context_from_adapter_event(adapter: Any, event: Any) -> None:
-    from . import plugin as runtime_plugin
-
-    renderer = runtime_plugin._get_renderer()
+    renderer = _operational_renderer()
     source = getattr(event, "source", None)
     if source is None:
         return

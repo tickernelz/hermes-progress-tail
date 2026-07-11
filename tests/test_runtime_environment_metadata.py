@@ -157,14 +157,7 @@ def test_system_prompt_cwd_and_reasoning(monkeypatch, tmp_path):
     assert env._agent_reasoning_effort(SimpleNamespace()) == ""
 
 
-def test_profile_plugin_and_hermes_fallback(monkeypatch):
-    from hermes_progress_tail.runtime import plugin
-
-    monkeypatch.setattr(plugin, "_runtime_profile_name", lambda: "plugin")
-    assert env._runtime_profile_name() == "plugin"
-    monkeypatch.setattr(
-        plugin, "_runtime_profile_name", lambda: (_ for _ in ()).throw(RuntimeError())
-    )
+def test_profile_host_resolver(monkeypatch):
     pkg = ModuleType("hermes_cli")
     pkg.__path__ = []
     profiles = ModuleType("hermes_cli.profiles")

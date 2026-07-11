@@ -11,7 +11,7 @@ from hermes_progress_tail.monkeypatches import (
     uninstall_process_notification_monkeypatch,
 )
 from hermes_progress_tail.renderer import ProgressRenderer
-from hermes_progress_tail.runtime import plugin
+from hermes_progress_tail.runtime import plugin, tool_events
 from hermes_progress_tail.state import BackgroundJobEvent, SessionContext, ToolEvent
 from tests.support.rendering import EditableAdapter
 
@@ -267,13 +267,13 @@ def test_terminal_background_events_schedule_terminal_cleanup(monkeypatch):
         renderer.register_context(ctx)
         monkeypatch.setattr(plugin, "_renderer", renderer)
         cleanup_calls = []
-        original_cleanup = plugin._schedule_background_job_cleanup
+        original_cleanup = tool_events._schedule_background_job_cleanup
 
         def track_cleanup(ctx, process_id):
             cleanup_calls.append(process_id)
             return original_cleanup(ctx, process_id)
 
-        monkeypatch.setattr(plugin, "_schedule_background_job_cleanup", track_cleanup)
+        monkeypatch.setattr(tool_events, "_schedule_background_job_cleanup", track_cleanup)
         for process_id, event_type in (
             ("proc_completed", "completed"),
             ("proc_killed", "killed"),
@@ -386,13 +386,13 @@ def test_terminal_background_immediate_completed_result_does_not_stay_running(mo
             "_schedule_background_job_poll",
             lambda ctx, process_id: poll_calls.append(process_id),
         )
-        original_cleanup = plugin._schedule_background_job_cleanup
+        original_cleanup = tool_events._schedule_background_job_cleanup
 
         def track_cleanup(ctx, process_id):
             cleanup_calls.append(process_id)
             return original_cleanup(ctx, process_id)
 
-        monkeypatch.setattr(plugin, "_schedule_background_job_cleanup", track_cleanup)
+        monkeypatch.setattr(tool_events, "_schedule_background_job_cleanup", track_cleanup)
 
         plugin._on_post_tool_call(
             "terminal",

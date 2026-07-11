@@ -112,7 +112,9 @@ def test_poll_reports_lost_registry_session_without_real_sleep(monkeypatch):
     _install_registry(monkeypatch, Registry([None]))
     monkeypatch.setattr(plugin, "_get_renderer", lambda: _renderer())
     monkeypatch.setattr(asyncio, "sleep", lambda delay: _immediate())
-    monkeypatch.setattr(plugin, "_schedule_render", lambda context, event: events.append(event))
+    monkeypatch.setattr(
+        tool_events, "_schedule_render", lambda context, event: events.append(event)
+    )
 
     tool_events._schedule_background_job_poll(ctx, "proc")
     assert ctx.background_jobs["proc"].poll_task is not None
@@ -136,7 +138,9 @@ def test_poll_skips_unchanged_output_then_reports_exit(monkeypatch):
     _install_registry(monkeypatch, Registry([running, exited]))
     monkeypatch.setattr(plugin, "_get_renderer", lambda: _renderer())
     monkeypatch.setattr(asyncio, "sleep", lambda delay: _immediate())
-    monkeypatch.setattr(plugin, "_schedule_render", lambda context, event: events.append(event))
+    monkeypatch.setattr(
+        tool_events, "_schedule_render", lambda context, event: events.append(event)
+    )
 
     tool_events._schedule_background_job_poll(ctx, "proc")
     _run_poll(loop)
@@ -172,7 +176,7 @@ def test_poll_registry_error_becomes_lost_and_callback_error_is_contained(monkey
         attempted.append((context, event))
         raise ValueError("callback")
 
-    monkeypatch.setattr(plugin, "_schedule_render", reject)
+    monkeypatch.setattr(tool_events, "_schedule_render", reject)
 
     tool_events._schedule_background_job_poll(ctx, "proc")
     _run_poll(loop)
@@ -210,7 +214,7 @@ def test_cleanup_scheduling_guard_and_terminal_callback(monkeypatch):
     monkeypatch.setattr(plugin, "_get_renderer", lambda: _renderer())
     monkeypatch.setattr(asyncio, "sleep", lambda delay: _immediate())
     monkeypatch.setattr(
-        plugin,
+        tool_events,
         "_schedule_render",
         lambda context, event, force=False: events.append((event, force)),
     )
