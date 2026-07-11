@@ -22,17 +22,17 @@ def reset_turn(ctx: SessionContext) -> None:
     ctx.delegate_order.clear()
     ctx.todo_items = ()
     ctx.todo_updated_at = 0.0
-    ctx.assistant_lines.clear()
-    ctx.assistant_latest_text = ""
-    ctx.assistant_pending_chars = 0
-    ctx.last_assistant_chars = 0
-    ctx.last_assistant_at = 0.0
-    ctx.assistant_transient = False
-    ctx.reasoning_text = ""
-    ctx.reasoning_pending_chars = 0
-    ctx.last_reasoning_source = ""
-    ctx.last_reasoning_chars = 0
-    ctx.last_reasoning_at = 0.0
+    ctx.assistant.lines.clear()
+    ctx.assistant.latest_text = ""
+    ctx.assistant.pending_chars = 0
+    ctx.assistant.last_chars = 0
+    ctx.assistant.last_at = 0.0
+    ctx.assistant.transient = False
+    ctx.reasoning.text = ""
+    ctx.reasoning.pending_chars = 0
+    ctx.reasoning.last_source = ""
+    ctx.reasoning.last_chars = 0
+    ctx.reasoning.last_at = 0.0
     ctx.generation += 1
     ctx.finalized_at = time.time()
     ctx.can_edit = True

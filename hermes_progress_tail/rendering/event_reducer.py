@@ -211,46 +211,46 @@ class EventReducer:
         text = str(event.text or "").strip()
         if not text:
             return 0
-        previous = ctx.assistant_latest_text
+        previous = ctx.assistant.latest_text
         replace_latest = bool(previous and (text.startswith(previous) or previous.startswith(text)))
-        if ctx.assistant_transient and not event.transient:
-            ctx.assistant_lines.clear()
+        if ctx.assistant.transient and not event.transient:
+            ctx.assistant.lines.clear()
             previous = ""
             replace_latest = False
-            ctx.assistant_transient = False
-        if replace_latest and ctx.assistant_lines:
-            ctx.assistant_lines[-1] = AssistantLine(text=text, created_at=event.created_at)
+            ctx.assistant.transient = False
+        if replace_latest and ctx.assistant.lines:
+            ctx.assistant.lines[-1] = AssistantLine(text=text, created_at=event.created_at)
         else:
-            ctx.assistant_lines.append(AssistantLine(text=text, created_at=event.created_at))
+            ctx.assistant.lines.append(AssistantLine(text=text, created_at=event.created_at))
         max_lines = max(1, self.settings.assistant.max_lines)
-        if ctx.assistant_lines.maxlen != max_lines:
-            ctx.assistant_lines = type(ctx.assistant_lines)(
-                list(ctx.assistant_lines)[-max_lines:], maxlen=max_lines
+        if ctx.assistant.lines.maxlen != max_lines:
+            ctx.assistant.lines = type(ctx.assistant.lines)(
+                list(ctx.assistant.lines)[-max_lines:], maxlen=max_lines
             )
         delta_chars = len(text) - len(previous) if replace_latest else len(text)
-        ctx.assistant_pending_chars += max(1, delta_chars)
-        ctx.assistant_latest_text = text
-        ctx.last_assistant_chars = len(text)
-        ctx.last_assistant_at = event.created_at
-        ctx.assistant_transient = bool(event.transient)
-        return ctx.assistant_pending_chars
+        ctx.assistant.pending_chars += max(1, delta_chars)
+        ctx.assistant.latest_text = text
+        ctx.assistant.last_chars = len(text)
+        ctx.assistant.last_at = event.created_at
+        ctx.assistant.transient = bool(event.transient)
+        return ctx.assistant.pending_chars
 
     @staticmethod
     def clear_transient_assistant(ctx: SessionContext) -> None:
-        if not ctx.assistant_transient:
+        if not ctx.assistant.transient:
             return
-        ctx.assistant_lines.clear()
-        ctx.assistant_latest_text = ""
-        ctx.assistant_pending_chars = 0
-        ctx.last_assistant_chars = 0
-        ctx.last_assistant_at = 0.0
-        ctx.assistant_transient = False
+        ctx.assistant.lines.clear()
+        ctx.assistant.latest_text = ""
+        ctx.assistant.pending_chars = 0
+        ctx.assistant.last_chars = 0
+        ctx.assistant.last_at = 0.0
+        ctx.assistant.transient = False
 
     def append_reasoning(self, ctx: SessionContext, event: ReasoningEvent) -> int:
         if not event.text:
             return 0
         event_text = str(event.text)
-        merged = ctx.reasoning_text + event_text
+        merged = ctx.reasoning.text + event_text
         max_chars = self.settings.reasoning.max_chars
         buffer_limit = max(0, max_chars * 4)
         if len(merged) > buffer_limit:
@@ -261,12 +261,12 @@ class EventReducer:
             trim_limit = buffer_limit - len(stream_suffix)
             trimmed = self.trim_reasoning_buffer(normalized, trim_limit) if trim_limit > 0 else ""
             merged = trimmed + stream_suffix
-        ctx.reasoning_text = merged
-        ctx.reasoning_pending_chars += len(event_text)
-        ctx.last_reasoning_source = event.source or "structured_reasoning"
-        ctx.last_reasoning_chars = len(event_text)
-        ctx.last_reasoning_at = event.created_at
-        return ctx.reasoning_pending_chars
+        ctx.reasoning.text = merged
+        ctx.reasoning.pending_chars += len(event_text)
+        ctx.reasoning.last_source = event.source or "structured_reasoning"
+        ctx.reasoning.last_chars = len(event_text)
+        ctx.reasoning.last_at = event.created_at
+        return ctx.reasoning.pending_chars
 
     @staticmethod
     def trim_reasoning_buffer(text: str, max_chars: int) -> str:

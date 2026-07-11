@@ -61,8 +61,8 @@ class RendererDelivery:
                 ctx.last_error = str(exc)
                 result = _Result(False, ctx.message_id, str(exc))
             if getattr(result, "success", False):
-                ctx.assistant_pending_chars = 0
-                ctx.reasoning_pending_chars = 0
+                ctx.assistant.pending_chars = 0
+                ctx.reasoning.pending_chars = 0
                 ctx.edit_state = "editable"
                 ctx.edit_backoff_until = 0.0
                 ctx.edit_failure_count = 0
@@ -71,8 +71,8 @@ class RendererDelivery:
             error = str(getattr(result, "error", "") or "edit failed")
             kind = self.classify_edit_error(error)
             if kind == "noop_success":
-                ctx.assistant_pending_chars = 0
-                ctx.reasoning_pending_chars = 0
+                ctx.assistant.pending_chars = 0
+                ctx.reasoning.pending_chars = 0
                 ctx.edit_state = "editable"
                 ctx.last_render_at = time.monotonic()
                 return
@@ -125,8 +125,8 @@ class RendererDelivery:
             if recovery:
                 ctx.edit_recovery_sends += 1
                 ctx.fallback_send_count += 1
-            ctx.assistant_pending_chars = 0
-            ctx.reasoning_pending_chars = 0
+            ctx.assistant.pending_chars = 0
+            ctx.reasoning.pending_chars = 0
             ctx.last_render_at = time.monotonic()
         else:
             error = str(getattr(result, "error", "send failed") or "send failed")
@@ -264,8 +264,8 @@ class RendererDelivery:
             ctx.snapshots_sent += 1
             ctx.fallback_send_count += 1
             ctx.new_events_since_snapshot = 0
-            ctx.assistant_pending_chars = 0
-            ctx.reasoning_pending_chars = 0
+            ctx.assistant.pending_chars = 0
+            ctx.reasoning.pending_chars = 0
             ctx.last_render_at = time.monotonic()
         else:
             ctx.last_error = str(

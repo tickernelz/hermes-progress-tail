@@ -372,14 +372,14 @@ class ProgressRenderer:
 
     def _assistant_tail(self, ctx: SessionContext) -> str:
         return assistant_tail(
-            tuple(ctx.assistant_lines),
+            tuple(ctx.assistant.lines),
             max_lines=self.settings.assistant.max_lines,
             max_chars=self.settings.assistant.max_chars,
         )
 
     def _reasoning_tail(self, ctx: SessionContext) -> str:
         return render_reasoning_tail(
-            ctx.reasoning_text,
+            ctx.reasoning.text,
             max_lines=self.settings.reasoning.max_lines,
             max_chars=self.settings.reasoning.max_chars,
             redact=self.settings.renderer.redact_secrets,

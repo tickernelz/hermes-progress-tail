@@ -248,9 +248,9 @@ def latest_activity(ctx: SessionContext, *, active_only: bool = False) -> str:
         job = ctx.background_jobs.get(ctx.background_order[-1])
         if job and (not active_only or _background_job_is_active(job.status)):
             return f"background · {job.command or job.process_id}"
-    if not active_only and ctx.assistant_latest_text:
+    if not active_only and ctx.assistant.latest_text:
         return "assistant progress"
-    if not active_only and ctx.reasoning_text:
+    if not active_only and ctx.reasoning.text:
         return "reasoning"
     return "working"
 
