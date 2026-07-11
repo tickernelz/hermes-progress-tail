@@ -19,6 +19,19 @@ def isolate_telegram_state(monkeypatch):
     )
     snapshots = [dict(registry) for registry in registries]
     yield
+    for registry in registries:
+        for cls, original in list(registry.items()):
+            if registry is telegram._TELEGRAM_ORIGINALS:
+                cls.edit_message = original
+                marker = telegram._TELEGRAM_PATCH_MARKER
+            elif registry is telegram._TELEGRAM_SEND_ORIGINALS:
+                cls.send = original
+                continue
+            else:
+                cls._recover_telegram_topic_thread_id = original
+                marker = telegram._TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER
+            if marker in cls.__dict__:
+                delattr(cls, marker)
     for registry, snapshot in zip(registries, snapshots, strict=True):
         registry.clear()
         registry.update(snapshot)
@@ -83,9 +96,13 @@ def test_flood_seconds_and_deadline(monkeypatch, retry_after, text, expected):
     assert telegram._flood_control_seconds(exc) == expected
     adapter = SimpleNamespace()
     monkeypatch.setattr(telegram.time, "monotonic", lambda: 100.0)
-    telegram._latch_rich_flood_off_str(adapter, text)
+    telegram._latch_rich_flood_off(adapter, exc)
+    assert adapter._hermes_progress_tail_rich_disabled is True
+    assert adapter._hermes_progress_tail_rich_flood_until == 100.0 + expected
+    string_adapter = SimpleNamespace()
+    telegram._latch_rich_flood_off_str(string_adapter, text)
     string_expected = min(float(text.split()[-1]), 600.0) if "retry" in text else 300.0
-    assert adapter._hermes_progress_tail_rich_flood_until == 100.0 + string_expected
+    assert string_adapter._hermes_progress_tail_rich_flood_until == 100.0 + string_expected
 
 
 def test_rich_edit_disabled_not_modified_and_lost():

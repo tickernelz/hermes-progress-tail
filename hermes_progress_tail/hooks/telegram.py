@@ -149,7 +149,7 @@ def _flood_control_seconds(exc: Exception) -> float:
 
 def _latch_rich_flood_off(adapter: Any, exc: Exception) -> None:
     """Latch rich messages off for the flood cooldown period."""
-    _latch_rich_flood_off_str(adapter, str(exc))
+    _latch_rich_flood_off_for(adapter, _flood_control_seconds(exc))
 
 
 def _is_flood_control_str(text: str) -> bool:
@@ -173,8 +173,11 @@ def _flood_control_seconds_str(text: str) -> float:
 
 def _latch_rich_flood_off_str(adapter: Any, error_text: str) -> None:
     """Latch rich messages off for the flood cooldown period (string variant)."""
+    _latch_rich_flood_off_for(adapter, _flood_control_seconds_str(error_text))
+
+
+def _latch_rich_flood_off_for(adapter: Any, cooldown: float) -> None:
     adapter._hermes_progress_tail_rich_disabled = True
-    cooldown = _flood_control_seconds_str(error_text)
     adapter._hermes_progress_tail_rich_flood_until = time.monotonic() + cooldown
     logger.warning(
         "hermes-progress-tail Telegram rich flood-controlled; "
