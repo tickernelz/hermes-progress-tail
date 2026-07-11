@@ -68,9 +68,17 @@ def test_adapter_bound_handler_and_internal_registration_are_observable(monkeypa
 
     gateway = Gateway()
     adapter = Adapter()
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks import contracts
+
     monkeypatch.setattr(
-        "hermes_progress_tail.runtime.plugin.register_context_from_adapter_event",
-        lambda owner, event: calls.append((owner, event)),
+        contracts,
+        "_CURRENT_CALLBACKS",
+        replace(
+            contracts.current_hook_callbacks(),
+            register_adapter_context=lambda owner, event: calls.append((owner, event)),
+        ),
     )
     assert platform.install_adapter_monkeypatches(Adapter)
     assert adapter.set_message_handler(gateway.callback) == "installed"
@@ -96,9 +104,14 @@ def test_adapter_callback_and_remembering_failures_do_not_break_passthrough(monk
                 raise RuntimeError("no metadata")
             super().__setattr__(name, value)
 
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks import contracts
+
     monkeypatch.setattr(
-        "hermes_progress_tail.runtime.plugin.register_context_from_adapter_event",
-        raising_registration,
+        contracts,
+        "_CURRENT_CALLBACKS",
+        replace(contracts.current_hook_callbacks(), register_adapter_context=raising_registration),
     )
     adapter = HostileAdapter()
     event = SimpleNamespace(internal=True)
@@ -130,9 +143,17 @@ def test_adapter_missing_api_and_scoped_import_failure(monkeypatch):
 )
 def test_interrupt_stop_reasons_notify_after_native_call(monkeypatch, args, kwargs):
     calls = []
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks import contracts
+
     monkeypatch.setattr(
-        "hermes_progress_tail.runtime.plugin.on_gateway_stop_from_runner",
-        lambda owner, **details: calls.append((owner.native_call, details)),
+        contracts,
+        "_CURRENT_CALLBACKS",
+        replace(
+            contracts.current_hook_callbacks(),
+            on_gateway_stop=lambda owner, **details: calls.append((owner.native_call, details)),
+        ),
     )
     runner = Runner()
     original = Runner._interrupt_and_clear_session

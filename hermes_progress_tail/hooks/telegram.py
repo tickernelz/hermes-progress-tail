@@ -13,6 +13,7 @@ from ..rendering.telegram_rich import (
     format_progress_tail_telegram_rich_markdown,
     telegram_rich_message_payload,
 )
+from .contracts import HookCallbacks, current_hook_callbacks
 
 logger = logging.getLogger(__name__)
 _TELEGRAM_ORIGINALS: dict[type, Any] = {}
@@ -58,16 +59,15 @@ def format_progress_tail_telegram_markdown(content: str, formatter: Any) -> str:
     return formatted
 
 
-def _runtime_telegram_settings() -> Any:
+def _runtime_telegram_settings(callbacks: HookCallbacks | None = None) -> Any:
+    resolved = callbacks if callbacks is not None else current_hook_callbacks()
     try:
-        from ..runtime import plugin as runtime_plugin
-
-        return runtime_plugin._get_renderer().settings.telegram
+        return resolved.telegram_settings()
     except Exception:
         return None
 
 
-def _telegram_rich_enabled(adapter: Any) -> bool:
+def _telegram_rich_enabled(adapter: Any, callbacks: HookCallbacks | None = None) -> bool:
     override = getattr(adapter, "_hermes_progress_tail_rich_messages", None)
     if override is not None:
         return bool(override)
@@ -80,14 +80,14 @@ def _telegram_rich_enabled(adapter: Any) -> bool:
             logger.info("hermes-progress-tail Telegram rich re-enabled after flood cooldown")
         else:
             return False
-    settings = _runtime_telegram_settings()
+    settings = _runtime_telegram_settings(callbacks)
     if settings is None:
         return True
     return bool(getattr(settings, "rich_messages", True))
 
 
-def _telegram_rich_markdown(content: str) -> str:
-    settings = _runtime_telegram_settings()
+def _telegram_rich_markdown(content: str, callbacks: HookCallbacks | None = None) -> str:
+    settings = _runtime_telegram_settings(callbacks)
     return format_progress_tail_telegram_rich_markdown(
         content,
         max_table_rows=getattr(settings, "max_table_rows", 8),
@@ -192,14 +192,15 @@ async def _try_edit_rich_message(
     message_id: str,
     content: str,
     send_result_cls: Any,
+    callbacks: HookCallbacks | None = None,
 ) -> Any | None:
-    if not _telegram_rich_enabled(adapter):
+    if not _telegram_rich_enabled(adapter, callbacks):
         return None
     bot = getattr(adapter, "_bot", None)
     if not bot or not _bot_supports_rich_edit(bot):
         return None
     try:
-        rich_markdown = _telegram_rich_markdown(content)
+        rich_markdown = _telegram_rich_markdown(content, callbacks)
         payload = {
             "chat_id": int(chat_id),
             "message_id": int(message_id),
@@ -240,12 +241,13 @@ async def _try_send_rich_message(
     content: str,
     send_result_cls: Any,
     *,
+    callbacks: HookCallbacks | None = None,
     reply_to: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> Any | None:
-    if not _telegram_rich_enabled(adapter):
+    if not _telegram_rich_enabled(adapter, callbacks):
         return None
-    rich_markdown = _telegram_rich_markdown(content)
+    rich_markdown = _telegram_rich_markdown(content, callbacks)
     try_send_rich = getattr(adapter, "_try_send_rich", None)
     if callable(try_send_rich):
         try:
@@ -417,7 +419,10 @@ def _should_preserve_telegram_topic_thread(gateway: Any, source: Any) -> bool:
     return bool(inbound) and inbound not in general_ids
 
 
-def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None) -> bool:
+def install_telegram_format_monkeypatch(
+    telegram_adapter_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    callbacks = callbacks if callbacks is not None else current_hook_callbacks()
     if telegram_adapter_cls is None:
         try:
             telegram_adapter_cls = _resolve_telegram_adapter_cls()
@@ -434,6 +439,7 @@ def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None
         )
         return False
     _TELEGRAM_ORIGINALS[telegram_adapter_cls] = original_edit
+
     if original_send is not None:
         _TELEGRAM_SEND_ORIGINALS[telegram_adapter_cls] = original_send
 
@@ -469,7 +475,7 @@ def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None
             )
         try:
             rich_result = await _try_edit_rich_message(
-                self, chat_id, message_id, content, SendResult
+                self, chat_id, message_id, content, SendResult, callbacks
             )
             if rich_result is not None:
                 return rich_result
@@ -531,6 +537,7 @@ def install_telegram_format_monkeypatch(telegram_adapter_cls: type | None = None
                 chat_id,
                 content,
                 SendResult,
+                callbacks=callbacks,
                 reply_to=reply_to,
                 metadata=metadata,
             )

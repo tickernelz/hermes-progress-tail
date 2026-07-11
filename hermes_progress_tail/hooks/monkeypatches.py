@@ -33,6 +33,7 @@ from .compression import (
     uninstall_compression_lifecycle_monkeypatch,
     uninstall_compression_status_monkeypatch,
 )
+from .contracts import configure_hook_callbacks, current_hook_callbacks
 from .delegate import (
     _extract_delegate_builder_args,
     install_delegate_monkeypatches,
@@ -96,6 +97,8 @@ __all__ = [
     "install_compression_status_monkeypatch",
     "uninstall_compression_lifecycle_monkeypatch",
     "uninstall_compression_status_monkeypatch",
+    "configure_hook_callbacks",
+    "current_hook_callbacks",
     "_extract_delegate_builder_args",
     "install_delegate_monkeypatches",
     "uninstall_delegate_monkeypatches",

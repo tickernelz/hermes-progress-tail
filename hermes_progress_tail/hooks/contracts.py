@@ -76,3 +76,15 @@ def inert_hook_callbacks() -> HookCallbacks:
         reasoning_enabled=reasoning_enabled,
         telegram_settings=telegram_settings,
     )
+
+
+_CURRENT_CALLBACKS = inert_hook_callbacks()
+
+
+def configure_hook_callbacks(callbacks: HookCallbacks) -> None:
+    global _CURRENT_CALLBACKS
+    _CURRENT_CALLBACKS = callbacks
+
+
+def current_hook_callbacks() -> HookCallbacks:
+    return _CURRENT_CALLBACKS

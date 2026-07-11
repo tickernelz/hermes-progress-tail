@@ -4,12 +4,17 @@ import logging
 from functools import wraps
 from typing import Any
 
+from .contracts import HookCallbacks, current_hook_callbacks
+
 logger = logging.getLogger(__name__)
 _DELEGATE_ORIGINALS: dict[int, tuple[Any, Any]] = {}
 _DELEGATE_PATCH_MARKER = "_hermes_progress_tail_delegate_patched"
 
 
-def install_delegate_monkeypatches(delegate_module: Any | None = None) -> bool:
+def install_delegate_monkeypatches(
+    delegate_module: Any | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    callbacks = callbacks if callbacks is not None else current_hook_callbacks()
     if delegate_module is None:
         try:
             from tools import delegate_tool as delegate_module
@@ -48,15 +53,13 @@ def install_delegate_monkeypatches(delegate_module: Any | None = None) -> bool:
                         "hermes-progress-tail original delegate callback failed", exc_info=True
                     )
             try:
-                from ..runtime.plugin import on_delegate_progress_from_agent
-
                 for key, value in builder_identity.items():
                     event_kwargs.setdefault(key, value)
                 if "task_index" not in event_kwargs:
                     event_kwargs["task_index"] = task_index
                 if "goal" not in event_kwargs and goal:
                     event_kwargs["goal"] = goal
-                on_delegate_progress_from_agent(
+                callbacks.on_delegate_progress(
                     parent_agent,
                     str(event_type or ""),
                     tool_name,

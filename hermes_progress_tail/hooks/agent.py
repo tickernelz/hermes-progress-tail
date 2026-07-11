@@ -6,6 +6,8 @@ from contextlib import suppress
 from functools import wraps
 from typing import Any
 
+from .contracts import HookCallbacks, current_hook_callbacks
+
 logger = logging.getLogger(__name__)
 _ORIGINALS: dict[type, dict[str, Any]] = {}
 _NOOP_MARKER = "_hermes_progress_tail_noop"
@@ -95,7 +97,10 @@ def _positive_int(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
-def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
+def install_agent_monkeypatches(
+    agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    callbacks = callbacks if callbacks is not None else current_hook_callbacks()
     if agent_cls is None:
         try:
             from run_agent import AIAgent as agent_cls
@@ -130,7 +135,7 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
                 )
         try:
             self.stream_delta_callback = _wrap_stream_delta_callback(
-                self, getattr(self, "stream_delta_callback", None)
+                self, getattr(self, "stream_delta_callback", None), callbacks=callbacks
             )
         except Exception:
             logger.debug("hermes-progress-tail could not wrap stream delta callback", exc_info=True)
@@ -145,9 +150,7 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
                     break
         if text:
             try:
-                from ..runtime.plugin import on_reasoning_delta_from_agent
-
-                on_reasoning_delta_from_agent(self, str(text))
+                callbacks.on_reasoning_delta(self, str(text))
             except Exception:
                 logger.debug("hermes-progress-tail reasoning capture failed", exc_info=True)
         return fire_reasoning(self, *args, **kwargs)
@@ -160,9 +163,7 @@ def install_agent_monkeypatches(agent_cls: type | None = None) -> bool:
         already_streamed = _assistant_already_streamed(self, visible, assistant_msg)
         if visible:
             try:
-                from ..runtime.plugin import on_assistant_progress_from_agent
-
-                handled = on_assistant_progress_from_agent(
+                handled = callbacks.on_assistant_progress(
                     self, visible, already_streamed=already_streamed
                 )
             except Exception:
@@ -248,7 +249,10 @@ def _assistant_already_streamed(agent: Any, visible: str, assistant_msg: Any) ->
     return False
 
 
-def _wrap_stream_delta_callback(agent: Any, callback: Any) -> Any:
+def _wrap_stream_delta_callback(
+    agent: Any, callback: Any, *, callbacks: HookCallbacks | None = None
+) -> Any:
+    callbacks = callbacks if callbacks is not None else current_hook_callbacks()
     if callback is None or getattr(callback, "_hermes_progress_tail_inline_think_wrapped", False):
         return callback
 
@@ -256,15 +260,13 @@ def _wrap_stream_delta_callback(agent: Any, callback: Any) -> Any:
     def wrapped_stream_delta(text, *args, **kwargs):
         raw_text = str(text or "")
         fail_open_text = _inline_reasoning_pending(agent) + raw_text
-        if not _agent_reasoning_enabled(agent):
+        if not _agent_reasoning_enabled(agent, callbacks):
             _reset_inline_reasoning_state(agent)
             return callback(fail_open_text, *args, **kwargs)
         captured, visible = _capture_inline_reasoning(agent, raw_text)
         if captured:
             try:
-                from ..runtime.plugin import on_reasoning_delta_from_agent
-
-                on_reasoning_delta_from_agent(agent, captured, source="inline_think")
+                callbacks.on_reasoning_delta(agent, captured, source="inline_think")
             except Exception:
                 logger.debug("hermes-progress-tail inline think capture failed", exc_info=True)
                 _reset_inline_reasoning_state(agent)
@@ -275,24 +277,10 @@ def _wrap_stream_delta_callback(agent: Any, callback: Any) -> Any:
     return wrapped_stream_delta
 
 
-def _agent_reasoning_enabled(agent: Any) -> bool:
+def _agent_reasoning_enabled(agent: Any, callbacks: HookCallbacks | None = None) -> bool:
+    resolved = callbacks if callbacks is not None else current_hook_callbacks()
     try:
-        from ..runtime.plugin import (
-            _agent_session_id,
-            _agent_session_key,
-            _get_renderer,
-            _should_suppress_agent_progress,
-        )
-
-        if _should_suppress_agent_progress(agent):
-            return False
-        renderer = _get_renderer()
-        session_id = _agent_session_id(agent)
-        session_key = _agent_session_key(agent)
-        ctx = renderer.find_context(session_id, session_key)
-        return bool(
-            ctx is not None and ctx.reasoning_enabled and renderer.settings.reasoning.enabled
-        )
+        return bool(resolved.reasoning_enabled(agent))
     except Exception:
         logger.debug("hermes-progress-tail reasoning availability check failed", exc_info=True)
         return False

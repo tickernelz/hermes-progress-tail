@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from ..hooks.contracts import HookCallbacks, configure_hook_callbacks
 from ..hooks.monkeypatches import install_monkeypatches
 from ..models.state import SessionContext
 from ..rendering.renderer import ProgressRenderer
@@ -299,3 +300,40 @@ def register(ctx):
     ctx.register_hook("on_session_reset", _on_session_reset)
     ctx.register_hook("on_session_finalize", _on_session_finalize)
     _register_progress_tail_commands(ctx)
+
+
+def _runtime_reasoning_enabled(agent: Any) -> bool:
+    if _should_suppress_agent_progress(agent):
+        return False
+    renderer = _get_renderer()
+    ctx = renderer.find_context(_agent_session_id(agent), _agent_session_key(agent))
+    return bool(ctx is not None and ctx.reasoning_enabled and renderer.settings.reasoning.enabled)
+
+
+def _runtime_telegram_settings() -> Any:
+    return _get_renderer().settings.telegram
+
+
+configure_hook_callbacks(
+    HookCallbacks(
+        on_reasoning_delta=lambda *args, **kwargs: on_reasoning_delta_from_agent(*args, **kwargs),
+        on_assistant_progress=lambda *args, **kwargs: on_assistant_progress_from_agent(
+            *args, **kwargs
+        ),
+        on_delegate_progress=lambda *args, **kwargs: on_delegate_progress_from_agent(
+            *args, **kwargs
+        ),
+        on_compression_status=lambda *args, **kwargs: on_compression_status_from_agent(
+            *args, **kwargs
+        ),
+        on_compression_lifecycle=lambda *args, **kwargs: on_compression_lifecycle_from_agent(
+            *args, **kwargs
+        ),
+        register_adapter_context=lambda *args, **kwargs: register_context_from_adapter_event(
+            *args, **kwargs
+        ),
+        on_gateway_stop=lambda *args, **kwargs: on_gateway_stop_from_runner(*args, **kwargs),
+        reasoning_enabled=_runtime_reasoning_enabled,
+        telegram_settings=_runtime_telegram_settings,
+    )
+)

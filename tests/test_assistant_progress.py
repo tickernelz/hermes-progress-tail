@@ -290,7 +290,6 @@ def test_monkeypatch_captures_interim_assistant_commentary_and_suppresses_defaul
 
 
 def test_monkeypatch_computes_already_streamed_from_agent_checker(monkeypatch):
-    import hermes_progress_tail.plugin as plugin
 
     events = []
 
@@ -311,11 +310,18 @@ def test_monkeypatch_computes_already_streamed_from_agent_checker(monkeypatch):
             events.append(("original", assistant_msg))
             return "original"
 
+    from dataclasses import replace
+
+    from hermes_progress_tail.hooks import contracts
+
     monkeypatch.setattr(
-        plugin,
-        "on_assistant_progress_from_agent",
-        lambda agent, text, *, already_streamed=False: (
-            events.append(("captured", text, already_streamed)) or False
+        contracts,
+        "_CURRENT_CALLBACKS",
+        replace(
+            contracts.current_hook_callbacks(),
+            on_assistant_progress=lambda agent, text, *, already_streamed=False: (
+                events.append(("captured", text, already_streamed)) or False
+            ),
         ),
     )
 

@@ -5,6 +5,8 @@ from contextlib import suppress
 from functools import wraps
 from typing import Any
 
+from .contracts import HookCallbacks, current_hook_callbacks
+
 logger = logging.getLogger(__name__)
 _ADAPTER_ORIGINALS: dict[type, dict[str, Any]] = {}
 _GATEWAY_INTERRUPT_ORIGINALS: dict[type, Any] = {}
@@ -23,7 +25,10 @@ _NATIVE_GATEWAY_FALSE_SETTINGS = {
 _NATIVE_GATEWAY_OFF_SETTINGS = {"tool_progress"}
 
 
-def install_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
+def install_adapter_monkeypatches(
+    adapter_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    callbacks = callbacks if callbacks is not None else current_hook_callbacks()
     if adapter_cls is None:
         try:
             from gateway.platforms.base import BasePlatformAdapter as adapter_cls
@@ -58,9 +63,7 @@ def install_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
     async def patched_handle_message(self, event):
         if bool(getattr(event, "internal", False)):
             try:
-                from ..runtime.plugin import register_context_from_adapter_event
-
-                register_context_from_adapter_event(self, event)
+                callbacks.register_adapter_context(self, event)
             except Exception:
                 logger.debug(
                     "hermes-progress-tail internal message context registration failed",
@@ -74,7 +77,10 @@ def install_adapter_monkeypatches(adapter_cls: type | None = None) -> bool:
     return True
 
 
-def install_gateway_interrupt_monkeypatch(gateway_runner_cls: type | None = None) -> bool:
+def install_gateway_interrupt_monkeypatch(
+    gateway_runner_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    callbacks = callbacks if callbacks is not None else current_hook_callbacks()
     runner_cls = gateway_runner_cls
     if runner_cls is None:
         try:
@@ -101,9 +107,7 @@ def install_gateway_interrupt_monkeypatch(gateway_runner_cls: type | None = None
         result = await original(self, session_key, source, *args, **kwargs)
         if _is_stop_interrupt(interrupt_reason, invalidation_reason):
             try:
-                from ..runtime.plugin import on_gateway_stop_from_runner
-
-                on_gateway_stop_from_runner(self, session_key=str(session_key or ""), source=source)
+                callbacks.on_gateway_stop(self, session_key=str(session_key or ""), source=source)
             except Exception:
                 logger.debug(
                     "hermes-progress-tail gateway stop lifecycle capture failed",

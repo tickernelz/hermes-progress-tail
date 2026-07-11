@@ -5,6 +5,7 @@ from functools import wraps
 from typing import Any
 
 from .agent import _positive_int
+from .contracts import HookCallbacks, current_hook_callbacks
 
 logger = logging.getLogger(__name__)
 _COMPRESSION_STATUS_ORIGINALS: dict[type, Any] = {}
@@ -13,7 +14,10 @@ _COMPRESSION_STATUS_PATCH_MARKER = "_hermes_progress_tail_compression_status_pat
 _COMPRESSION_LIFECYCLE_PATCH_MARKER = "_hermes_progress_tail_compression_lifecycle_patched"
 
 
-def install_compression_status_monkeypatch(agent_cls: type | None = None) -> bool:
+def install_compression_status_monkeypatch(
+    agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    callbacks = callbacks if callbacks is not None else current_hook_callbacks()
     if agent_cls is None:
         try:
             from run_agent import AIAgent as agent_cls
@@ -33,9 +37,7 @@ def install_compression_status_monkeypatch(agent_cls: type | None = None) -> boo
         if _looks_like_compression_status(text):
             handled = False
             try:
-                from ..runtime.plugin import on_compression_status_from_agent
-
-                handled = on_compression_status_from_agent(self, str(text or ""))
+                handled = callbacks.on_compression_status(self, str(text or ""))
             except Exception:
                 logger.debug(
                     "hermes-progress-tail compression status capture failed", exc_info=True
@@ -59,7 +61,10 @@ def _looks_like_compression_status(text: Any) -> bool:
     )
 
 
-def install_compression_lifecycle_monkeypatch(agent_cls: type | None = None) -> bool:
+def install_compression_lifecycle_monkeypatch(
+    agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
+) -> bool:
+    callbacks = callbacks if callbacks is not None else current_hook_callbacks()
     if agent_cls is None:
         try:
             from run_agent import AIAgent as agent_cls
@@ -83,9 +88,7 @@ def install_compression_lifecycle_monkeypatch(agent_cls: type | None = None) -> 
         before_count = len(messages) if hasattr(messages, "__len__") else 0
         before_tokens = kwargs.get("approx_tokens")
         try:
-            from ..runtime.plugin import on_compression_lifecycle_from_agent
-
-            on_compression_lifecycle_from_agent(
+            callbacks.on_compression_lifecycle(
                 self,
                 phase="started",
                 old_session_id=old_session_id,
@@ -98,9 +101,7 @@ def install_compression_lifecycle_monkeypatch(agent_cls: type | None = None) -> 
             result = compress_context(self, messages, system_message, *args, **kwargs)
         except Exception as exc:
             try:
-                from ..runtime.plugin import on_compression_lifecycle_from_agent
-
-                on_compression_lifecycle_from_agent(
+                callbacks.on_compression_lifecycle(
                     self,
                     phase="failed",
                     old_session_id=old_session_id,
@@ -132,9 +133,7 @@ def install_compression_lifecycle_monkeypatch(agent_cls: type | None = None) -> 
                 if _positive_int(rough_tokens) is not None:
                     after_tokens = rough_tokens
                     after_tokens_kind = "rough"
-            from ..runtime.plugin import on_compression_lifecycle_from_agent
-
-            on_compression_lifecycle_from_agent(
+            callbacks.on_compression_lifecycle(
                 self,
                 phase="completed",
                 old_session_id=old_session_id,
