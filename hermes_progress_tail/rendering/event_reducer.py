@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from ..models.state import (
     AssistantEvent,
@@ -13,6 +14,7 @@ from ..models.state import (
     ToolEvent,
 )
 from ..settings.config import Settings
+from .background_jobs import apply_background_job_event
 from .reasoning import (
     normalize_reasoning_text,
     split_reasoning_blocks,
@@ -26,6 +28,8 @@ class ReductionResult:
     force: bool = False
     skip_render: bool = False
     pending_chars: int = 0
+    delegate_cleanup: tuple[str, Any] | None = None
+    background_poll_cancellations: tuple[Any, ...] = ()
 
 
 class EventReducer:
@@ -38,6 +42,7 @@ class EventReducer:
     ) -> None:
         self.settings = settings
         self.delegate_renderer = delegate_renderer
+        # Compatibility reference only; reduction never invokes or schedules it.
         self.schedule_delegate_cleanup = schedule_delegate_cleanup
 
     def replace_settings(self, settings: Settings) -> None:
@@ -65,7 +70,32 @@ class EventReducer:
             return ReductionResult(pending_chars=self.append_assistant(ctx, event))
         if isinstance(event, ReasoningEvent):
             return ReductionResult(pending_chars=self.append_reasoning(ctx, event))
+        if isinstance(event, DelegateEvent):
+            self.delegate_renderer.apply_event(ctx, event)
+            if self.delegate_event_is_terminal(event):
+                key = event.subagent_id or f"task-{event.task_index}"
+                branch = ctx.delegate_branches.get(key)
+                cleanup = (key, branch) if branch is not None else None
+                return ReductionResult(force=True, delegate_cleanup=cleanup)
+            return ReductionResult()
+        if isinstance(event, BackgroundJobEvent):
+            cancellations = []
+            apply_background_job_event(
+                ctx,
+                event,
+                settings=self.settings.background_jobs,
+                cancel_poll=cancellations.append,
+            )
+            return ReductionResult(force=True, background_poll_cancellations=tuple(cancellations))
         return ReductionResult()
+
+    @staticmethod
+    def delegate_event_is_terminal(event: DelegateEvent) -> bool:
+        return bool(
+            event.event_type in {"subagent.complete", "subagent.failed"}
+            or str(event.status or "").strip().lower()
+            in {"completed", "done", "success", "failed", "error", "cancelled", "killed"}
+        )
 
     def apply_tool(self, ctx: SessionContext, event: ToolEvent, line: str) -> ReductionResult:
         if event.tool_name == "todo" and event.todo_items:

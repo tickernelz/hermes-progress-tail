@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from typing import Any
 
 from ..models.state import (
     AssistantEvent,
-    BackgroundJob,
     BackgroundJobEvent,
     DelegateEvent,
     ProgressEvent,
@@ -16,11 +14,8 @@ from ..models.state import (
     ToolEvent,
 )
 from ..settings.config import Settings
-from .background_jobs import (
-    apply_background_job_event,
-    background_jobs_section,
-    cancel_background_poll,
-)
+from . import finalization as finalization_helpers
+from .background_jobs import background_jobs_section, cancel_background_poll
 from .delegate import DelegateProgressRenderer
 from .delegate import event_preview_args as event_preview_args
 from .delivery import (
@@ -31,12 +26,6 @@ from .delivery import (
     _message_limit,
 )
 from .event_reducer import EventReducer
-from .finalization import (
-    finalize_progress_message,
-    has_background_jobs,
-    reset_turn,
-    should_flush_before_reset,
-)
 from .reasoning import normalize_reasoning_text, render_reasoning_tail
 from .sections import (
     assistant_tail,
@@ -48,8 +37,6 @@ from .sections import (
     todo_section,
 )
 from .session import SessionRegistry
-
-logger = logging.getLogger(__name__)
 
 
 class ProgressRenderer:
@@ -137,28 +124,15 @@ class ProgressRenderer:
     def _prepare_telegram_rich_message(self, ctx, content):
         return self.delivery.prepare_telegram_rich_message(ctx, content)
 
-    @staticmethod
-    def _fit_message(content, limit):
-        return _fit_message(content, limit)
-
-    @staticmethod
-    def _message_limit(ctx):
-        return _message_limit(ctx)
-
-    @staticmethod
-    def _classify_edit_error(error):
-        return _classify_edit_error(error)
-
-    @staticmethod
-    def _edit_backoff_seconds(error, kind, failure_count):
-        return _edit_backoff_seconds(error, kind, failure_count)
+    _fit_message = staticmethod(_fit_message)
+    _message_limit = staticmethod(_message_limit)
+    _classify_edit_error = staticmethod(_classify_edit_error)
+    _edit_backoff_seconds = staticmethod(_edit_backoff_seconds)
 
     def register_context(self, ctx):
         return self.registry.register_context(ctx)
 
-    @staticmethod
-    def _same_source_message(existing, incoming):
-        return SessionRegistry.same_source_message(existing, incoming)
+    _same_source_message = staticmethod(SessionRegistry.same_source_message)
 
     def find_context(self, session_id="", session_key=""):
         return self.registry.find_context(session_id, session_key)
@@ -184,13 +158,8 @@ class ProgressRenderer:
     def _find_previous_tool_line(self, ctx, event, line):
         return self.reducer.find_previous_tool_line(ctx, event, line)
 
-    @staticmethod
-    def _tool_line_terminal_status(line):
-        return EventReducer.tool_line_terminal_status(line)
-
-    @staticmethod
-    def _tool_line_fingerprint(line):
-        return EventReducer.tool_line_fingerprint(line)
+    _tool_line_terminal_status = staticmethod(EventReducer.tool_line_terminal_status)
+    _tool_line_fingerprint = staticmethod(EventReducer.tool_line_fingerprint)
 
     async def handle_event(self, event: ProgressEvent, force: bool = False) -> None:
         ctx = self.find_context(event.session_id, event.session_key)
@@ -216,22 +185,18 @@ class ProgressRenderer:
             ctx.last_event_at = time.monotonic()
             ctx.total_events += 1
             ctx.new_events_since_snapshot += 1
-            if isinstance(event, ToolEvent):
-                line = self._format_tool_line(ctx, event)
-                result = self.reducer.reduce(ctx, event, tool_line=line)
-                force = force or result.force
-                if result.skip_render:
-                    await self._render_for_strategy(ctx, event, force=force)
-                    return
-            elif isinstance(event, DelegateEvent):
-                self._apply_delegate_event(ctx, event)
-                if self._delegate_event_is_terminal(event):
-                    force = True
-            elif isinstance(event, BackgroundJobEvent):
-                self._apply_background_job_event(ctx, event)
-                force = True
-            elif isinstance(event, AssistantEvent):
-                pending = self.reducer.reduce(ctx, event).pending_chars
+            line = self._format_tool_line(ctx, event) if isinstance(event, ToolEvent) else ""
+            result = self.reducer.reduce(ctx, event, tool_line=line)
+            force = force or result.force
+            for job in result.background_poll_cancellations:
+                self._cancel_background_poll(job)
+            if result.delegate_cleanup is not None:
+                self._schedule_delegate_cleanup(ctx, *result.delegate_cleanup)
+            if result.skip_render:
+                await self._render_for_strategy(ctx, event, force=force)
+                return
+            if isinstance(event, AssistantEvent):
+                pending = result.pending_chars
                 if (
                     not force
                     and ctx.message_id
@@ -240,8 +205,8 @@ class ProgressRenderer:
                     return
                 if not force and pending < self.settings.assistant.min_update_chars:
                     return
-            else:
-                pending = self.reducer.reduce(ctx, event).pending_chars
+            elif isinstance(event, ReasoningEvent):
+                pending = result.pending_chars
                 if (
                     not force
                     and ctx.message_id
@@ -278,9 +243,7 @@ class ProgressRenderer:
         generation: int | None = None,
     ) -> None:
         ctx = self.find_context(session_id, session_key)
-        if ctx is None:
-            return
-        if generation is not None and ctx.generation != generation:
+        if ctx is None or (generation is not None and ctx.generation != generation):
             return
         async with ctx.lock:
             if generation is not None and (
@@ -343,25 +306,17 @@ class ProgressRenderer:
     def _todo_section(self, ctx: SessionContext) -> str:
         return todo_section(ctx, settings=self.settings)
 
-    @staticmethod
-    def _timestamp(value: float, fmt: str) -> str:
-        return timestamp_text(value, fmt)
+    _timestamp = staticmethod(timestamp_text)
 
     def _apply_background_job_event(self, ctx: SessionContext, event: BackgroundJobEvent) -> None:
-        apply_background_job_event(
-            ctx,
-            event,
-            settings=self.settings.background_jobs,
-            cancel_poll=self._cancel_background_poll,
-        )
+        result = self.reducer.reduce(ctx, event)
+        for job in result.background_poll_cancellations:
+            self._cancel_background_poll(job)
 
     def _apply_delegate_event(self, ctx: SessionContext, event: DelegateEvent) -> None:
-        self.delegate_renderer.apply_event(ctx, event)
-        if self._delegate_event_is_terminal(event):
-            key = event.subagent_id or f"task-{event.task_index}"
-            branch = ctx.delegate_branches.get(key)
-            if branch is not None:
-                self._schedule_delegate_cleanup(ctx, key, branch)
+        result = self.reducer.reduce(ctx, event)
+        if result.delegate_cleanup is not None:
+            self._schedule_delegate_cleanup(ctx, *result.delegate_cleanup)
 
     def _schedule_delegate_cleanup(
         self, ctx: SessionContext, subagent_id: str, branch: Any
@@ -392,13 +347,7 @@ class ProgressRenderer:
         task = ctx.loop.create_task(_cleanup())
         branch.cleanup_task = task
 
-    @staticmethod
-    def _delegate_event_is_terminal(event: DelegateEvent) -> bool:
-        return bool(
-            event.event_type in {"subagent.complete", "subagent.failed"}
-            or str(event.status or "").strip().lower()
-            in {"completed", "done", "success", "failed", "error", "cancelled", "killed"}
-        )
+    _delegate_event_is_terminal = staticmethod(EventReducer.delegate_event_is_terminal)
 
     def _background_jobs_section(self, ctx: SessionContext) -> str:
         return background_jobs_section(
@@ -409,26 +358,17 @@ class ProgressRenderer:
             cancel_poll=self._cancel_background_poll,
         )
 
-    @staticmethod
-    def _cancel_background_poll(job: BackgroundJob) -> None:
-        cancel_background_poll(job)
+    _cancel_background_poll = staticmethod(cancel_background_poll)
 
     def _background_jobs_enabled(self, ctx: SessionContext) -> bool:
         return bool(
             self.settings.background_jobs.enabled and getattr(ctx, "background_jobs_enabled", True)
         )
 
-    @staticmethod
-    def _trim_reasoning_buffer(text: str, max_chars: int) -> str:
-        return EventReducer.trim_reasoning_buffer(text, max_chars)
+    _trim_reasoning_buffer = staticmethod(EventReducer.trim_reasoning_buffer)
 
-    @staticmethod
-    def _reset_turn(ctx: SessionContext) -> None:
-        reset_turn(ctx)
-
-    @staticmethod
-    def _has_background_jobs(ctx: SessionContext) -> bool:
-        return has_background_jobs(ctx)
+    _reset_turn = staticmethod(finalization_helpers.reset_turn)
+    _has_background_jobs = staticmethod(finalization_helpers.has_background_jobs)
 
     def _assistant_tail(self, ctx: SessionContext) -> str:
         return assistant_tail(
@@ -446,12 +386,10 @@ class ProgressRenderer:
         )
 
     @staticmethod
-    def _normalize_reasoning(text: str) -> str:
+    def _normalize_reasoning(text):
         return normalize_reasoning_text(text)
 
     async def _finalize_progress_message(self, ctx: SessionContext) -> None:
-        finalize_progress_message(ctx)
+        finalization_helpers.finalize_progress_message(ctx)
 
-    @staticmethod
-    def _should_flush_before_reset(ctx: SessionContext) -> bool:
-        return should_flush_before_reset(ctx)
+    _should_flush_before_reset = staticmethod(finalization_helpers.should_flush_before_reset)
