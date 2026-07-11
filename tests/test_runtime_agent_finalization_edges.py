@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace as NS
 
 import pytest
@@ -76,15 +77,18 @@ def test_schedule_finalize_success_and_done_error(monkeypatch):
             raise RuntimeError("done")
 
     future = Future()
+    run = asyncio.run
 
     def submit(coro, loop):
-        coro.close()
         assert loop is target.loop
+        run(coro)
         return future
 
     monkeypatch.setattr(ae.asyncio, "run_coroutine_threadsafe", submit)
     ae._schedule_finalize("sid", purge=True, success=False)
     assert p_calls == []
+    assert finalized == [{"session_id": "sid", "purge": True, "generation": 7, "success": False}]
+    assert future.callback
     future.callback(future)
 
 

@@ -119,28 +119,6 @@ def renderer():
     return NS(settings=Settings(), registered=[], register_context=lambda ctx: None)
 
 
-def test_register_context_no_loop_and_running_loop():
-    r = renderer()
-    r.register_context = r.registered.append
-    src, adapter = source(), object()
-    rc._register_context(renderer=r, source=src, adapter=adapter, session_id="s", session_key="k")
-    ctx = r.registered[-1]
-    assert (ctx.loop, ctx.adapter, ctx.source_message_id, ctx.session_key) == (
-        None,
-        adapter,
-        "m1",
-        "k",
-    )
-
-    async def run():
-        rc._register_context(
-            renderer=r, source=src, adapter=adapter, session_id="s2", session_key="k2"
-        )
-        assert r.registered[-1].loop is asyncio.get_running_loop()
-
-    asyncio.run(run())
-
-
 def test_register_context_exception_visible():
     r = renderer()
     r.register_context = lambda ctx: (_ for _ in ()).throw(RuntimeError("visible"))
@@ -181,26 +159,124 @@ def test_pre_dispatch_guards(
     assert bool(calls) is called
 
 
-def test_adapter_registration_guards_and_valid(monkeypatch):
+def _context_contract(ctx, src, adapter, sid, key, loop):
+    settings = rc.resolve_platform_settings(Settings(), "telegram")
+    assert (
+        ctx.session_id,
+        ctx.session_key,
+        ctx.platform,
+        ctx.chat_id,
+        ctx.thread_id,
+        ctx.chat_type,
+        ctx.source_message_id,
+        ctx.adapter,
+        ctx.loop,
+    ) == (sid, key, "telegram", "chat", "2", "dm", "m1", adapter, loop)
+    assert (
+        ctx.strategy,
+        ctx.lines,
+        ctx.preview_length,
+        ctx.edit_interval,
+        ctx.tools_enabled,
+        ctx.assistant_enabled,
+        ctx.reasoning_enabled,
+        ctx.delegates_enabled,
+        ctx.background_jobs_enabled,
+        ctx.timestamp,
+        ctx.timestamp_format,
+        ctx.agent_label,
+    ) == (
+        settings.strategy,
+        settings.lines,
+        settings.preview_length,
+        settings.edit_interval,
+        settings.tools_enabled,
+        settings.assistant_enabled,
+        settings.reasoning_enabled,
+        settings.delegates_enabled,
+        settings.background_jobs_enabled,
+        settings.timestamp,
+        settings.timestamp_format,
+        Settings().renderer.agent_label,
+    )
+
+
+def test_register_context_complete_contract_both_loop_modes():
+    r, src, adapter = renderer(), source(), object()
+    r.register_context = r.registered.append
+    rc._register_context(renderer=r, source=src, adapter=adapter, session_id="s", session_key="k")
+    _context_contract(r.registered[-1], src, adapter, "s", "k", None)
+
+    async def run():
+        rc._register_context(
+            renderer=r, source=src, adapter=adapter, session_id="s2", session_key="k2"
+        )
+        _context_contract(r.registered[-1], src, adapter, "s2", "k2", asyncio.get_running_loop())
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "platform,enabled,strategy,store,session",
+    [
+        ("", True, "auto", True, "s"),
+        ("telegram", False, "auto", True, "s"),
+        ("telegram", True, "off", True, "s"),
+        ("telegram", True, "auto", False, "s"),
+        ("telegram", True, "auto", True, ""),
+    ],
+)
+def test_adapter_registration_complete_guards(
+    monkeypatch, platform, enabled, strategy, store, session
+):
     from hermes_progress_tail.runtime import plugin
 
     r = renderer()
     monkeypatch.setattr(plugin, "_get_renderer", lambda: r)
     monkeypatch.setattr(
-        rc, "resolve_platform_settings", lambda *a: NS(enabled=True, strategy="auto")
+        rc, "resolve_platform_settings", lambda *a: NS(enabled=enabled, strategy=strategy)
     )
-    adapter = NS(_session_store=object(), gateway=NS())
+    gateway = object()
+    adapter = NS(
+        _session_store=object() if store else None,
+        _hermes_progress_tail_gateway=gateway,
+        gateway=object(),
+    )
+    monkeypatch.setattr(
+        rc, "_pre_gateway_session_context", lambda g, st, s: (s, NS(session_key="k"), session)
+    )
     calls = []
     monkeypatch.setattr(rc, "_register_context", lambda **kw: calls.append(kw))
-    monkeypatch.setattr(
-        rc, "_pre_gateway_session_context", lambda g, st, s: (s, NS(session_key="k"), "s")
-    )
-    rc.register_context_from_adapter_event(adapter, NS(source=source()))
-    assert calls[0]["adapter"] is adapter and calls[0]["origin"] == "adapter_internal"
-    calls.clear()
-    for bad_adapter, event in [
-        (adapter, NS(source=None)),
-        (NS(_session_store=None), NS(source=source())),
-    ]:
-        rc.register_context_from_adapter_event(bad_adapter, event)
+    rc.register_context_from_adapter_event(adapter, NS(source=source(platform=platform)))
     assert calls == []
+
+
+def test_adapter_gateway_precedence_and_full_registration(monkeypatch):
+    from hermes_progress_tail.runtime import plugin
+
+    r, preferred, fallback, adapter = renderer(), object(), object(), NS(_session_store=object())
+    adapter._hermes_progress_tail_gateway, adapter.gateway = preferred, fallback
+    monkeypatch.setattr(plugin, "_get_renderer", lambda: r)
+    monkeypatch.setattr(
+        rc, "resolve_platform_settings", lambda *a: NS(enabled=True, strategy="auto")
+    )
+    seen, calls = [], []
+    monkeypatch.setattr(
+        rc,
+        "_pre_gateway_session_context",
+        lambda g, st, s: seen.append(g) or (s, NS(session_key="k"), "s"),
+    )
+    monkeypatch.setattr(rc, "_register_context", lambda **kw: calls.append(kw))
+    src = source()
+    rc.register_context_from_adapter_event(adapter, NS(source=src))
+    assert seen == [preferred]
+    assert calls == [
+        {
+            "renderer": r,
+            "source": src,
+            "adapter": adapter,
+            "session_id": "s",
+            "session_key": "k",
+            "origin": "adapter_internal",
+        }
+    ]

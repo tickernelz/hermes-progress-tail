@@ -168,3 +168,116 @@ def test_assistant_background_and_delegate_normalization(monkeypatch):
         event.args,
         event.duration_seconds,
     ) == ("task-bad", 0, 2, {}, 0.0)
+
+
+@pytest.mark.parametrize(
+    "ctx,enabled,suppress", [(False, True, False), (True, False, False), (True, True, True)]
+)
+def test_delegate_no_schedule_guards(monkeypatch, ctx, enabled, suppress):
+    _, _, context, calls = harness(monkeypatch, ctx=ctx, suppress=suppress)
+    context.delegates_enabled = enabled
+    ae.on_delegate_progress_from_agent(object(), "done")
+    assert calls == []
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_delegate_full_event_contract(monkeypatch, explicit):
+    _, _, _, calls = harness(monkeypatch)
+    values = (
+        dict(
+            subagent_id="worker",
+            task_index="4",
+            task_count="5",
+            goal="goal",
+            status="ok",
+            model="m",
+            tool_count="6",
+            duration_seconds="1.5",
+            summary="sum",
+        )
+        if explicit
+        else dict(task_index="bad", task_count="bad", duration_seconds="bad")
+    )
+    ae.on_delegate_progress_from_agent(
+        object(),
+        "done",
+        tool_name="tool" if explicit else None,
+        preview="preview" if explicit else None,
+        args={"x": 1} if explicit else [1],
+        **values,
+    )
+    e = calls[-1][1][1]
+    actual = (
+        e.session_id,
+        e.session_key,
+        e.platform,
+        e.subagent_id,
+        e.task_index,
+        e.task_count,
+        e.goal,
+        e.event_type,
+        e.tool_name,
+        e.preview,
+        e.args,
+        e.status,
+        e.model,
+        e.tool_count,
+        e.duration_seconds,
+        e.summary,
+    )
+    expected = (
+        (
+            "sid",
+            "key",
+            "discord",
+            "worker",
+            4,
+            5,
+            "goal",
+            "done",
+            "tool",
+            "preview",
+            {"x": 1},
+            "ok",
+            "m",
+            6,
+            1.5,
+            "sum",
+        )
+        if explicit
+        else ("sid", "key", "discord", "task-bad", 0, 1, "", "done", "", "", {}, "", "", 0, 0.0, "")
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("local,global_", [(False, True), (True, False)])
+def test_lifecycle_disabled_guards(monkeypatch, local, global_):
+    _, renderer, context, calls = harness(monkeypatch)
+    context.assistant_enabled, renderer.settings.assistant.enabled = local, global_
+    assert ae.on_compression_lifecycle_from_agent(object(), "started") is False
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "data,text",
+    [
+        (
+            {"before_tokens": 900, "after_tokens": 500, "after_tokens_kind": "rough"},
+            "Context compaction checked · rough 900 → 500 tokens",
+        ),
+        (
+            {"before_count": 2, "after_count": 2, "before_tokens": 1500, "after_tokens": 700},
+            "Context compaction checked · 2k → 700 tokens",
+        ),
+    ],
+)
+def test_lifecycle_completed_integrated_variants(monkeypatch, data, text):
+    plugin, renderer, context, calls = harness(monkeypatch)
+    plugin._context_for = lambda *a: None
+    migrated = []
+    renderer.migrate_context = lambda *a, **k: migrated.append(1)
+    assert ae.on_compression_lifecycle_from_agent(
+        object(), "completed", old_session_id="old", new_session_id="new", **data
+    )
+    assert migrated == [] and context.compaction_count == 1
+    assert calls[-1][1][1].text == text and calls[-1][2] == {"force": True}
