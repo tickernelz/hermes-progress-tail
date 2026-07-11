@@ -31,8 +31,8 @@ def compose_content(renderer, ctx: SessionContext) -> str:
     background = renderer._background_jobs_section(ctx)
     if background:
         parts.append(background)
-    if ctx.tool_lines:
-        parts.append(renderer._section("Tools", "🧰", "\n".join(ctx.tool_lines)))
+    if ctx.tool.lines:
+        parts.append(renderer._section("Tools", "🧰", "\n".join(ctx.tool.lines)))
     if renderer.settings.renderer.density == "debug":
         debug = renderer._debug_section(ctx)
         if debug:
@@ -92,16 +92,16 @@ def format_tool_line_for_context(
 
 
 def todo_section(ctx: SessionContext, *, settings: Settings) -> str:
-    if not ctx.todo_items:
+    if not ctx.tool.todo_items:
         return ""
     timestamp_enabled = settings.tools.timestamp if ctx.timestamp is None else ctx.timestamp
     timestamp_format = ctx.timestamp_format or settings.tools.timestamp_format
-    timestamp = timestamp_text(ctx.todo_updated_at, timestamp_format)
+    timestamp = timestamp_text(ctx.tool.todo_updated_at, timestamp_format)
     title = f"Todo [{timestamp}]" if timestamp_enabled else "Todo"
     if settings.renderer.density == "compact":
-        return todo_compact(ctx.todo_items, title, settings=settings)
+        return todo_compact(ctx.tool.todo_items, title, settings=settings)
     header = f"📋 {title}" if settings.renderer.style == "emoji" else title
-    lines = todo_lines(ctx.todo_items, settings=settings)
+    lines = todo_lines(ctx.tool.todo_items, settings=settings)
     return f"▰ {header}\n" + "\n".join(lines)
 
 

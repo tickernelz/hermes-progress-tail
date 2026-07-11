@@ -7,115 +7,18 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .events import TodoItem, TodoStatus  # noqa: F401 - compatibility re-export
-
-
-@dataclass
-class DelegateLine:
-    kind: str
-    text: str
-    details: tuple[str, ...] = ()
-    tool_name: str = ""
-
-
-@dataclass
-class BackgroundJob:
-    process_id: str
-    command: str = ""
-    cwd: str = ""
-    pid: int | None = None
-    status: str = "running"
-    started_at: float = field(default_factory=time.time)
-    updated_at: float = field(default_factory=time.time)
-    completed_at: float = 0.0
-    exit_code: int | None = None
-    output_head: tuple[str, ...] = ()
-    output_tail: tuple[str, ...] = ()
-    output_chars: int = 0
-    last_output: str = ""
-    poll_task: Any = None
-
-
-@dataclass
-class DelegateBranch:
-    subagent_id: str
-    task_index: int = 0
-    task_count: int = 1
-    goal: str = ""
-    status: str = "pending"
-    model: str = ""
-    tool_count: int = 0
-    started_at: float = 0.0
-    updated_at: float = field(default_factory=time.time)
-    completed_at: float = 0.0
-    duration_seconds: float = 0.0
-    lines: deque[DelegateLine] = field(default_factory=lambda: deque(maxlen=2))
-    completion_line: str = ""
-    completion_summary: str = ""
-    cleanup_task: Any = None
-    lifecycle_started: bool = False
-    thinking_text: str = ""
-    response_text: str = ""
-
-    def resize(self, lines_per_delegate: int) -> None:
-        if self.lines.maxlen == lines_per_delegate:
-            return
-        self.lines = deque(list(self.lines)[-lines_per_delegate:], maxlen=lines_per_delegate)
-
-
-@dataclass(frozen=True)
-class AssistantLine:
-    text: str
-    created_at: float = field(default_factory=time.time)
-
-
-@dataclass
-class EnvironmentSnapshot:
-    context_tokens: int = 0
-    context_window: int = 0
-    context_kind: str = ""
-    model: str = ""
-    provider: str = ""
-    profile: str = ""
-    cwd: str = ""
-    git_branch: str = ""
-    git_dirty: bool = False
-    git_ahead: int = 0
-    git_behind: int = 0
-    worktree: str = ""
-    strategy: str = ""
-    reasoning_effort: str = ""
-
-
-@dataclass
-class AssistantState:
-    lines: deque[AssistantLine] = field(default_factory=lambda: deque(maxlen=3))
-    latest_text: str = ""
-    pending_chars: int = 0
-    last_chars: int = 0
-    last_at: float = 0.0
-    transient: bool = False
-
-
-@dataclass
-class ReasoningState:
-    text: str = ""
-    pending_chars: int = 0
-    last_source: str = ""
-    last_chars: int = 0
-    last_at: float = 0.0
-
-
-@dataclass
-class DelegateState:
-    branches: dict[str, DelegateBranch] = field(default_factory=dict)
-    order: deque[str] = field(default_factory=deque)
-
-
-@dataclass
-class BackgroundState:
-    jobs: dict[str, BackgroundJob] = field(default_factory=dict)
-    order: deque[str] = field(default_factory=deque)
-
+from .state_records import (
+    AssistantLine,  # noqa: F401 - compatibility re-export
+    AssistantState,
+    BackgroundJob,  # noqa: F401 - compatibility re-export
+    BackgroundState,
+    DelegateBranch,  # noqa: F401 - compatibility re-export
+    DelegateLine,  # noqa: F401 - compatibility re-export
+    DelegateState,
+    EnvironmentSnapshot,
+    ReasoningState,
+    ToolState,
+)
 
 _MISSING = object()
 
@@ -142,17 +45,9 @@ class SessionContext:
     progress_state: str = "active"
     finalized_at: float = 0.0
     started_at: float = field(default_factory=time.monotonic)
-    tool_lines: deque[str] = field(default_factory=lambda: deque(maxlen=3))
-    active_tool_lines: dict[str, str] = field(default_factory=dict)
-    active_tool_fingerprints: dict[str, str] = field(default_factory=dict)
-    tool_started_count: int = 0
-    tool_completed_count: int = 0
-    tool_failed_count: int = 0
-    completed_tool_ids: set[str] = field(default_factory=set)
+    tool: ToolState = field(default_factory=ToolState)
     delegate: DelegateState = field(default_factory=DelegateState)
     background: BackgroundState = field(default_factory=BackgroundState)
-    todo_items: tuple[TodoItem, ...] = ()
-    todo_updated_at: float = 0.0
     assistant: AssistantState = field(default_factory=AssistantState)
     reasoning: ReasoningState = field(default_factory=ReasoningState)
     last_render_at: float = 0.0
@@ -210,16 +105,16 @@ class SessionContext:
         tool_lines=_MISSING,
         active_tool_lines=_MISSING,
         active_tool_fingerprints=_MISSING,
-        tool_started_count=0,
-        tool_completed_count=0,
-        tool_failed_count=0,
+        tool_started_count=_MISSING,
+        tool_completed_count=_MISSING,
+        tool_failed_count=_MISSING,
         completed_tool_ids=_MISSING,
         delegate_branches=_MISSING,
         delegate_order=_MISSING,
         background_jobs=_MISSING,
         background_order=_MISSING,
-        todo_items=(),
-        todo_updated_at=0.0,
+        todo_items=_MISSING,
+        todo_updated_at=_MISSING,
         last_render_at=0.0,
         last_event_at=_MISSING,
         edit_state="editable",
@@ -288,15 +183,21 @@ class SessionContext:
         self.progress_state = progress_state
         self.finalized_at = finalized_at
         self.started_at = time.monotonic() if started_at is _MISSING else started_at
-        self.tool_lines = deque(maxlen=3) if tool_lines is _MISSING else tool_lines
-        self.active_tool_lines = {} if active_tool_lines is _MISSING else active_tool_lines
-        self.active_tool_fingerprints = (
-            {} if active_tool_fingerprints is _MISSING else active_tool_fingerprints
-        )
-        self.tool_started_count = tool_started_count
-        self.tool_completed_count = tool_completed_count
-        self.tool_failed_count = tool_failed_count
-        self.completed_tool_ids = set() if completed_tool_ids is _MISSING else completed_tool_ids
+        tool_legacy = {
+            "lines": tool_lines,
+            "active_lines": active_tool_lines,
+            "active_fingerprints": active_tool_fingerprints,
+            "started_count": tool_started_count,
+            "completed_count": tool_completed_count,
+            "failed_count": tool_failed_count,
+            "completed_ids": completed_tool_ids,
+            "todo_items": todo_items,
+            "todo_updated_at": todo_updated_at,
+        }
+        tool_legacy = {k: v for k, v in tool_legacy.items() if v is not _MISSING}
+        if tool is not None and tool_legacy:
+            raise TypeError("tool cannot be combined with legacy tool fields")
+        self.tool = tool if tool is not None else ToolState(**tool_legacy)
         delegate_legacy = delegate_branches is not _MISSING or delegate_order is not _MISSING
         if delegate is not None and delegate_legacy:
             raise TypeError("delegate cannot be combined with legacy delegate fields")
@@ -319,8 +220,6 @@ class SessionContext:
                 order=deque() if background_order is _MISSING else background_order,
             )
         )
-        self.todo_items = todo_items
-        self.todo_updated_at = todo_updated_at
         self.last_render_at = last_render_at
         self.last_event_at = time.monotonic() if last_event_at is _MISSING else last_event_at
         self.edit_state = edit_state
@@ -352,7 +251,6 @@ class SessionContext:
         for owner_name, owner_value in (
             ("routing", routing),
             ("delivery", delivery),
-            ("tool", tool),
             ("diagnostics", diagnostics),
         ):
             if owner_value is not None:
@@ -380,6 +278,78 @@ class SessionContext:
         if reasoning is not None and reasoning_legacy:
             raise TypeError("reasoning cannot be combined with legacy reasoning fields")
         self.reasoning = reasoning if reasoning is not None else ReasoningState(**reasoning_legacy)
+
+    @property
+    def tool_lines(self):
+        return self.tool.lines
+
+    @tool_lines.setter
+    def tool_lines(self, value):
+        self.tool.lines = value
+
+    @property
+    def active_tool_lines(self):
+        return self.tool.active_lines
+
+    @active_tool_lines.setter
+    def active_tool_lines(self, value):
+        self.tool.active_lines = value
+
+    @property
+    def active_tool_fingerprints(self):
+        return self.tool.active_fingerprints
+
+    @active_tool_fingerprints.setter
+    def active_tool_fingerprints(self, value):
+        self.tool.active_fingerprints = value
+
+    @property
+    def tool_started_count(self):
+        return self.tool.started_count
+
+    @tool_started_count.setter
+    def tool_started_count(self, value):
+        self.tool.started_count = value
+
+    @property
+    def tool_completed_count(self):
+        return self.tool.completed_count
+
+    @tool_completed_count.setter
+    def tool_completed_count(self, value):
+        self.tool.completed_count = value
+
+    @property
+    def tool_failed_count(self):
+        return self.tool.failed_count
+
+    @tool_failed_count.setter
+    def tool_failed_count(self, value):
+        self.tool.failed_count = value
+
+    @property
+    def completed_tool_ids(self):
+        return self.tool.completed_ids
+
+    @completed_tool_ids.setter
+    def completed_tool_ids(self, value):
+        self.tool.completed_ids = value
+
+    @property
+    def todo_items(self):
+        return self.tool.todo_items
+
+    @todo_items.setter
+    def todo_items(self, value):
+        self.tool.todo_items = value
+
+    @property
+    def todo_updated_at(self):
+        return self.tool.todo_updated_at
+
+    @todo_updated_at.setter
+    def todo_updated_at(self, value):
+        self.tool.todo_updated_at = value
 
     @property
     def delegate_branches(self):

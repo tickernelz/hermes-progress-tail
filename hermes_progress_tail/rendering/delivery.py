@@ -246,8 +246,8 @@ class RendererDelivery:
             return
         if final:
             title = "Progress tail — final"
-        elif ctx.tool_lines:
-            title = f"Progress tail — latest {len(ctx.tool_lines)} tools"
+        elif ctx.tool.lines:
+            title = f"Progress tail — latest {len(ctx.tool.lines)} tools"
         else:
             title = "Progress tail — latest updates"
         if ctx.total_events:

@@ -10,18 +10,18 @@ def has_background_jobs(ctx: SessionContext) -> bool:
 
 
 def reset_turn(ctx: SessionContext) -> None:
-    ctx.tool_lines.clear()
-    ctx.active_tool_lines.clear()
-    ctx.active_tool_fingerprints.clear()
-    ctx.tool_started_count = 0
-    ctx.tool_completed_count = 0
-    ctx.tool_failed_count = 0
-    ctx.completed_tool_ids.clear()
+    ctx.tool.lines.clear()
+    ctx.tool.active_lines.clear()
+    ctx.tool.active_fingerprints.clear()
+    ctx.tool.started_count = 0
+    ctx.tool.completed_count = 0
+    ctx.tool.failed_count = 0
+    ctx.tool.completed_ids.clear()
     ctx.started_at = time.monotonic()
     ctx.delegate.branches.clear()
     ctx.delegate.order.clear()
-    ctx.todo_items = ()
-    ctx.todo_updated_at = 0.0
+    ctx.tool.todo_items = ()
+    ctx.tool.todo_updated_at = 0.0
     ctx.assistant.lines.clear()
     ctx.assistant.latest_text = ""
     ctx.assistant.pending_chars = 0

@@ -49,20 +49,12 @@ class SessionRegistry:
 
     @staticmethod
     def _reuse_progress(existing: SessionContext, ctx: SessionContext) -> None:
+        ctx.tool = existing.tool
         fields = (
             "message_id",
-            "tool_lines",
             "started_at",
-            "active_tool_lines",
-            "active_tool_fingerprints",
-            "tool_started_count",
-            "tool_completed_count",
-            "tool_failed_count",
-            "completed_tool_ids",
             "delegate_branches",
             "delegate_order",
-            "todo_items",
-            "todo_updated_at",
             "assistant_lines",
             "assistant_latest_text",
             "assistant_pending_chars",

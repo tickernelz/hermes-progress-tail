@@ -32,15 +32,15 @@ def _demo_command(*, plain: bool = False, failed: bool = False) -> str:
         timestamp=False,
     )
     ctx.agent_label = "Hermes"
-    ctx.todo_items = (
+    ctx.tool.todo_items = (
         TodoItem("Inspect renderer", "completed"),
         TodoItem("Build deterministic demo", "in_progress"),
         TodoItem("Run tests", "pending"),
         TodoItem("Review release", "pending"),
     )
-    ctx.tool_started_count = 5
-    ctx.tool_completed_count = 4
-    ctx.tool_failed_count = 1 if failed else 0
+    ctx.tool.started_count = 5
+    ctx.tool.completed_count = 4
+    ctx.tool.failed_count = 1 if failed else 0
     renderer.delegate_renderer.apply_event(
         ctx,
         DelegateEvent(
@@ -104,7 +104,7 @@ def _demo_command(*, plain: bool = False, failed: bool = False) -> str:
             created_at=time.time(),
         ),
     )
-    ctx.tool_lines.extend(
+    ctx.tool.lines.extend(
         [
             "✅ read_file: rendering/focused.py:1+120 · done · 0.2s",
             "✅ search_files: focused_block · done · 0.1s",

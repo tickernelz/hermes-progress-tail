@@ -11,6 +11,15 @@ import pytest
 from hermes_progress_tail.models import state
 
 MIGRATED = {
+    "tool_lines": "lines",
+    "active_tool_lines": "active_lines",
+    "active_tool_fingerprints": "active_fingerprints",
+    "tool_started_count": "started_count",
+    "tool_completed_count": "completed_count",
+    "tool_failed_count": "failed_count",
+    "completed_tool_ids": "completed_ids",
+    "todo_items": "todo_items",
+    "todo_updated_at": "todo_updated_at",
     "delegate_branches": "branches",
     "delegate_order": "order",
     "background_jobs": "jobs",
@@ -48,17 +57,9 @@ FIELD_NAMES = [
     "progress_state",
     "finalized_at",
     "started_at",
-    "tool_lines",
-    "active_tool_lines",
-    "active_tool_fingerprints",
-    "tool_started_count",
-    "tool_completed_count",
-    "tool_failed_count",
-    "completed_tool_ids",
+    "tool",
     "delegate",
     "background",
-    "todo_items",
-    "todo_updated_at",
     "assistant",
     "reasoning",
     "last_render_at",
@@ -167,6 +168,7 @@ LEGACY = [
 
 
 def prerequisites():
+    assert hasattr(state, "ToolState"), "ToolState owner is missing"
     assert hasattr(state, "AssistantState"), "AssistantState owner is missing"
     assert hasattr(state, "ReasoningState"), "ReasoningState owner is missing"
     assert hasattr(state, "DelegateState")
@@ -186,6 +188,7 @@ def test_exact_canonical_fields_annotations_and_factories():
     expected = {f.name: f.type for f in fields(cls)}
     assert cls.__annotations__ == expected
     by_name = {f.name: f for f in fields(cls)}
+    assert by_name["tool"].default_factory is state.ToolState
     assert by_name["assistant"].default_factory is state.AssistantState
     assert by_name["reasoning"].default_factory is state.ReasoningState
     assert by_name["delegate"].default_factory is state.DelegateState
@@ -217,7 +220,19 @@ def test_all_compatibility_properties_delegate_without_storage():
     ctx = make_context()
     assert all(isinstance(getattr(cls, name, None), property) for name in MIGRATED)
     for index, (flat, nested) in enumerate(MIGRATED.items(), 1):
-        if flat.startswith("delegate"):
+        if flat in {
+            "tool_lines",
+            "active_tool_lines",
+            "active_tool_fingerprints",
+            "tool_started_count",
+            "tool_completed_count",
+            "tool_failed_count",
+            "completed_tool_ids",
+            "todo_items",
+            "todo_updated_at",
+        }:
+            owner = ctx.tool
+        elif flat.startswith("delegate"):
             owner = ctx.delegate
         elif flat.startswith("background"):
             owner = ctx.background
@@ -241,6 +256,12 @@ def test_owner_defaults_types_identity_and_conflicts():
         and first.assistant.lines is not second.assistant.lines
     )
     assert first.reasoning is not second.reasoning
+    assert isinstance(first.tool, state.ToolState)
+    assert first.tool is not second.tool
+    assert first.tool.lines is not second.tool.lines
+    assert first.tool.active_lines is not second.tool.active_lines
+    assert first.tool.active_fingerprints is not second.tool.active_fingerprints
+    assert first.tool.completed_ids is not second.tool.completed_ids
     assert isinstance(first.delegate, state.DelegateState)
     assert isinstance(first.background, state.BackgroundState)
     assert first.delegate is not second.delegate
@@ -254,13 +275,26 @@ def test_owner_defaults_types_identity_and_conflicts():
     with pytest.raises(TypeError, match="reasoning cannot be combined"):
         make_context(reasoning=state.ReasoningState(), reasoning_text="x")
     conflicts = (
+        ("tool", "tool_lines", deque()),
+        ("tool", "active_tool_lines", {}),
+        ("tool", "active_tool_fingerprints", {}),
+        ("tool", "tool_started_count", 1),
+        ("tool", "tool_completed_count", 1),
+        ("tool", "tool_failed_count", 1),
+        ("tool", "completed_tool_ids", set()),
+        ("tool", "todo_items", ()),
+        ("tool", "todo_updated_at", 1.0),
         ("delegate", "delegate_branches", {}),
         ("delegate", "delegate_order", deque()),
         ("background", "background_jobs", {}),
         ("background", "background_order", deque()),
     )
     for owner, legacy, value in conflicts:
-        owner_type = state.DelegateState if owner == "delegate" else state.BackgroundState
+        owner_type = {
+            "tool": state.ToolState,
+            "delegate": state.DelegateState,
+            "background": state.BackgroundState,
+        }[owner]
         with pytest.raises(TypeError, match=rf"{owner} cannot be combined"):
             make_context(**{owner: owner_type(), legacy: value})
 
@@ -280,6 +314,56 @@ def test_explicit_owner_construction_preserves_identity():
     assert second.reasoning is reasoning
     assert third.delegate is delegate
     assert third.background is background
+
+
+def test_tool_state_exact_contract_identity_and_import_order():
+    prerequisites()
+    names = [
+        "lines",
+        "active_lines",
+        "active_fingerprints",
+        "started_count",
+        "completed_count",
+        "failed_count",
+        "completed_ids",
+        "todo_items",
+        "todo_updated_at",
+    ]
+    annotations = [
+        "deque[str]",
+        "dict[str, str]",
+        "dict[str, str]",
+        "int",
+        "int",
+        "int",
+        "set[str]",
+        "tuple[TodoItem, ...]",
+        "float",
+    ]
+    tool_fields = fields(state.ToolState)
+    assert [item.name for item in tool_fields] == names
+    assert [item.type for item in tool_fields] == annotations
+    by_name = {item.name: item for item in tool_fields}
+    lines = by_name["lines"].default_factory()
+    assert isinstance(lines, deque) and lines.maxlen == 3 and not lines
+    assert by_name["active_lines"].default_factory is dict
+    assert by_name["active_fingerprints"].default_factory is dict
+    assert by_name["completed_ids"].default_factory is set
+    owner = state.ToolState()
+    assert (owner.started_count, owner.completed_count, owner.failed_count) == (0, 0, 0)
+    assert owner.todo_items == () and owner.todo_updated_at == 0.0
+    assert make_context(tool=owner).tool is owner
+    checks = """
+r = importlib.import_module('hermes_progress_tail.models.state_records')
+s = importlib.import_module('hermes_progress_tail.models.state')
+assert s.ToolState is r.ToolState
+"""
+    for first in ("state_records", "state"):
+        code = (
+            f"import importlib\nimportlib.import_module('hermes_progress_tail.models.{first}')\n"
+            + checks
+        )
+        subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_event_models_are_dependency_safe_and_preserve_reexport_identity():

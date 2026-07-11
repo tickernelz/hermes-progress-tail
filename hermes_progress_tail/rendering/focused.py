@@ -49,7 +49,7 @@ def compose_focused_content(renderer, ctx: SessionContext) -> str:
     if reasoning:
         parts.append(focused_block("Reasoning", reasoning, platform=ctx.platform))
 
-    plan = focused_plan(ctx.todo_items, settings=settings)
+    plan = focused_plan(ctx.tool.todo_items, settings=settings)
     if plan:
         parts.append(focused_block("Plan", plan, platform=ctx.platform))
 
@@ -238,8 +238,8 @@ def short_filename(path: str) -> str:
 
 
 def latest_activity(ctx: SessionContext, *, active_only: bool = False) -> str:
-    if ctx.tool_lines and (not active_only or active_tool_count(ctx) > 0):
-        return normalize_tool_line(ctx.tool_lines[-1])
+    if ctx.tool.lines and (not active_only or active_tool_count(ctx) > 0):
+        return normalize_tool_line(ctx.tool.lines[-1])
     for branch_key in reversed(ctx.delegate.order):
         branch = ctx.delegate.branches.get(branch_key)
         if branch and (not active_only or _delegate_is_active(branch.status)):
@@ -264,22 +264,22 @@ def _background_job_is_active(status: str) -> bool:
 
 
 def active_tool_count(ctx: SessionContext) -> int:
-    total_tools = ctx.tool_started_count or len(ctx.tool_lines)
-    if not ctx.tool_started_count:
-        return 1 if ctx.tool_lines else 0
-    return max(0, total_tools - ctx.tool_completed_count - ctx.tool_failed_count)
+    total_tools = ctx.tool.started_count or len(ctx.tool.lines)
+    if not ctx.tool.started_count:
+        return 1 if ctx.tool.lines else 0
+    return max(0, total_tools - ctx.tool.completed_count - ctx.tool.failed_count)
 
 
 def focused_state(ctx: SessionContext) -> str:
-    total_tools = ctx.tool_started_count or len(ctx.tool_lines)
-    completed = ctx.tool_completed_count
-    failed = ctx.tool_failed_count
-    if not ctx.tool_started_count:
-        running = 1 if ctx.tool_lines else 0
-        completed = max(0, len(ctx.tool_lines) - running)
+    total_tools = ctx.tool.started_count or len(ctx.tool.lines)
+    completed = ctx.tool.completed_count
+    failed = ctx.tool.failed_count
+    if not ctx.tool.started_count:
+        running = 1 if ctx.tool.lines else 0
+        completed = max(0, len(ctx.tool.lines) - running)
     else:
         running = max(0, total_tools - completed - failed)
-    queued = sum(1 for item in ctx.todo_items if item.status == "pending")
+    queued = sum(1 for item in ctx.tool.todo_items if item.status == "pending")
     parts = [f"{total_tools} tools", f"{completed} done"]
     if failed:
         parts.append(f"{failed} failed")
@@ -323,9 +323,9 @@ def focused_plan(items: tuple[TodoItem, ...], *, settings: Settings) -> str:
 
 
 def focused_tools(ctx: SessionContext, *, settings: Settings) -> str:
-    if not ctx.tool_lines:
+    if not ctx.tool.lines:
         return ""
-    visible = list(ctx.tool_lines)[-settings.tools.lines :]
+    visible = list(ctx.tool.lines)[-settings.tools.lines :]
     rows = []
     keep_tool_icon = settings.renderer.style == "emoji"
     running_tools = active_tool_count(ctx)

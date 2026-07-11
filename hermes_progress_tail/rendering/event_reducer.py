@@ -100,8 +100,8 @@ class EventReducer:
     def apply_tool(self, ctx: SessionContext, event: ToolEvent, line: str) -> ReductionResult:
         if event.tool_name == "todo" and event.todo_items:
             if self.settings.todo.sticky:
-                ctx.todo_items = event.todo_items
-                ctx.todo_updated_at = event.created_at
+                ctx.tool.todo_items = event.todo_items
+                ctx.tool.todo_updated_at = event.created_at
             if self.settings.todo.hide_tool_line:
                 return ReductionResult(skip_render=True)
         if event.replace_existing:
@@ -109,19 +109,19 @@ class EventReducer:
             terminal = self.record_tool_lifecycle(ctx, event, line)
             if terminal:
                 self.clear_previous_tool_tracking(ctx, event, previous)
-            if previous in ctx.tool_lines:
-                items = list(ctx.tool_lines)
+            if previous in ctx.tool.lines:
+                items = list(ctx.tool.lines)
                 items[items.index(previous)] = line
-                ctx.tool_lines.clear()
-                ctx.tool_lines.extend(items)
+                ctx.tool.lines.clear()
+                ctx.tool.lines.extend(items)
             else:
-                ctx.tool_lines.append(line)
+                ctx.tool.lines.append(line)
             if not terminal:
                 self.clear_previous_tool_tracking(ctx, event, previous)
                 self.track_active_tool(ctx, event, line)
             return ReductionResult(force=True)
         self.record_tool_lifecycle(ctx, event, line)
-        ctx.tool_lines.append(line)
+        ctx.tool.lines.append(line)
         self.track_active_tool(ctx, event, line)
         return ReductionResult()
 
@@ -131,46 +131,46 @@ class EventReducer:
         identity = self.tool_event_identity(event, line)
         if not event.replace_existing:
             self.complete_active_tools(ctx)
-            ctx.tool_started_count += 1
+            ctx.tool.started_count += 1
             return False
         status = self.tool_line_terminal_status(line)
-        if not status or identity in ctx.completed_tool_ids:
+        if not status or identity in ctx.tool.completed_ids:
             return bool(status)
         if status == "failed":
-            ctx.tool_failed_count += 1
+            ctx.tool.failed_count += 1
         else:
-            ctx.tool_completed_count += 1
-        ctx.completed_tool_ids.add(identity)
+            ctx.tool.completed_count += 1
+        ctx.tool.completed_ids.add(identity)
         self.clear_previous_tool_tracking(ctx, event, line)
         return True
 
     def complete_active_tools(self, ctx):
-        active_lines = set(ctx.active_tool_lines.values())
-        identities = {"id:" + key for key in ctx.active_tool_lines}
+        active_lines = set(ctx.tool.active_lines.values())
+        identities = {"id:" + key for key in ctx.tool.active_lines}
         identities.update(
             "fp:" + key
-            for key, line in ctx.active_tool_fingerprints.items()
+            for key, line in ctx.tool.active_fingerprints.items()
             if line not in active_lines
         )
-        new = identities - ctx.completed_tool_ids
-        ctx.tool_completed_count += len(new)
-        ctx.completed_tool_ids.update(new)
-        ctx.active_tool_lines.clear()
-        ctx.active_tool_fingerprints.clear()
+        new = identities - ctx.tool.completed_ids
+        ctx.tool.completed_count += len(new)
+        ctx.tool.completed_ids.update(new)
+        ctx.tool.active_lines.clear()
+        ctx.tool.active_fingerprints.clear()
 
     def clear_previous_tool_tracking(self, ctx, event, previous):
         if event.tool_call_id:
-            ctx.active_tool_lines.pop(event.tool_call_id, None)
+            ctx.tool.active_lines.pop(event.tool_call_id, None)
         fingerprint = self.tool_line_fingerprint(previous)
         if fingerprint:
-            ctx.active_tool_fingerprints.pop(fingerprint, None)
+            ctx.tool.active_fingerprints.pop(fingerprint, None)
 
     def track_active_tool(self, ctx, event, line):
         if event.tool_call_id:
-            ctx.active_tool_lines[event.tool_call_id] = line
+            ctx.tool.active_lines[event.tool_call_id] = line
         fingerprint = self.tool_line_fingerprint(line)
         if fingerprint:
-            ctx.active_tool_fingerprints[fingerprint] = line
+            ctx.tool.active_fingerprints[fingerprint] = line
 
     def tool_event_identity(self, event, line):
         if event.tool_call_id:
@@ -179,10 +179,10 @@ class EventReducer:
         return "fp:" + fingerprint if fingerprint else "line:" + line.strip()
 
     def find_previous_tool_line(self, ctx, event, line):
-        if event.tool_call_id and (previous := ctx.active_tool_lines.get(event.tool_call_id, "")):
+        if event.tool_call_id and (previous := ctx.tool.active_lines.get(event.tool_call_id, "")):
             return previous
         fingerprint = self.tool_line_fingerprint(line)
-        return ctx.active_tool_fingerprints.get(fingerprint, "") if fingerprint else ""
+        return ctx.tool.active_fingerprints.get(fingerprint, "") if fingerprint else ""
 
     @staticmethod
     def tool_line_terminal_status(line: str) -> str:

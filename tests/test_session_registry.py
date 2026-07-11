@@ -85,15 +85,20 @@ def test_characterization_registration_reuse_and_non_reuse():
     renderer = ProgressRenderer(load_settings({}))
     old = context(source="m1")
     old.tool_lines.append("old")
+    old.todo_items = ("todo",)
     old.background_jobs["job"] = object()
     renderer.register_context(old)
     reused = context(source="m1")
     renderer.register_context(reused)
+    assert reused.tool is old.tool
     assert reused.tool_lines is old.tool_lines
+    assert reused.todo_items is old.todo_items and reused.todo_items == ("todo",)
     assert reused.background_jobs is old.background_jobs
     fenced = context(source="m2")
     renderer.register_context(fenced)
+    assert fenced.tool is not reused.tool
     assert fenced.tool_lines is not reused.tool_lines
+    assert fenced.todo_items == ()
     assert fenced.background_jobs is reused.background_jobs
 
 
