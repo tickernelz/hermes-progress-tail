@@ -25,20 +25,11 @@ from .background_jobs import (
 from .delegate import DelegateProgressRenderer
 from .delegate import event_preview_args as event_preview_args
 from .delivery import (
-    _cancel_delayed_flush,
-    _cancel_delete,
+    RendererDelivery,
     _classify_edit_error,
-    _downgrade_to_snapshot,
     _edit_backoff_seconds,
     _fit_message,
     _message_limit,
-    _prepare_message,
-    _prepare_telegram_rich_message,
-    _render_live,
-    _render_snapshot,
-    _schedule_auto_delete,
-    _schedule_delayed_live_flush,
-    _send_live_message,
 )
 from .finalization import (
     finalize_progress_message,
@@ -69,20 +60,162 @@ from .session import (
     purge,
     register_context,
 )
+from .tool_helpers import tool_line_fingerprint, tool_line_terminal_status
 
 logger = logging.getLogger(__name__)
 
 
 class ProgressRenderer:
-    def __init__(self, settings: Settings):
-        self.settings = settings
-        self.delegate_renderer = DelegateProgressRenderer(settings)
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        delivery=None,
+        registry=None,
+        reducer=None,
+        delegate_renderer=None,
+        footer_info_provider=None,
+    ):
+        self._settings = settings
+        self.delegate_renderer = delegate_renderer or DelegateProgressRenderer(settings)
+        self.delivery = delivery or RendererDelivery(settings, self._content)
+        self.registry = registry
+        self.reducer = reducer
+        self.footer_info_provider = footer_info_provider
         self.sessions: dict[str, SessionContext] = {}
         self.session_keys: dict[str, str] = {}
 
+    @property
+    def settings(self) -> Settings:
+        return self._settings
+
     def replace_settings(self, settings: Settings) -> None:
-        self.settings = settings
+        self._settings = settings
         self.delegate_renderer.settings = settings
+        self.delivery.replace_settings(settings)
+        for collaborator in (self.registry, self.reducer):
+            if collaborator is not None:
+                if hasattr(collaborator, "replace_settings"):
+                    collaborator.replace_settings(settings)
+                elif hasattr(collaborator, "settings"):
+                    collaborator.settings = settings
+
+    async def _render_live(self, ctx, force=False, *, ignore_backoff=False):
+        return await self.delivery.render_live(ctx, force, ignore_backoff=ignore_backoff)
+
+    async def _send_live_message(self, ctx, content, *, recovery=False):
+        return await self.delivery.send_live_message(ctx, content, recovery=recovery)
+
+    async def _downgrade_to_snapshot(self, ctx, error, state):
+        return await self.delivery.downgrade_to_snapshot(ctx, error, state)
+
+    def _schedule_delayed_live_flush(self, ctx, delay):
+        return self.delivery.schedule_delayed_live_flush(ctx, delay)
+
+    def _cancel_delayed_flush(self, ctx):
+        return self.delivery.cancel_delayed_flush(ctx)
+
+    def _cancel_delete(self, ctx):
+        return self.delivery.cancel_delete(ctx)
+
+    def _schedule_auto_delete(self, ctx, *, success):
+        return self.delivery.schedule_auto_delete(ctx, success=success)
+
+    async def _render_snapshot(self, ctx, force=False, final=False):
+        return await self.delivery.render_snapshot(ctx, force, final)
+
+    def _prepare_message(self, ctx, content):
+        return self.delivery.prepare_message(ctx, content)
+
+    def _prepare_telegram_rich_message(self, ctx, content):
+        return self.delivery.prepare_telegram_rich_message(ctx, content)
+
+    @staticmethod
+    def _fit_message(content, limit):
+        return _fit_message(content, limit)
+
+    @staticmethod
+    def _message_limit(ctx):
+        return _message_limit(ctx)
+
+    @staticmethod
+    def _classify_edit_error(error):
+        return _classify_edit_error(error)
+
+    @staticmethod
+    def _edit_backoff_seconds(error, kind, failure_count):
+        return _edit_backoff_seconds(error, kind, failure_count)
+
+    def register_context(self, ctx):
+        return register_context(self, ctx)
+
+    @staticmethod
+    def _same_source_message(existing, incoming):
+        return _same_source_message(existing, incoming)
+
+    def find_context(self, session_id="", session_key=""):
+        return find_context(self, session_id, session_key)
+
+    def migrate_context(self, old_session_id, new_session_id, session_key=""):
+        return migrate_context(self, old_session_id, new_session_id, session_key)
+
+    def purge(self, session_id="", platform=""):
+        return purge(self, session_id, platform)
+
+    def _record_tool_lifecycle(self, ctx, event, line):
+        if event.tool_name == "todo":
+            return False
+        identity = self._tool_event_identity(event, line)
+        if not event.replace_existing:
+            self._complete_active_tools(ctx)
+            ctx.tool_started_count += 1
+            return False
+        status = self._tool_line_terminal_status(line)
+        if not status or identity in ctx.completed_tool_ids:
+            return bool(status)
+        if status == "failed":
+            ctx.tool_failed_count += 1
+        else:
+            ctx.tool_completed_count += 1
+        ctx.completed_tool_ids.add(identity)
+        self._clear_previous_tool_tracking(ctx, event, line)
+        return True
+
+    def _complete_active_tools(self, ctx):
+        active_lines = set(ctx.active_tool_lines.values())
+        identities = {"id:" + key for key in ctx.active_tool_lines}
+        identities.update(
+            "fp:" + key
+            for key, line in ctx.active_tool_fingerprints.items()
+            if line not in active_lines
+        )
+        new = identities - ctx.completed_tool_ids
+        ctx.tool_completed_count += len(new)
+        ctx.completed_tool_ids.update(new)
+        ctx.active_tool_lines.clear()
+        ctx.active_tool_fingerprints.clear()
+
+    def _clear_previous_tool_tracking(self, ctx, event, previous):
+        if event.tool_call_id:
+            ctx.active_tool_lines.pop(event.tool_call_id, None)
+        fingerprint = self._tool_line_fingerprint(previous)
+        if fingerprint:
+            ctx.active_tool_fingerprints.pop(fingerprint, None)
+
+    def _tool_event_identity(self, event, line):
+        if event.tool_call_id:
+            return "id:" + event.tool_call_id
+        fingerprint = self._tool_line_fingerprint(line)
+        return "fp:" + fingerprint if fingerprint else "line:" + line.strip()
+
+    def _find_previous_tool_line(self, ctx, event, line):
+        if event.tool_call_id and (previous := ctx.active_tool_lines.get(event.tool_call_id, "")):
+            return previous
+        fingerprint = self._tool_line_fingerprint(line)
+        return ctx.active_tool_fingerprints.get(fingerprint, "") if fingerprint else ""
+
+    _tool_line_terminal_status = staticmethod(tool_line_terminal_status)
+    _tool_line_fingerprint = staticmethod(tool_line_fingerprint)
 
     async def handle_event(self, event: ProgressEvent, force: bool = False) -> None:
         ctx = self.find_context(event.session_id, event.session_key)
@@ -302,109 +435,6 @@ class ProgressRenderer:
         ctx.last_reasoning_at = event.created_at
         return ctx.reasoning_pending_chars
 
-    def _record_tool_lifecycle(self, ctx: SessionContext, event: ToolEvent, line: str) -> bool:
-        if event.tool_name == "todo":
-            return False
-        identity = self._tool_event_identity(event, line)
-        if not event.replace_existing:
-            self._complete_active_tools(ctx)
-            ctx.tool_started_count += 1
-            return False
-        terminal_status = self._tool_line_terminal_status(line)
-        if not terminal_status:
-            return False
-        if identity in ctx.completed_tool_ids:
-            return True
-        if terminal_status == "failed":
-            ctx.tool_failed_count += 1
-        else:
-            ctx.tool_completed_count += 1
-        ctx.completed_tool_ids.add(identity)
-        if event.tool_call_id:
-            ctx.active_tool_lines.pop(event.tool_call_id, None)
-        fingerprint = self._tool_line_fingerprint(line)
-        if fingerprint:
-            ctx.active_tool_fingerprints.pop(fingerprint, None)
-        return True
-
-    @staticmethod
-    def _tool_line_terminal_status(line: str) -> str:
-        text = str(line or "").strip().lower()
-        if text.startswith("❌") or " · failed" in text:
-            return "failed"
-        if text.startswith("✅") or " · done" in text:
-            return "done"
-        return ""
-
-    def _complete_active_tools(self, ctx: SessionContext) -> None:
-        identities: set[str] = set()
-        active_lines = set(ctx.active_tool_lines.values())
-        for tool_call_id in ctx.active_tool_lines:
-            identities.add("id:" + tool_call_id)
-        for fingerprint, line in ctx.active_tool_fingerprints.items():
-            if line not in active_lines:
-                identities.add("fp:" + fingerprint)
-        new_completions = identities - ctx.completed_tool_ids
-        if new_completions:
-            ctx.tool_completed_count += len(new_completions)
-            ctx.completed_tool_ids.update(new_completions)
-        ctx.active_tool_lines.clear()
-        ctx.active_tool_fingerprints.clear()
-
-    def _clear_previous_tool_tracking(
-        self, ctx: SessionContext, event: ToolEvent, previous: str
-    ) -> None:
-        if event.tool_call_id:
-            ctx.active_tool_lines.pop(event.tool_call_id, None)
-        fingerprint = self._tool_line_fingerprint(previous)
-        if fingerprint:
-            ctx.active_tool_fingerprints.pop(fingerprint, None)
-
-    def _tool_event_identity(self, event: ToolEvent, line: str) -> str:
-        if event.tool_call_id:
-            return "id:" + event.tool_call_id
-        fingerprint = self._tool_line_fingerprint(line)
-        if fingerprint:
-            return "fp:" + fingerprint
-        return "line:" + line.strip()
-
-    def _find_previous_tool_line(self, ctx: SessionContext, event: ToolEvent, line: str) -> str:
-        if event.tool_call_id:
-            previous = ctx.active_tool_lines.get(event.tool_call_id, "")
-            if previous:
-                return previous
-        fingerprint = self._tool_line_fingerprint(line)
-        if fingerprint:
-            previous = ctx.active_tool_fingerprints.get(fingerprint, "")
-            if previous:
-                return previous
-        return ""
-
-    @staticmethod
-    def _tool_line_fingerprint(line: str) -> str:
-        text = line.strip()
-        if "] " in text and text.startswith("["):
-            text = text.split("] ", 1)[1]
-        for prefix in (
-            "✅ ",
-            "❌ ",
-            "🔎 ",
-            "📖 ",
-            "✍️ ",
-            "🔧 ",
-            "💻 ",
-            "📋 ",
-            "🧑‍💻 ",
-            "🧰 ",
-        ):
-            if text.startswith(prefix):
-                text = text[len(prefix) :]
-        for suffix in (" · running", " · done", " · failed"):
-            if suffix in text:
-                text = text.split(suffix, 1)[0]
-                break
-        return text.strip()
-
     def _content(self, ctx: SessionContext) -> str:
         return compose_content(self, ctx)
 
@@ -556,25 +586,3 @@ class ProgressRenderer:
     @staticmethod
     def _should_flush_before_reset(ctx: SessionContext) -> bool:
         return should_flush_before_reset(ctx)
-
-
-# Delivery methods live in rendering.delivery to keep this orchestration class small.
-ProgressRenderer._render_live = _render_live
-ProgressRenderer._send_live_message = _send_live_message
-ProgressRenderer._downgrade_to_snapshot = _downgrade_to_snapshot
-ProgressRenderer._schedule_delayed_live_flush = _schedule_delayed_live_flush
-ProgressRenderer._cancel_delayed_flush = staticmethod(_cancel_delayed_flush)
-ProgressRenderer._cancel_delete = staticmethod(_cancel_delete)
-ProgressRenderer._schedule_auto_delete = _schedule_auto_delete
-ProgressRenderer._render_snapshot = _render_snapshot
-ProgressRenderer._prepare_message = _prepare_message
-ProgressRenderer._prepare_telegram_rich_message = _prepare_telegram_rich_message
-ProgressRenderer._fit_message = staticmethod(_fit_message)
-ProgressRenderer._message_limit = staticmethod(_message_limit)
-ProgressRenderer._classify_edit_error = staticmethod(_classify_edit_error)
-ProgressRenderer._edit_backoff_seconds = staticmethod(_edit_backoff_seconds)
-ProgressRenderer.register_context = register_context
-ProgressRenderer._same_source_message = staticmethod(_same_source_message)
-ProgressRenderer.find_context = find_context
-ProgressRenderer.migrate_context = migrate_context
-ProgressRenderer.purge = purge

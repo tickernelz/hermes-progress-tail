@@ -296,7 +296,8 @@ def test_snapshot_titles_caps_and_failures():
 
 def test_delivery_pure_boundaries():
     ctx = type("Ctx", (), {"platform": "telegram"})()
-    assert delivery._prepare_telegram_rich_message(None, ctx, "**rich**") == "**rich**"
+    # Telegram rich conversion belongs to the send/edit monkeypatch, not delivery.
+    assert not hasattr(delivery, "_prepare_telegram_rich_message")
     assert delivery._fit_message("abc", 0) == "abc"
     assert delivery._fit_message("abcdef", 2) == "ab"
     fitted = delivery._fit_message("abcdefghijklmnopqrstuvwxyz", 10)
