@@ -74,15 +74,23 @@ def test_native_notification_suppression_updates_session_and_pending_watchers(mo
     assert registry.pending_watchers == [{"session_id": "other"}]
 
 
-def test_native_notification_suppression_tolerates_missing_registry(monkeypatch):
+def test_native_notification_suppression_tolerates_missing_registry(monkeypatch, caplog):
     monkeypatch.delitem(sys.modules, "tools.process_registry", raising=False)
+    caplog.set_level("DEBUG", logger=tool_events.__name__)
     tool_events._suppress_native_background_notify("proc")
+    assert [record.getMessage() for record in caplog.records] == [
+        "hermes-progress-tail failed to suppress native background notify"
+    ]
 
 
-@pytest.mark.parametrize("process_id", ["", "proc"])
-def test_poll_scheduling_guards_missing_identity_or_loop(monkeypatch, process_id):
+@pytest.mark.parametrize(("process_id", "loop"), [("", CapturingLoop()), ("proc", None)])
+def test_poll_scheduling_guards_missing_identity_or_loop(monkeypatch, process_id, loop):
     monkeypatch.setattr(plugin, "_get_renderer", lambda: _renderer())
-    tool_events._schedule_background_job_poll(_ctx(), process_id)
+    ctx = _ctx(loop)
+    tool_events._schedule_background_job_poll(ctx, process_id)
+    assert ctx.background_jobs == {}
+    if loop is not None:
+        assert loop.coroutines == []
 
 
 def test_poll_scheduling_ignores_live_existing_task(monkeypatch):
@@ -110,7 +118,10 @@ def test_poll_reports_lost_registry_session_without_real_sleep(monkeypatch):
     assert ctx.background_jobs["proc"].poll_task is not None
     _run_poll(loop)
 
-    assert events[0].event_type == "lost" and events[0].exited
+    assert [
+        (e.session_id, e.session_key, e.platform, e.process_id, e.event_type, e.exited)
+        for e in events
+    ] == [("sid", "key", "discord", "proc", "lost", True)]
 
 
 def test_poll_skips_unchanged_output_then_reports_exit(monkeypatch):
@@ -155,10 +166,27 @@ def test_poll_registry_error_becomes_lost_and_callback_error_is_contained(monkey
     _install_registry(monkeypatch, Registry([RuntimeError("registry")]))
     monkeypatch.setattr(plugin, "_get_renderer", lambda: _renderer())
     monkeypatch.setattr(asyncio, "sleep", lambda delay: _immediate())
-    monkeypatch.setattr(plugin, "_schedule_render", lambda *a: (_ for _ in ()).throw(ValueError()))
+    attempted = []
+
+    def reject(context, event):
+        attempted.append((context, event))
+        raise ValueError("callback")
+
+    monkeypatch.setattr(plugin, "_schedule_render", reject)
 
     tool_events._schedule_background_job_poll(ctx, "proc")
     _run_poll(loop)
+    assert len(attempted) == 1
+    context, event = attempted[0]
+    assert context is ctx
+    assert (
+        event.session_id,
+        event.session_key,
+        event.platform,
+        event.process_id,
+        event.event_type,
+        event.exited,
+    ) == ("sid", "key", "discord", "proc", "lost", True)
 
 
 def test_poll_propagates_cancellation(monkeypatch):
@@ -191,7 +219,17 @@ def test_cleanup_scheduling_guard_and_terminal_callback(monkeypatch):
     assert loop.coroutines == []
     tool_events._schedule_background_job_cleanup(ctx, "proc")
     asyncio.run(loop.coroutines.pop())
-    assert events[0][0].event_type == "cleanup" and events[0][1]
+    assert [
+        (
+            event.session_id,
+            event.session_key,
+            event.platform,
+            event.process_id,
+            event.event_type,
+            force,
+        )
+        for event, force in events
+    ] == [("sid", "key", "discord", "proc", "cleanup", True)]
 
 
 async def _immediate():

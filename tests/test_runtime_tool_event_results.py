@@ -63,8 +63,50 @@ def test_json_object_accepts_only_object_payloads():
     assert tool_events._json_obj("[]") == {}
 
 
+def test_context_owner_selection_accepts_owner_and_rejects_non_owner(monkeypatch):
+    renderer = object()
+    ctx = _ctx()
+    monkeypatch.setattr(tool_events, "_context_for", lambda *args: ctx)
+    monkeypatch.setattr(tool_events.threading, "get_ident", lambda: 42)
+    ctx.owner_thread_id = 0
+    assert tool_events._context_owned_by_current_thread(renderer, "sid") is ctx
+    ctx.owner_thread_id = 42
+    assert tool_events._context_owned_by_current_thread(renderer, "sid") is ctx
+    ctx.owner_thread_id = 7
+    assert tool_events._context_owned_by_current_thread(renderer, "sid") is None
+    monkeypatch.setattr(tool_events, "_context_for", lambda *args: None)
+    assert tool_events._context_owned_by_current_thread(renderer, "missing") is None
+
+
+@pytest.mark.parametrize("initial_state", ["finalized", "deleted"])
+def test_foreground_lookup_reactivates_finalized_or_deleted_context(monkeypatch, initial_state):
+    ctx = _ctx()
+    ctx.progress_state = initial_state
+    ctx.finalized_at = 10.0
+    ctx.started_at = 1.0
+    ctx.message_id = "message"
+    ctx.can_edit = True
+    cancelled = []
+    renderer = SimpleNamespace(_cancel_delete=lambda context: cancelled.append(context))
+    monkeypatch.setattr(tool_events, "_is_background_review_thread", lambda: False)
+    monkeypatch.setattr(tool_events, "_context_for", lambda *args: ctx)
+    monkeypatch.setattr(tool_events.time, "monotonic", lambda: 25.0)
+    assert tool_events._context_for_non_background_thread(renderer, "sid") is ctx
+    assert cancelled == [ctx]
+    assert (ctx.progress_state, ctx.finalized_at, ctx.started_at) == ("active", 0.0, 25.0)
+    if initial_state == "deleted":
+        assert (ctx.message_id, ctx.can_edit) == (None, False)
+    else:
+        assert (ctx.message_id, ctx.can_edit) == ("message", True)
+
+
 def test_schedule_render_handles_no_loop_callback_failure_and_scheduling_failure(monkeypatch):
-    renderer = SimpleNamespace(handle_event=lambda *a, **k: None)
+    handled = []
+
+    async def handle_event(event, *, force=False):
+        handled.append((event, force))
+
+    renderer = SimpleNamespace(handle_event=handle_event)
     monkeypatch.setattr(plugin, "_get_renderer", lambda: renderer)
     assert not tool_events._schedule_render(_ctx(), ToolEvent("sid", "key", "discord", "x"))
 
@@ -72,15 +114,26 @@ def test_schedule_render_handles_no_loop_callback_failure_and_scheduling_failure
         def add_done_callback(self, callback):
             callback(SimpleNamespace(result=lambda: (_ for _ in ()).throw(RuntimeError("render"))))
 
-    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", lambda coro, loop: Future())
-    assert tool_events._schedule_render(
-        _ctx(loop=object()), ToolEvent("sid", "key", "discord", "x")
-    )
-    monkeypatch.setattr(
-        asyncio,
-        "run_coroutine_threadsafe",
-        lambda coro, loop: (_ for _ in ()).throw(RuntimeError()),
-    )
+    scheduled = []
+
+    def schedule(coroutine, loop):
+        scheduled.append((coroutine, loop))
+        asyncio.run(coroutine)
+        return Future()
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", schedule)
+    loop = object()
+    event = ToolEvent("sid", "key", "discord", "x")
+    assert tool_events._schedule_render(_ctx(loop=loop), event, force=True)
+    assert len(scheduled) == 1
+    assert scheduled[0][1] is loop
+    assert handled == [(event, True)]
+
+    def fail_schedule(coroutine, loop):
+        coroutine.close()
+        raise RuntimeError("schedule")
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", fail_schedule)
     assert not tool_events._schedule_render(
         _ctx(loop=object()), ToolEvent("sid", "key", "discord", "x")
     )
@@ -146,8 +199,10 @@ def test_post_tool_emits_background_and_completed_result_fields(monkeypatch):
         "/repo",
         12,
     )
-    assert suppressed == ["proc"] and polls == ["proc"]
-    assert completed.replace_existing and "✅" in completed.line and "1.2s" in completed.line
+    assert suppressed == ["proc"]
+    assert polls == ["proc"]
+    assert completed.replace_existing is True
+    assert completed.line == "✅ 💻 terminal: pytest · cwd repo  · done · 1.2s"
 
     events.clear()
     renderer.settings.tools.show_completed = False
