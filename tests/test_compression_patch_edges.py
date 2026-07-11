@@ -124,6 +124,29 @@ def test_lifecycle_callback_exceptions_and_native_failure(monkeypatch):
     assert compression.uninstall_compression_lifecycle_monkeypatch(Agent)
 
 
+def test_completed_callback_exception_preserves_native_result(monkeypatch):
+    import hermes_progress_tail.runtime.plugin as plugin
+
+    phases = []
+    native = object()
+
+    def callback(_agent, **data):
+        phases.append(data["phase"])
+        if data["phase"] == "completed":
+            raise RuntimeError("completed callback")
+
+    monkeypatch.setattr(plugin, "on_compression_lifecycle_from_agent", callback)
+
+    class Agent:
+        def _compress_context(self, messages, system_message):
+            return native
+
+    assert compression.install_compression_lifecycle_monkeypatch(Agent)
+    assert Agent()._compress_context([], "system") is native
+    assert phases == ["started", "completed"]
+    assert compression.uninstall_compression_lifecycle_monkeypatch(Agent)
+
+
 def test_lifecycle_normalizes_malformed_status_and_counts(monkeypatch):
     import hermes_progress_tail.runtime.plugin as plugin
 
@@ -144,14 +167,15 @@ def test_lifecycle_normalizes_malformed_status_and_counts(monkeypatch):
     class Agent:
         session_id = "old"
         context_compressor = Compressor()
+        native = object()
 
         def _compress_context(self, messages, system_message, **kwargs):
             self.session_id = "new"
-            return object()
+            return self.native
 
     assert compression.install_compression_lifecycle_monkeypatch(Agent)
     result = Agent()._compress_context(iter([1]), "system", approx_tokens="bad")
-    assert result is not None
+    assert result is Agent.native
     completed = events[-1]
     assert completed["phase"] == "completed"
     assert completed["before_count"] == completed["after_count"] == 0

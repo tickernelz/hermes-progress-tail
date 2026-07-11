@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.models.state import AssistantLine
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.rendering import delivery
 from tests.support.rendering import EditableAdapter, Result, make_live_context
@@ -94,9 +95,6 @@ def test_delayed_flush_guards_success_and_cancellation(monkeypatch):
         assert ctx.delayed_flush_task is None
         ctx.loop = asyncio.get_running_loop()
 
-        async def instant(_delay):
-            await asyncio.sleep(0)
-
         real_sleep = asyncio.sleep
 
         async def yielding(_delay):
@@ -112,17 +110,25 @@ def test_delayed_flush_guards_success_and_cancellation(monkeypatch):
         await task
         assert ctx.delayed_flush_task is None
 
-        for mutate in (lambda: setattr(ctx, "disabled", True), lambda: ctx.tool_lines.clear()):
+        for mutate in (
+            lambda: setattr(ctx, "strategy", "snapshot"),
+            lambda: setattr(ctx, "disabled", True),
+            lambda: ctx.tool_lines.clear(),
+        ):
             ctx.disabled = False
+            ctx.strategy = "live_tail"
             ctx.tool_lines.clear()
             ctx.tool_lines.append("work")
+            activity = (list(ctx.adapter.edits), list(ctx.adapter.sent))
             r._schedule_delayed_live_flush(ctx, 0)
             task = ctx.delayed_flush_task
             mutate()
             await task
             assert ctx.delayed_flush_task is None
+            assert (ctx.adapter.edits, ctx.adapter.sent) == activity
 
         ctx.disabled = False
+        ctx.strategy = "live_tail"
         ctx.tool_lines.append("work")
         r._schedule_delayed_live_flush(ctx, 0)
         await ctx.delayed_flush_task
@@ -166,13 +172,28 @@ def test_auto_delete_gates_outcomes_and_cancel(monkeypatch):
 
         for outcome in (False, RuntimeError("delete"), True):
             ctx.message_id = "m1"
+            ctx.can_edit = True
+            ctx.progress_state = "active"
+            before = len(ctx.adapter.deleted)
             ctx.adapter.delete_outcome = outcome
             r._schedule_auto_delete(ctx, success=True)
             task = ctx.delete_task
             await task
             assert ctx.delete_task is None
-        assert ctx.last_error == "delete"
-        assert ctx.message_id is None and ctx.progress_state == "deleted"
+            assert ctx.adapter.deleted[before:] == [(ctx.chat_id, "m1")]
+            if outcome is False:
+                assert (ctx.message_id, ctx.progress_state, ctx.can_edit) == ("m1", "active", True)
+                assert ctx.last_error == ""
+            elif isinstance(outcome, Exception):
+                assert (ctx.message_id, ctx.progress_state, ctx.can_edit) == ("m1", "active", True)
+                assert ctx.last_error == "delete"
+            else:
+                assert (ctx.message_id, ctx.progress_state, ctx.can_edit) == (
+                    None,
+                    "deleted",
+                    False,
+                )
+                assert ctx.last_error == "delete"
 
         ctx.message_id = "m2"
         gate = asyncio.Event()
@@ -192,6 +213,35 @@ def test_auto_delete_gates_outcomes_and_cancel(monkeypatch):
     asyncio.run(run())
 
 
+def test_auto_delete_stale_generation_and_message_fences(monkeypatch):
+    async def run():
+        r = renderer({"cleanup": {"auto_delete": True, "delay_seconds": 0}})
+        real_sleep = asyncio.sleep
+        for stale_generation in (True, False):
+            ctx = make_live_context(EdgeAdapter())
+            ctx.message_id = "m1"
+            gate = asyncio.Event()
+
+            async def blocked(_delay, gate=gate):
+                await gate.wait()
+
+            monkeypatch.setattr(delivery.asyncio, "sleep", blocked)
+            r._schedule_auto_delete(ctx, success=True)
+            task = ctx.delete_task
+            await real_sleep(0)
+            if stale_generation:
+                ctx.generation += 1
+            else:
+                ctx.message_id = "m2"
+            gate.set()
+            await task
+            assert ctx.delete_task is None and ctx.adapter.deleted == []
+            assert ctx.message_id == ("m1" if stale_generation else "m2")
+            assert ctx.progress_state == "active" and ctx.can_edit
+
+    asyncio.run(run())
+
+
 def test_snapshot_titles_caps_and_failures():
     async def run():
         r = renderer({"no_edit": {"max_snapshots_per_turn": 1}})
@@ -200,16 +250,37 @@ def test_snapshot_titles_caps_and_failures():
         assert ctx.adapter.sent == []
         ctx.tool_lines.append("work")
         ctx.total_events = 4
+        ctx.thread_id = "t1"
         await r._render_snapshot(ctx, force=True)
-        assert (
-            ctx.adapter.sent[-1][1]
-            == "Progress tail — latest 1 tools of 4 events\n▰ 🧰 Tools\nwork"
+        assert ctx.adapter.sent[-1] == (
+            ctx.chat_id,
+            "Progress tail — latest 1 tools of 4 events\n▰ 🧰 Tools\nwork",
+            ctx.metadata,
         )
         assert (ctx.snapshots_sent, ctx.fallback_send_count) == (1, 1)
         await r._render_snapshot(ctx, force=True)
         assert len(ctx.adapter.sent) == 1
         await r._render_snapshot(ctx, force=True, final=True)
-        assert "Progress tail — final of 4 events" in ctx.adapter.sent[-1][1]
+        assert ctx.adapter.sent[-1] == (
+            ctx.chat_id,
+            "Progress tail — final of 4 events\n▰ 🧰 Tools\nwork",
+            ctx.metadata,
+        )
+        assert (ctx.snapshots_sent, ctx.fallback_send_count) == (2, 2)
+
+        updates = make_live_context(EdgeAdapter(), strategy="snapshot")
+        updates.assistant_lines.append(AssistantLine("done"))
+        updates.total_events = 2
+        updates.thread_id = "edge"
+        await r._render_snapshot(updates, force=True)
+        assert updates.adapter.sent == [
+            (
+                updates.chat_id,
+                "Progress tail — latest updates of 2 events\n▰ 💬 Progress\ndone",
+                updates.metadata,
+            )
+        ]
+        assert (updates.snapshots_sent, updates.fallback_send_count) == (1, 1)
 
         bad = make_live_context(EdgeAdapter(send=RuntimeError("send")), strategy="snapshot")
         bad.tool_lines.append("work")
