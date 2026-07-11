@@ -21,6 +21,8 @@ Compact Hermes gateway plugin for live progress tails.
 
 ## Install
 
+Installing or updating requires Python 3.12 or newer. During the compatibility-removal window, uninstall remains available with the previously supported Python 3.10 and 3.11 (and newer); `python3` is still required.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.04/install.sh | bash
 ```

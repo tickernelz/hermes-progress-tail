@@ -30,7 +30,11 @@ if [[ "$INTERACTIVE" != "0" && "$INTERACTIVE" != "false" ]]; then
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "error: python3 is required" >&2
+  echo "error: Python 3.12 or newer is required" >&2
+  exit 1
+fi
+if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 12))'; then
+  echo "error: Python 3.12 or newer is required" >&2
   exit 1
 fi
 

@@ -26,8 +26,10 @@ if [[ "$INTERACTIVE" != "0" && "$INTERACTIVE" != "false" ]]; then
   fi
 fi
 
+# Keep removal available to installations created under the former Python 3.10 floor.
+# Install and update require Python 3.12+, but uninstall remains legacy-compatible.
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "error: python3 is required" >&2
+  echo "error: python3 is required to uninstall" >&2
   exit 1
 fi
 
