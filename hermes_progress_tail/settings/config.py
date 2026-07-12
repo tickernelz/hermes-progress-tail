@@ -1,15 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Literal
+from typing import Any
 
+from .coercion import (
+    as_bool,
+    as_delegate_thinking,
+    as_float,
+    as_footer_density,
+    as_int,
+    as_patch_detail,
+    as_strategy,
+    as_style,
+    renderer_mode_and_density,
+)
 from .schema import (
     BATCH_DEFAULT_OFF,
     PLATFORM_CONFIG_CONTRACT,
     PROGRESS_TAIL_CONFIG_CONTRACT,
     RETIRED_CONFIG_KEYS,
     SNAPSHOT_DEFAULTS,
-    VALID_STRATEGIES,
 )
 from .types import (
     AssistantSettings,
@@ -160,77 +170,8 @@ def _legacy_to_progress_tail(section: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
-def _bool(value: Any, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    if value is None:
-        return default
-    return bool(value)
-
-
-def _int(value: Any, default: int, min_value: int = 1) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return default
-    return parsed if parsed >= min_value else default
-
-
-def _float(value: Any, default: float, min_value: float = 0.0) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return default
-    return parsed if parsed > min_value else default
-
-
-def _strategy(value: Any, default: str = "auto") -> str:
-    val = str(value or default).strip().lower()
-    return val if val in VALID_STRATEGIES else default
-
-
-def _style(value: Any, default: str = "emoji") -> Literal["emoji", "plain"]:
-    val = str(value or default).strip().lower()
-    return "plain" if val == "plain" else "emoji"
-
-
-def _density(
-    value: Any, default: str = "normal"
-) -> Literal["compact", "normal", "verbose", "debug"]:
-    val = str(value or default).strip().lower()
-    return val if val in {"compact", "normal", "verbose", "debug"} else "normal"
-
-
-def _footer_density(value: Any, default: str = "normal") -> Literal["compact", "normal", "debug"]:
-    val = str(value or default).strip().lower()
-    return val if val in {"compact", "normal", "debug"} else "normal"
-
-
-def _renderer_mode_and_density(
-    raw: dict[str, Any],
-) -> tuple[str, Literal["compact", "normal", "verbose", "debug"]]:
-    mode = str(raw.get("mode") or "sectioned").strip().lower() or "sectioned"
-    density = _density(raw.get("density"), "normal")
-    if mode == "compact":
-        return "sectioned", "compact"
-    if mode not in {"focused", "sectioned"}:
-        return "sectioned", density
-    return mode, density
-
-
-def _patch_detail(value: Any, default: str = "smart") -> str:
-    val = str(value or default).strip().lower()
-    return val if val in {"off", "path", "smart", "stats"} else default
-
-
-def _delegate_thinking(value: Any, default: str = "off") -> Literal["off", "summary"]:
-    val = str(value or default).strip().lower()
-    return "summary" if val == "summary" else "off"
-
-
 def load_settings(config: dict[str, Any] | None) -> Settings:
+    defaults = Settings()
     section = _as_dict(config)
     legacy_defaults = section.get("defaults") if isinstance(section.get("defaults"), dict) else {}
     tools_raw = section.get("tools") if isinstance(section.get("tools"), dict) else legacy_defaults
@@ -253,109 +194,182 @@ def load_settings(config: dict[str, Any] | None) -> Settings:
     footer_raw = section.get("footer") if isinstance(section.get("footer"), dict) else {}
     telegram_raw = section.get("telegram") if isinstance(section.get("telegram"), dict) else {}
     tools = ToolSettings(
-        enabled=_bool(tools_raw.get("enabled"), True),
-        lines=_int(tools_raw.get("lines"), 3),
-        preview_length=_int(tools_raw.get("preview_length"), 120),
-        show_completed=_bool(tools_raw.get("show_completed"), True),
-        show_duration=_bool(tools_raw.get("show_duration"), True),
-        timestamp=_bool(tools_raw.get("timestamp"), True),
-        timestamp_format=str(tools_raw.get("timestamp_format") or "%H:%M"),
+        enabled=as_bool(tools_raw.get("enabled"), defaults.tools.enabled),
+        lines=as_int(tools_raw.get("lines"), defaults.tools.lines),
+        preview_length=as_int(tools_raw.get("preview_length"), defaults.tools.preview_length),
+        show_completed=as_bool(tools_raw.get("show_completed"), defaults.tools.show_completed),
+        show_duration=as_bool(tools_raw.get("show_duration"), defaults.tools.show_duration),
+        timestamp=as_bool(tools_raw.get("timestamp"), defaults.tools.timestamp),
+        timestamp_format=str(tools_raw.get("timestamp_format") or defaults.tools.timestamp_format),
     )
     delegates = DelegateSettings(
-        enabled=_bool(delegates_raw.get("enabled"), True),
-        max_delegates=_int(delegates_raw.get("max_delegates"), 4),
-        lines_per_delegate=_int(delegates_raw.get("lines_per_delegate"), 2),
-        max_goal_chars=_int(delegates_raw.get("max_goal_chars"), 48, min_value=12),
-        max_line_chars=_int(delegates_raw.get("max_line_chars"), 120, min_value=24),
-        show_model=_bool(delegates_raw.get("show_model"), False),
-        show_tool_count=_bool(delegates_raw.get("show_tool_count"), True),
-        show_completion=_bool(delegates_raw.get("show_completion"), True),
-        completed_ttl_seconds=_int(delegates_raw.get("completed_ttl_seconds"), 5),
-        thinking=_delegate_thinking(delegates_raw.get("thinking"), "off"),
+        enabled=as_bool(delegates_raw.get("enabled"), defaults.delegates.enabled),
+        max_delegates=as_int(delegates_raw.get("max_delegates"), defaults.delegates.max_delegates),
+        lines_per_delegate=as_int(
+            delegates_raw.get("lines_per_delegate"), defaults.delegates.lines_per_delegate
+        ),
+        max_goal_chars=as_int(
+            delegates_raw.get("max_goal_chars"), defaults.delegates.max_goal_chars, min_value=12
+        ),
+        max_line_chars=as_int(
+            delegates_raw.get("max_line_chars"), defaults.delegates.max_line_chars, min_value=24
+        ),
+        show_model=as_bool(delegates_raw.get("show_model"), defaults.delegates.show_model),
+        show_tool_count=as_bool(
+            delegates_raw.get("show_tool_count"), defaults.delegates.show_tool_count
+        ),
+        show_completion=as_bool(
+            delegates_raw.get("show_completion"), defaults.delegates.show_completion
+        ),
+        completed_ttl_seconds=as_int(
+            delegates_raw.get("completed_ttl_seconds"), defaults.delegates.completed_ttl_seconds
+        ),
+        thinking=as_delegate_thinking(delegates_raw.get("thinking"), defaults.delegates.thinking),
     )
     todo = TodoSettings(
-        sticky=_bool(todo_raw.get("sticky"), True),
-        hide_tool_line=_bool(todo_raw.get("hide_tool_line"), True),
-        max_pending=_int(todo_raw.get("max_pending"), 3),
-        max_completed=_int(todo_raw.get("max_completed"), 3),
-        max_cancelled=_int(todo_raw.get("max_cancelled"), 2),
-        max_item_chars=_int(todo_raw.get("max_item_chars"), 40, min_value=10),
+        sticky=as_bool(todo_raw.get("sticky"), defaults.todo.sticky),
+        hide_tool_line=as_bool(todo_raw.get("hide_tool_line"), defaults.todo.hide_tool_line),
+        max_pending=as_int(todo_raw.get("max_pending"), defaults.todo.max_pending),
+        max_completed=as_int(todo_raw.get("max_completed"), defaults.todo.max_completed),
+        max_cancelled=as_int(todo_raw.get("max_cancelled"), defaults.todo.max_cancelled),
+        max_item_chars=as_int(
+            todo_raw.get("max_item_chars"), defaults.todo.max_item_chars, min_value=10
+        ),
     )
     patch = PatchSettings(
-        detail=_patch_detail(patch_raw.get("detail"), "smart"),
-        preview_chars=_int(patch_raw.get("preview_chars"), 48, min_value=10),
-        max_files=_int(patch_raw.get("max_files"), 3),
+        detail=as_patch_detail(patch_raw.get("detail"), defaults.patch.detail),
+        preview_chars=as_int(
+            patch_raw.get("preview_chars"), defaults.patch.preview_chars, min_value=10
+        ),
+        max_files=as_int(patch_raw.get("max_files"), defaults.patch.max_files),
     )
     assistant = AssistantSettings(
-        enabled=_bool(assistant_raw.get("enabled"), True),
-        max_lines=_int(assistant_raw.get("max_lines"), 3),
-        max_chars=_int(assistant_raw.get("max_chars"), 500),
-        min_update_chars=_int(assistant_raw.get("min_update_chars"), 160),
+        enabled=as_bool(assistant_raw.get("enabled"), defaults.assistant.enabled),
+        max_lines=as_int(assistant_raw.get("max_lines"), defaults.assistant.max_lines),
+        max_chars=as_int(assistant_raw.get("max_chars"), defaults.assistant.max_chars),
+        min_update_chars=as_int(
+            assistant_raw.get("min_update_chars"), defaults.assistant.min_update_chars
+        ),
     )
     reasoning = ReasoningSettings(
-        enabled=_bool(reasoning_raw.get("enabled"), True),
-        max_lines=_int(reasoning_raw.get("max_lines"), 3),
-        max_chars=_int(reasoning_raw.get("max_chars"), 600),
-        min_update_chars=_int(reasoning_raw.get("min_update_chars"), 300),
-        no_edit_strategy=_strategy(reasoning_raw.get("no_edit_strategy"), "off"),
+        enabled=as_bool(reasoning_raw.get("enabled"), defaults.reasoning.enabled),
+        max_lines=as_int(reasoning_raw.get("max_lines"), defaults.reasoning.max_lines),
+        max_chars=as_int(reasoning_raw.get("max_chars"), defaults.reasoning.max_chars),
+        min_update_chars=as_int(
+            reasoning_raw.get("min_update_chars"), defaults.reasoning.min_update_chars
+        ),
+        no_edit_strategy=as_strategy(
+            reasoning_raw.get("no_edit_strategy"), defaults.reasoning.no_edit_strategy
+        ),
     )
     background_jobs = BackgroundJobSettings(
-        enabled=_bool(background_raw.get("enabled"), True),
-        list_running=_bool(background_raw.get("list_running"), True),
-        show_completed=_bool(background_raw.get("show_completed"), True),
-        completed_ttl_seconds=_int(background_raw.get("completed_ttl_seconds"), 5),
-        max_jobs=_int(background_raw.get("max_jobs"), 4),
-        head_lines=_int(background_raw.get("head_lines"), 2),
-        tail_lines=_int(background_raw.get("tail_lines"), 3),
-        max_line_chars=_int(background_raw.get("max_line_chars"), 120, min_value=24),
-        update_interval_seconds=_int(background_raw.get("update_interval_seconds"), 10),
-        suppress_native_notify=_bool(background_raw.get("suppress_native_notify"), True),
-        suppress_watch_notifications=_bool(
-            background_raw.get("suppress_watch_notifications"), True
+        enabled=as_bool(background_raw.get("enabled"), defaults.background_jobs.enabled),
+        list_running=as_bool(
+            background_raw.get("list_running"), defaults.background_jobs.list_running
         ),
-        default_notify_on_complete=_bool(background_raw.get("default_notify_on_complete"), False),
+        show_completed=as_bool(
+            background_raw.get("show_completed"), defaults.background_jobs.show_completed
+        ),
+        completed_ttl_seconds=as_int(
+            background_raw.get("completed_ttl_seconds"),
+            defaults.background_jobs.completed_ttl_seconds,
+        ),
+        max_jobs=as_int(background_raw.get("max_jobs"), defaults.background_jobs.max_jobs),
+        head_lines=as_int(background_raw.get("head_lines"), defaults.background_jobs.head_lines),
+        tail_lines=as_int(background_raw.get("tail_lines"), defaults.background_jobs.tail_lines),
+        max_line_chars=as_int(
+            background_raw.get("max_line_chars"),
+            defaults.background_jobs.max_line_chars,
+            min_value=24,
+        ),
+        update_interval_seconds=as_int(
+            background_raw.get("update_interval_seconds"),
+            defaults.background_jobs.update_interval_seconds,
+        ),
+        suppress_native_notify=as_bool(
+            background_raw.get("suppress_native_notify"),
+            defaults.background_jobs.suppress_native_notify,
+        ),
+        suppress_watch_notifications=as_bool(
+            background_raw.get("suppress_watch_notifications"),
+            defaults.background_jobs.suppress_watch_notifications,
+        ),
+        default_notify_on_complete=as_bool(
+            background_raw.get("default_notify_on_complete"),
+            defaults.background_jobs.default_notify_on_complete,
+        ),
     )
-    native_gateway = NativeGatewaySettings(suppress=_bool(native_gateway_raw.get("suppress"), True))
+    native_gateway = NativeGatewaySettings(
+        suppress=as_bool(native_gateway_raw.get("suppress"), defaults.native_gateway.suppress)
+    )
     cleanup = CleanupSettings(
-        auto_delete=_bool(cleanup_raw.get("auto_delete"), False),
-        delay_seconds=_int(cleanup_raw.get("delay_seconds"), 5, min_value=0),
-        delete_on_success=_bool(cleanup_raw.get("delete_on_success"), True),
-        delete_on_failure=_bool(cleanup_raw.get("delete_on_failure"), False),
-        delete_background_active=_bool(cleanup_raw.get("delete_background_active"), False),
+        auto_delete=as_bool(cleanup_raw.get("auto_delete"), defaults.cleanup.auto_delete),
+        delay_seconds=as_int(
+            cleanup_raw.get("delay_seconds"), defaults.cleanup.delay_seconds, min_value=0
+        ),
+        delete_on_success=as_bool(
+            cleanup_raw.get("delete_on_success"), defaults.cleanup.delete_on_success
+        ),
+        delete_on_failure=as_bool(
+            cleanup_raw.get("delete_on_failure"), defaults.cleanup.delete_on_failure
+        ),
+        delete_background_active=as_bool(
+            cleanup_raw.get("delete_background_active"), defaults.cleanup.delete_background_active
+        ),
     )
     footer = FooterSettings(
-        enabled=_bool(footer_raw.get("enabled"), True),
-        density=_footer_density(footer_raw.get("density"), "normal"),
-        max_path_chars=_int(footer_raw.get("max_path_chars"), 56, min_value=16),
+        enabled=as_bool(footer_raw.get("enabled"), defaults.footer.enabled),
+        density=as_footer_density(footer_raw.get("density"), defaults.footer.density),
+        max_path_chars=as_int(
+            footer_raw.get("max_path_chars"), defaults.footer.max_path_chars, min_value=16
+        ),
     )
     telegram = TelegramSettings(
-        rich_messages=_bool(telegram_raw.get("rich_messages"), True),
-        verification_table=_bool(telegram_raw.get("verification_table"), True),
-        thinking_blocks=_bool(telegram_raw.get("thinking_blocks"), True),
-        max_table_rows=_int(telegram_raw.get("max_table_rows"), 8),
-        compact_success=_bool(telegram_raw.get("compact_success"), True),
-        max_detail_items=_int(telegram_raw.get("max_detail_items"), 8, min_value=0),
+        rich_messages=as_bool(telegram_raw.get("rich_messages"), defaults.telegram.rich_messages),
+        verification_table=as_bool(
+            telegram_raw.get("verification_table"), defaults.telegram.verification_table
+        ),
+        thinking_blocks=as_bool(
+            telegram_raw.get("thinking_blocks"), defaults.telegram.thinking_blocks
+        ),
+        max_table_rows=as_int(telegram_raw.get("max_table_rows"), defaults.telegram.max_table_rows),
+        compact_success=as_bool(
+            telegram_raw.get("compact_success"), defaults.telegram.compact_success
+        ),
+        max_detail_items=as_int(
+            telegram_raw.get("max_detail_items"), defaults.telegram.max_detail_items, min_value=0
+        ),
     )
-    renderer_mode, renderer_density = _renderer_mode_and_density(renderer_raw)
+    renderer_mode, renderer_density = renderer_mode_and_density(
+        renderer_raw, defaults.renderer.mode, defaults.renderer.density
+    )
     renderer = RendererSettings(
-        strategy=_strategy(renderer_raw.get("strategy"), "auto"),
-        edit_interval=_float(renderer_raw.get("edit_interval"), 5.0),
-        stale_ttl_seconds=_int(renderer_raw.get("stale_ttl_seconds"), 900),
-        redact_secrets=_bool(renderer_raw.get("redact_secrets"), True),
+        strategy=as_strategy(renderer_raw.get("strategy"), defaults.renderer.strategy),
+        edit_interval=as_float(renderer_raw.get("edit_interval"), defaults.renderer.edit_interval),
+        stale_ttl_seconds=as_int(
+            renderer_raw.get("stale_ttl_seconds"), defaults.renderer.stale_ttl_seconds
+        ),
+        redact_secrets=as_bool(
+            renderer_raw.get("redact_secrets"), defaults.renderer.redact_secrets
+        ),
         mode=renderer_mode,
-        style=_style(renderer_raw.get("style"), "emoji"),
+        style=as_style(renderer_raw.get("style"), defaults.renderer.style),
         density=renderer_density,
-        agent_label=str(renderer_raw.get("agent_label") or "").strip(),
+        agent_label=str(renderer_raw.get("agent_label") or defaults.renderer.agent_label).strip(),
     )
     no_edit = NoEditSettings(
-        interval_seconds=_int(no_edit_raw.get("interval_seconds"), 30),
-        min_new_events=_int(no_edit_raw.get("min_new_events"), 3),
-        final_summary=_bool(no_edit_raw.get("final_summary"), True),
-        max_snapshots_per_turn=_int(no_edit_raw.get("max_snapshots_per_turn"), 5),
+        interval_seconds=as_int(
+            no_edit_raw.get("interval_seconds"), defaults.no_edit.interval_seconds
+        ),
+        min_new_events=as_int(no_edit_raw.get("min_new_events"), defaults.no_edit.min_new_events),
+        final_summary=as_bool(no_edit_raw.get("final_summary"), defaults.no_edit.final_summary),
+        max_snapshots_per_turn=as_int(
+            no_edit_raw.get("max_snapshots_per_turn"), defaults.no_edit.max_snapshots_per_turn
+        ),
     )
     platforms = section.get("platforms") if isinstance(section.get("platforms"), dict) else {}
     return Settings(
-        enabled=_bool(section.get("enabled"), True),
+        enabled=as_bool(section.get("enabled"), defaults.enabled),
         tools=tools,
         delegates=delegates,
         todo=todo,
@@ -401,28 +415,28 @@ def resolve_platform_settings(settings: Settings, platform: str) -> PlatformSett
         return base
     return replace(
         base,
-        enabled=_bool(raw.get("enabled"), base.enabled),
-        strategy=_strategy(raw.get("strategy"), base.strategy),
-        lines=_int(raw.get("lines"), base.lines),
-        preview_length=_int(raw.get("preview_length"), base.preview_length),
-        edit_interval=_float(raw.get("edit_interval"), base.edit_interval),
-        stale_ttl_seconds=_int(raw.get("stale_ttl_seconds"), base.stale_ttl_seconds),
-        redact_secrets=_bool(raw.get("redact_secrets"), base.redact_secrets),
-        show_completed=_bool(raw.get("show_completed"), base.show_completed),
-        tools_enabled=_bool(raw.get("tools", raw.get("tools_enabled")), base.tools_enabled),
-        assistant_enabled=_bool(
+        enabled=as_bool(raw.get("enabled"), base.enabled),
+        strategy=as_strategy(raw.get("strategy"), base.strategy),
+        lines=as_int(raw.get("lines"), base.lines),
+        preview_length=as_int(raw.get("preview_length"), base.preview_length),
+        edit_interval=as_float(raw.get("edit_interval"), base.edit_interval),
+        stale_ttl_seconds=as_int(raw.get("stale_ttl_seconds"), base.stale_ttl_seconds),
+        redact_secrets=as_bool(raw.get("redact_secrets"), base.redact_secrets),
+        show_completed=as_bool(raw.get("show_completed"), base.show_completed),
+        tools_enabled=as_bool(raw.get("tools", raw.get("tools_enabled")), base.tools_enabled),
+        assistant_enabled=as_bool(
             raw.get("assistant", raw.get("assistant_enabled")), base.assistant_enabled
         ),
-        reasoning_enabled=_bool(
+        reasoning_enabled=as_bool(
             raw.get("reasoning", raw.get("reasoning_enabled")), base.reasoning_enabled
         ),
-        delegates_enabled=_bool(
+        delegates_enabled=as_bool(
             raw.get("delegates", raw.get("delegates_enabled")), base.delegates_enabled
         ),
-        background_jobs_enabled=_bool(
+        background_jobs_enabled=as_bool(
             raw.get("background_jobs", raw.get("background_jobs_enabled")),
             base.background_jobs_enabled,
         ),
-        timestamp=_bool(raw.get("timestamp"), base.timestamp),
+        timestamp=as_bool(raw.get("timestamp"), base.timestamp),
         timestamp_format=str(raw.get("timestamp_format") or base.timestamp_format),
     )
