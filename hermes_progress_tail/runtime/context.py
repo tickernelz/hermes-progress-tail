@@ -295,10 +295,6 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
     if adapter is None:
         logger.debug("hermes-progress-tail adapter not found for platform %s", platform)
         return None
-    if platform.lower() == "telegram":
-        from ..hooks.telegram import install_telegram_format_monkeypatch
-
-        install_telegram_format_monkeypatch(type(adapter))
     _register_context(
         renderer=renderer,
         source=source,

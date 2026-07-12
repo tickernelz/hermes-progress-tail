@@ -2,6 +2,7 @@ import asyncio
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
 
+from hermes_progress_tail.hooks.platform import _prepare_concrete_adapter
 from hermes_progress_tail.monkeypatches import (
     install_telegram_format_monkeypatch,
     uninstall_telegram_format_monkeypatch,
@@ -113,6 +114,7 @@ def test_first_telegram_dispatch_patches_adapter_materialized_after_registration
     monkeypatch.setattr(context, "_adapter_for", lambda _gateway, _source: runtime_adapter)
     monkeypatch.setattr(context, "_register_context", lambda **_kwargs: None)
 
+    _prepare_concrete_adapter(runtime_adapter, "telegram")
     context._on_pre_gateway_dispatch(
         SimpleNamespace(source=source), SimpleNamespace(), SimpleNamespace()
     )

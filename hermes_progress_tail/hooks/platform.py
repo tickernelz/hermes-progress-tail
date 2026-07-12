@@ -27,6 +27,20 @@ _NATIVE_GATEWAY_FALSE_SETTINGS = {
 _NATIVE_GATEWAY_OFF_SETTINGS = {"tool_progress"}
 
 
+def _prepare_concrete_adapter(adapter: Any, platform: str) -> None:
+    if str(platform or "").strip().lower() != "telegram":
+        return
+    try:
+        from .telegram import install_telegram_format_monkeypatch
+
+        install_telegram_format_monkeypatch(type(adapter))
+    except Exception:
+        logger.debug(
+            "hermes-progress-tail could not prepare concrete Telegram adapter",
+            exc_info=True,
+        )
+
+
 def _mutate_adapter_monkeypatches(
     adapter_cls: type | None = None, *, callbacks: HookCallbacks | None = None
 ) -> bool:
@@ -69,6 +83,8 @@ def _mutate_adapter_monkeypatches(
         return set_handler(self, handler)
 
     async def patched_handle_message(self, event):
+        source = getattr(event, "source", None)
+        _prepare_concrete_adapter(self, getattr(source, "platform", ""))
         if bool(getattr(event, "internal", False)):
             try:
                 callbacks.register_adapter_context(self, event)
