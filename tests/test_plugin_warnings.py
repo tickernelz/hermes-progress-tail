@@ -4,8 +4,8 @@ import pytest
 import yaml
 
 import hermes_progress_tail.plugin as plugin
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.runtime import commands
+from hermes_progress_tail.settings.loading import load_settings
 
 
 @pytest.fixture(autouse=True)

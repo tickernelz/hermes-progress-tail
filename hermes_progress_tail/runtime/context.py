@@ -13,7 +13,7 @@ from ..gateway.compat import (
     source_thread_id,
 )
 from ..models.state import RoutingState, SessionContext
-from ..settings.config import resolve_platform_settings
+from ..settings.platforms import resolve_platform_settings
 
 if TYPE_CHECKING:
     from ..rendering.renderer import ProgressRenderer

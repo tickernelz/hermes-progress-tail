@@ -7,7 +7,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from hermes_progress_tail.runtime import context as rc
-from hermes_progress_tail.settings.config import Settings
+from hermes_progress_tail.settings.types import Settings
 
 
 def source(**kw):

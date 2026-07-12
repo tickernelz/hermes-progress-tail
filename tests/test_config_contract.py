@@ -1,4 +1,7 @@
-from hermes_progress_tail.config import find_retired_config_keys, find_unknown_config_keys
+from hermes_progress_tail.settings.migration import (
+    find_retired_config_keys,
+    find_unknown_config_keys,
+)
 
 
 def test_config_contract_reports_unknown_keys_without_flagging_platform_names():

@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.models.state import SessionContext
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.rendering.delegate import DelegateProgressRenderer
+from hermes_progress_tail.settings.loading import load_settings
 from tests.support.rendering import EditableAdapter
 
 DELIVERY_MODULE = "hermes_progress_tail.rendering.delivery"

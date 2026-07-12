@@ -4,7 +4,6 @@ import dataclasses
 import inspect
 from pathlib import Path
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.models.state import (
     BackgroundJobEvent,
     DelegateEvent,
@@ -13,6 +12,7 @@ from hermes_progress_tail.models.state import (
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.rendering.delegate import DelegateProgressRenderer
 from hermes_progress_tail.rendering.event_reducer import EventReducer, ReductionResult
+from hermes_progress_tail.settings.loading import load_settings
 from tests.support.rendering import EditableAdapter
 
 EXPECTED_RESULT_FIELDS = (

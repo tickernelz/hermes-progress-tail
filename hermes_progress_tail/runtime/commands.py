@@ -15,7 +15,7 @@ from ..hooks.monkeypatches import _CAPABILITY_SPECS
 from ..hooks.platform import _legacy_global_suppression_warnings
 from ..models.release import is_newer_version as _is_newer_version
 from ..models.release import version_parts
-from ..settings.config import find_retired_config_keys, find_unknown_config_keys
+from ..settings.migration import find_retired_config_keys, find_unknown_config_keys
 from ..utils.redaction import redact_text
 from .config_runtime import (
     _background_job_config_warnings,

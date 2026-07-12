@@ -1,4 +1,5 @@
-from hermes_progress_tail.config import load_settings, resolve_platform_settings
+from hermes_progress_tail.settings.loading import load_settings
+from hermes_progress_tail.settings.platforms import resolve_platform_settings
 
 
 def test_load_settings_defaults():

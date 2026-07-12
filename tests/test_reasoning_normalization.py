@@ -1,12 +1,12 @@
 import asyncio
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.monkeypatches import _capture_inline_reasoning
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.rendering.reasoning import (
     normalize_reasoning_text,
     render_reasoning_tail,
 )
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import ReasoningEvent, SessionContext
 from tests.support.rendering import EditableAdapter
 

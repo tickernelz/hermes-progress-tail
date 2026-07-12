@@ -61,8 +61,8 @@ def test_readme_documents_background_job_defaults_without_finalization_config():
     assert "default_notify_on_complete" not in readme
     assert "finalization:" not in readme
     assert "cleanup_stale_on_next_turn" not in readme
-    assert "mode: focused # focused|sectioned" in readme
-    assert "mode: focused # focused|sectioned|compact" not in readme
+    assert "mode: sectioned # focused|sectioned" in readme
+    assert "mode: sectioned # focused|sectioned|compact" not in readme
     assert "density: normal # compact|normal|verbose|debug" in readme
     assert "footer:" in readme
     assert "density: normal # compact|normal|debug" in readme

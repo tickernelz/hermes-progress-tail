@@ -1,7 +1,7 @@
 import asyncio
 
 import hermes_progress_tail
-from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import SessionContext
 from tests.support.gateway import Adapter, Event, Gateway, SessionStore
 

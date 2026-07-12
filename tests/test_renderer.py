@@ -1,8 +1,8 @@
 import asyncio
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.rendering.focused import focused_now, focused_tools, semantic_activity
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import (
     DelegateEvent,
     ToolEvent,

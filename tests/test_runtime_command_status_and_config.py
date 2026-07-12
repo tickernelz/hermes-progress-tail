@@ -2,9 +2,9 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.hooks.install_report import PatchInstallReport
 from hermes_progress_tail.runtime import commands
+from hermes_progress_tail.settings.loading import load_settings
 
 
 def _renderer(*sessions):

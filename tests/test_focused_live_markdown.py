@@ -1,7 +1,7 @@
 import asyncio
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.renderer import ProgressRenderer
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import AssistantEvent, ReasoningEvent, SessionContext, ToolEvent
 from tests.support.rendering import EditableAdapter
 

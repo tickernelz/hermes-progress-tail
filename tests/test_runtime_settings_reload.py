@@ -1,5 +1,5 @@
 from hermes_progress_tail.runtime import plugin
-from hermes_progress_tail.settings.config import load_settings
+from hermes_progress_tail.settings.loading import load_settings
 
 
 def test_get_renderer_replaces_settings_for_every_collaborator(monkeypatch):

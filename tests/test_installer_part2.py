@@ -197,7 +197,7 @@ def test_feature_overrides_do_not_mutate_default_config(tmp_path):
     )
 
     assert DEFAULT_CONFIG["delegates"]["enabled"] is True
-    assert DEFAULT_CONFIG["renderer"]["mode"] == "focused"
+    assert DEFAULT_CONFIG["renderer"]["mode"] == "sectioned"
     assert DEFAULT_CONFIG["renderer"]["style"] == "emoji"
     assert DEFAULT_CONFIG["renderer"]["density"] == "normal"
     assert DEFAULT_CONFIG["renderer"]["edit_interval"] == 5.0

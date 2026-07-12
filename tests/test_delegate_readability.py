@@ -1,7 +1,7 @@
 from collections import deque
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.rendering.delegate import DelegateProgressRenderer
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import DelegateBranch, DelegateEvent, DelegateLine, SessionContext
 
 

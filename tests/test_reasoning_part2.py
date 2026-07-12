@@ -1,6 +1,5 @@
 import pytest
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.monkeypatches import (
     _capture_inline_reasoning,
 )
@@ -13,6 +12,7 @@ from hermes_progress_tail.rendering.reasoning import (
 from hermes_progress_tail.rendering.telegram_rich import (
     format_progress_tail_telegram_rich_markdown,
 )
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import ReasoningEvent, SessionContext
 
 

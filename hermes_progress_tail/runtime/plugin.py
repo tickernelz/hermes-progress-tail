@@ -11,7 +11,7 @@ from ..hooks.monkeypatches import install_monkeypatches, install_monkeypatches_r
 from ..models.release import FooterInfo
 from ..models.state import SessionContext
 from ..rendering.renderer import ProgressRenderer
-from ..settings.config import load_settings
+from ..settings.loading import load_settings
 from . import agent_events as _agent_events_module
 from . import commands as _commands_module
 from . import context as _context_module

@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from hermes_progress_tail.settings.config import load_settings
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.settings.migration import (
     extract_progress_tail_section,
     find_retired_config_keys,

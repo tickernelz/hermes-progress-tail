@@ -56,7 +56,7 @@ def test_footer_info_is_exact_and_frozen():
 
 def test_renderer_default_and_falsey_provider_identity():
     FooterInfo, ProgressRenderer = _provider_contract()
-    from hermes_progress_tail.config import load_settings
+    from hermes_progress_tail.settings.loading import load_settings
 
     class FalseyProvider:
         def __bool__(self):
@@ -75,7 +75,7 @@ def test_renderer_default_and_falsey_provider_identity():
 
 def test_provider_one_call_and_exception_safety_in_both_modes():
     FooterInfo, ProgressRenderer = _provider_contract()
-    from hermes_progress_tail.config import load_settings
+    from hermes_progress_tail.settings.loading import load_settings
     from hermes_progress_tail.state import EnvironmentSnapshot, SessionContext
 
     for mode in ("focused", "sectioned"):
@@ -112,8 +112,8 @@ def test_runtime_provider_is_dynamic_and_global_seam_is_gone(monkeypatch):
 
 def test_standalone_renderer_never_uses_runtime_release_lookup(monkeypatch):
     _, ProgressRenderer = _provider_contract()
-    from hermes_progress_tail.config import load_settings
     from hermes_progress_tail.runtime import commands
+    from hermes_progress_tail.settings.loading import load_settings
     from hermes_progress_tail.state import EnvironmentSnapshot, SessionContext
 
     calls = []

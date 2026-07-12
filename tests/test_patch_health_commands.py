@@ -1,12 +1,12 @@
 from types import SimpleNamespace
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.hooks.install_report import (
     PatchFailureCategory,
     PatchInstallReport,
     PatchStatus,
 )
 from hermes_progress_tail.runtime import commands
+from hermes_progress_tail.settings.loading import load_settings
 
 EXPECTED = (
     ("agent_callbacks", "run_agent.AIAgent.__init__+_fire_reasoning_delta"),

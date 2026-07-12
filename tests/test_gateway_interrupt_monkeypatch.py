@@ -2,11 +2,11 @@ import asyncio
 from types import SimpleNamespace
 
 import hermes_progress_tail
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.monkeypatches import (
     install_gateway_interrupt_monkeypatch,
     uninstall_gateway_interrupt_monkeypatch,
 )
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import SessionContext, ToolEvent
 from tests.support.rendering import Result
 

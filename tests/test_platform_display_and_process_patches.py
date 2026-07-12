@@ -63,7 +63,7 @@ def test_display_keyword_arguments_and_non_ownership_passthrough(display):
 
 def test_display_ownership_error_uses_safe_platform_fallback(monkeypatch, display):
     monkeypatch.setattr(
-        "hermes_progress_tail.settings.config.load_settings",
+        "hermes_progress_tail.settings.loading.load_settings",
         lambda _config: (_ for _ in ()).throw(ValueError("bad config")),
     )
     assert platform.install_gateway_display_suppression_monkeypatch(display)

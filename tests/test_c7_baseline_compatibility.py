@@ -3,9 +3,9 @@
 
 from collections import deque
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.models.state import BackgroundJob, DelegateBranch, SessionContext
 from hermes_progress_tail.renderer import ProgressRenderer
+from hermes_progress_tail.settings.loading import load_settings
 from tests.test_background_jobs_and_fencing import (
     test_background_job_renders_head_tail_completion_and_survives_finalize as test_background_poll_cancellation_pruning_and_active_finalization,
 )

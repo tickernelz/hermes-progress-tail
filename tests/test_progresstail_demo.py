@@ -1,5 +1,5 @@
 import hermes_progress_tail.plugin as plugin
-from hermes_progress_tail.config import load_settings
+from hermes_progress_tail.settings.loading import load_settings
 
 
 def test_demo_command_returns_focused_markdown_sample(monkeypatch):

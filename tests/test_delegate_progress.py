@@ -2,7 +2,6 @@ import asyncio
 from types import SimpleNamespace
 
 import hermes_progress_tail.plugin as plugin
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.models.state import DelegateEvent, SessionContext
 from hermes_progress_tail.monkeypatches import (
     install_delegate_monkeypatches,
@@ -10,6 +9,7 @@ from hermes_progress_tail.monkeypatches import (
 )
 from hermes_progress_tail.plugin import _on_pre_gateway_dispatch
 from hermes_progress_tail.rendering.renderer import ProgressRenderer
+from hermes_progress_tail.settings.loading import load_settings
 from tests.support.rendering import EditableAdapter
 
 

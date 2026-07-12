@@ -4,7 +4,7 @@ from hermes_progress_tail.hooks.contracts import current_hook_callbacks
 from hermes_progress_tail.hooks.install_report import PatchInstallReport, PatchStatus
 from hermes_progress_tail.runtime import plugin
 from hermes_progress_tail.runtime.container import PluginRuntime
-from hermes_progress_tail.settings.config import load_settings
+from hermes_progress_tail.settings.loading import load_settings
 
 
 def test_runtime_lazily_creates_one_renderer_and_propagates_settings_identity():

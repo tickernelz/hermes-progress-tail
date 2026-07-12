@@ -4,7 +4,7 @@ import time
 
 from ..models.state import DelegateEvent, RoutingState, SessionContext, TodoItem
 from ..rendering.renderer import ProgressRenderer
-from ..settings.config import load_settings
+from ..settings.loading import load_settings
 
 
 def _demo_command(*, plain: bool = False, failed: bool = False) -> str:

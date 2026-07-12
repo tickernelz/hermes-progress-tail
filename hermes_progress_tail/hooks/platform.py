@@ -234,7 +234,8 @@ def _progress_tail_owns_platform(config: Any, platform_key: str) -> bool:
     if not platform:
         return False
     try:
-        from ..settings.config import load_settings, resolve_platform_settings
+        from ..settings.loading import load_settings
+        from ..settings.platforms import resolve_platform_settings
 
         settings = load_settings(config)
         platform_settings = resolve_platform_settings(settings, platform)

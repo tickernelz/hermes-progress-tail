@@ -1,10 +1,10 @@
 """C11 characterization that is intentionally runnable against the exported base."""
 
 import tests.test_b6_corrective_facade_ports as _b6_ports
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.rendering.footer import footer_body
 from hermes_progress_tail.runtime.commands import _is_newer_version, _version_parts
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import EnvironmentSnapshot, SessionContext
 from tests.test_sticky_footer import (
     test_focused_footer_shows_github_latest_release_update_only_when_newer as _release_output,

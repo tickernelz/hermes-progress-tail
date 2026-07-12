@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from ..settings.config import load_settings
+from ..settings.loading import load_settings
 
 logger = logging.getLogger(__name__)
 

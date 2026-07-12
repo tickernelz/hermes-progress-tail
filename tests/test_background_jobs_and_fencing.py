@@ -2,7 +2,6 @@ import asyncio
 import time
 import types
 
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.hooks import platform as platform_hooks
 from hermes_progress_tail.monkeypatches import (
     install_compression_status_monkeypatch,
@@ -12,6 +11,7 @@ from hermes_progress_tail.monkeypatches import (
 )
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.runtime import plugin, tool_events
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import BackgroundJobEvent, SessionContext, ToolEvent
 from tests.support.rendering import EditableAdapter
 

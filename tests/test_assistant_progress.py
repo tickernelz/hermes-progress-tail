@@ -2,11 +2,11 @@ import asyncio
 from types import SimpleNamespace
 
 import hermes_progress_tail.plugin as plugin
-from hermes_progress_tail.config import load_settings
 from hermes_progress_tail.monkeypatches import install_monkeypatches, uninstall_monkeypatches
 from hermes_progress_tail.plugin import _on_pre_gateway_dispatch, _on_pre_tool_call
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.runtime import agent_events
+from hermes_progress_tail.settings.loading import load_settings
 from hermes_progress_tail.state import AssistantEvent, ReasoningEvent, SessionContext
 from tests.support.rendering import EditableAdapter
 

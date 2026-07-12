@@ -107,7 +107,7 @@ progress_tail:
     show_tool_count: true
     show_completion: true
     completed_ttl_seconds: 5
-    thinking: off
+    thinking: "off"
 
   todo:
     sticky: true
@@ -133,7 +133,7 @@ progress_tail:
     max_lines: 3
     max_chars: 600
     min_update_chars: 300
-    no_edit_strategy: off
+    no_edit_strategy: "off"
 
   background_jobs:
     enabled: true
@@ -176,7 +176,7 @@ progress_tail:
     edit_interval: 5.0
     stale_ttl_seconds: 900
     redact_secrets: true
-    mode: focused # focused|sectioned
+    mode: sectioned # focused|sectioned
     style: emoji # emoji|plain
     density: normal # compact|normal|verbose|debug
     agent_label: "" # optional label for focused HUD header, e.g. Akbar
