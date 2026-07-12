@@ -261,7 +261,9 @@ class RendererDelivery:
             return
         self.cancel_delete(ctx)
         generation = ctx.generation
-        active_message_id = str(ctx.delivery.message_id)
+        scheduled_delivery = ctx.delivery
+        scheduled_history = scheduled_delivery.progress_message_ids
+        active_message_id = str(scheduled_delivery.message_id)
         message_ids = list(
             dict.fromkeys(
                 str(message_id)
@@ -271,42 +273,50 @@ class RendererDelivery:
         )
         delay = max(0, cleanup.delay_seconds)
 
+        def owns_scheduled_state() -> bool:
+            return (
+                ctx.generation == generation
+                and ctx.delivery is scheduled_delivery
+                and scheduled_delivery.progress_message_ids is scheduled_history
+            )
+
         async def _delete_later() -> None:
             try:
                 await asyncio.sleep(delay)
                 if (
-                    ctx.generation != generation
-                    or str(ctx.delivery.message_id) != active_message_id
+                    not owns_scheduled_state()
+                    or str(scheduled_delivery.message_id) != active_message_id
                 ):
                     return
-                deleted_ids: set[str] = set()
                 for message_id in message_ids:
+                    if not owns_scheduled_state():
+                        return
                     try:
                         deleted = await delete_message(ctx.adapter, ctx.chat_id, message_id)
                     except Exception as exc:
+                        if not owns_scheduled_state():
+                            return
                         logger.debug("hermes-progress-tail delete failed: %s", exc)
                         ctx.diagnostics.last_error = str(exc)
                         continue
-                    if deleted:
-                        deleted_ids.add(message_id)
-                if deleted_ids:
-                    ctx.delivery.progress_message_ids[:] = [
-                        message_id
-                        for message_id in ctx.delivery.progress_message_ids
-                        if str(message_id) not in deleted_ids
+                    if not owns_scheduled_state():
+                        return
+                    if not deleted:
+                        continue
+                    scheduled_history[:] = [
+                        retained_id
+                        for retained_id in scheduled_history
+                        if str(retained_id) != message_id
                     ]
-                if (
-                    active_message_id in deleted_ids
-                    and str(ctx.delivery.message_id) == active_message_id
-                ):
-                    ctx.delivery.message_id = None
-                    ctx.delivery.can_edit = False
-                    ctx.delivery.progress_state = "deleted"
+                    if str(scheduled_delivery.message_id) == message_id:
+                        scheduled_delivery.message_id = None
+                        scheduled_delivery.can_edit = False
+                        scheduled_delivery.progress_state = "deleted"
             except asyncio.CancelledError:
                 raise
             finally:
-                if ctx.delivery.delete_task is task:
-                    ctx.delivery.delete_task = None
+                if scheduled_delivery.delete_task is task:
+                    scheduled_delivery.delete_task = None
 
         task = ctx.loop.create_task(_delete_later())
         ctx.delivery.delete_task = task
