@@ -1,5 +1,6 @@
 import asyncio
 import sys
+from enum import Enum
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -39,12 +40,31 @@ class RuntimeTelegramAdapter(HookBaseAdapter):
         return SendResult(True, message_id)
 
 
+class HostPlatform(Enum):
+    TELEGRAM = "telegram"
+    DISCORD = "discord"
+
+
 def _callbacks():
     return SimpleNamespace(register_adapter_context=lambda _adapter, _event: None)
 
 
+@pytest.fixture(autouse=True)
+def _restore_adapter_patches():
+    platform_hooks.uninstall_adapter_monkeypatches(HookBaseAdapter)
+    uninstall_telegram_format_monkeypatch(RuntimeTelegramAdapter)
+    yield
+    platform_hooks.uninstall_adapter_monkeypatches(HookBaseAdapter)
+    uninstall_telegram_format_monkeypatch(RuntimeTelegramAdapter)
+
+
 @pytest.mark.parametrize("internal", [False, True], ids=["external", "internal-auto-resume"])
-def test_handle_message_prepares_runtime_telegram_before_first_edit(monkeypatch, internal):
+@pytest.mark.parametrize(
+    "platform", ["telegram", HostPlatform.TELEGRAM], ids=["string", "host-enum"]
+)
+def test_handle_message_prepares_runtime_telegram_before_first_edit(
+    monkeypatch, internal, platform
+):
     module = ModuleType("hermes_plugins.telegram_platform.adapter")
     module.ParseMode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
     module.TelegramAdapter = RuntimeTelegramAdapter
@@ -60,7 +80,7 @@ def test_handle_message_prepares_runtime_telegram_before_first_edit(monkeypatch,
 
     asyncio.run(
         adapter.handle_message(
-            SimpleNamespace(internal=internal, source=SimpleNamespace(platform="telegram"))
+            SimpleNamespace(internal=internal, source=SimpleNamespace(platform=platform))
         )
     )
 
@@ -85,7 +105,7 @@ def test_non_telegram_flow_does_not_prepare_adapter(monkeypatch):
 
     asyncio.run(
         adapter.handle_message(
-            SimpleNamespace(internal=False, source=SimpleNamespace(platform="discord"))
+            SimpleNamespace(internal=False, source=SimpleNamespace(platform=HostPlatform.DISCORD))
         )
     )
 
@@ -103,7 +123,7 @@ def test_telegram_prepare_failure_fails_open(monkeypatch):
 
     asyncio.run(
         adapter.handle_message(
-            SimpleNamespace(internal=True, source=SimpleNamespace(platform="telegram"))
+            SimpleNamespace(internal=True, source=SimpleNamespace(platform=HostPlatform.TELEGRAM))
         )
     )
 

@@ -27,8 +27,9 @@ _NATIVE_GATEWAY_FALSE_SETTINGS = {
 _NATIVE_GATEWAY_OFF_SETTINGS = {"tool_progress"}
 
 
-def _prepare_concrete_adapter(adapter: Any, platform: str) -> None:
-    if str(platform or "").strip().lower() != "telegram":
+def _prepare_concrete_adapter(adapter: Any, platform: Any) -> None:
+    platform_value = getattr(platform, "value", platform)
+    if str(platform_value or "").strip().lower() != "telegram":
         return
     try:
         from .telegram import install_telegram_format_monkeypatch

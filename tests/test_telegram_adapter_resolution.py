@@ -1,4 +1,5 @@
 import asyncio
+from enum import Enum
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -40,6 +41,10 @@ class StaticTelegramAdapter(_BaseTelegramAdapter):
 
 class RuntimeTelegramAdapter(_BaseTelegramAdapter):
     pass
+
+
+class HostPlatform(Enum):
+    TELEGRAM = "telegram"
 
 
 def _install_module(monkeypatch, module_name, adapter_cls):
@@ -114,7 +119,7 @@ def test_first_telegram_dispatch_patches_adapter_materialized_after_registration
     monkeypatch.setattr(context, "_adapter_for", lambda _gateway, _source: runtime_adapter)
     monkeypatch.setattr(context, "_register_context", lambda **_kwargs: None)
 
-    _prepare_concrete_adapter(runtime_adapter, "telegram")
+    _prepare_concrete_adapter(runtime_adapter, HostPlatform.TELEGRAM)
     context._on_pre_gateway_dispatch(
         SimpleNamespace(source=source), SimpleNamespace(), SimpleNamespace()
     )
