@@ -424,6 +424,38 @@ def test_streaming_glue_full_screenshot_text_renders_structured_list():
     assert "path4." not in rendered
 
 
+def test_streaming_glue_adjacent_bold_headings_get_separate_lines():
+    """GPT-5.6 can concatenate complete bold summaries without separators."""
+    text = (
+        "**Planning selective history rewrite for plan files**"
+        "**Storing canonical preference for planning docs**"
+        "**Planning git history rewrite**"
+        "**Planning git rebase to drop docs commits**"
+        "**Planning ignore commit insertion post-rebase**"
+        "**Planning git commit reorder strategy**"
+    )
+
+    normalized = normalize_reasoning_text(text)
+
+    assert normalized == (
+        "**Planning selective history rewrite for plan files**\n\n"
+        "**Storing canonical preference for planning docs**\n\n"
+        "**Planning git history rewrite**\n\n"
+        "**Planning git rebase to drop docs commits**\n\n"
+        "**Planning ignore commit insertion post-rebase**\n\n"
+        "**Planning git commit reorder strategy**"
+    )
+
+
+def test_streaming_glue_adjacent_bold_heading_examples_stay_literal():
+    text = (
+        "Literal: `**Planning one****Planning two**`\n"
+        "```md\n**Planning three****Planning four**\n```"
+    )
+
+    assert normalize_reasoning_text(text) == text
+
+
 def test_streaming_glue_does_not_break_camelcase_or_version_numbers():
     """False positive guards: camelCase identifiers and version numbers stay intact."""
     text = "Using callKw to read data from v0.1.93. The searchRead method at step1 should work."

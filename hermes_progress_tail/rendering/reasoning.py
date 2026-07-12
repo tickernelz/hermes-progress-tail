@@ -15,6 +15,12 @@ _INLINE_BOLD_HEADING_RE = re.compile(
     r"(?P<heading>(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__))"
     r"[ \t]*(?=\n|$|[A-Z])"
 )
+_BOLD_HEADING_TOKEN_RE = re.compile(r"(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__)")
+_ADJACENT_BOLD_HEADING_RUN_RE = re.compile(
+    r"(?<![`*_])"
+    r"(?P<run>(?:(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__)){2,})"
+    r"(?![`*_])"
+)
 _MISSING_SENTENCE_SPACE_RE = re.compile(r"(?<=[a-z])([.])(?=[A-Z])")
 _GLUED_NUMBERED_LIST_RE = re.compile(r'(?<=[a-zA-Z):;\]}"\'])(?=\d{1,2}[.)]\s+[A-Z])')
 _EMPTY_HTML_COMMENT_SEPARATOR_RE = re.compile(
@@ -71,6 +77,7 @@ def normalize_reasoning_text(text: str, *, preserve_stream_suffix: bool = False)
         text = text[: suffix_match.start()]
     text = _strip_empty_html_comment_separators(text)
     text = _normalize_streaming_glue(text)
+    text = _normalize_adjacent_bold_heading_boundaries(text)
     text = _normalize_inline_heading_boundaries(text)
     lines = []
     for raw_line in text.split("\n"):
@@ -285,6 +292,27 @@ def _normalize_inline_heading_boundaries(text: str) -> str:
         return f"{match.group('prefix')}\n\n{heading}\n"
 
     return _INLINE_BOLD_HEADING_RE.sub(replace, text)
+
+
+def _normalize_adjacent_bold_heading_boundaries(text: str) -> str:
+    """Split complete bold heading runs that arrived without separators."""
+
+    def replace(match: re.Match[str]) -> str:
+        run = match.group("run")
+        headings = _BOLD_HEADING_TOKEN_RE.findall(run)
+        if "".join(headings) != run or any(not _detect_heading(item) for item in headings):
+            return run
+        return "\n\n".join(headings)
+
+    output: list[str] = []
+    fence_state: tuple[str, int] | None = None
+    for raw_line in text.splitlines(keepends=True):
+        previous_state = fence_state
+        fence_state = _advance_code_fence(raw_line, fence_state)
+        if previous_state is None and fence_state is None:
+            raw_line = _ADJACENT_BOLD_HEADING_RUN_RE.sub(replace, raw_line)
+        output.append(raw_line)
+    return "".join(output)
 
 
 def _normalize_streaming_glue(text: str) -> str:

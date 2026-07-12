@@ -441,3 +441,37 @@ def test_telegram_renderer_can_disable_rich_markdown():
         assert "| Command | Result |" not in sent
 
     asyncio.run(run())
+
+
+def test_telegram_send_patch_separates_glued_reasoning_headings(monkeypatch):
+    from hermes_progress_tail.rendering.reasoning import render_reasoning_tail
+
+    install_fake_gateway_base(monkeypatch)
+
+    async def run():
+        uninstall_telegram_format_monkeypatch(GatewayLikeTelegramAdapter)
+        assert install_telegram_format_monkeypatch(GatewayLikeTelegramAdapter) is True
+        adapter = GatewayLikeTelegramAdapter()
+        raw = (
+            "**Planning selective history rewrite for plan files**"
+            "**Storing canonical preference for planning docs**"
+            "**Planning git history rewrite**"
+        )
+        reasoning = render_reasoning_tail(raw, max_lines=6, max_chars=600, redact=False)
+
+        result = await adapter.send("123", "**__Reasoning__**\n" + reasoning)
+
+        assert result.success is True
+        adapter.rich_request.assert_awaited_once()
+        kwargs = adapter.rich_request.await_args.kwargs["api_kwargs"]
+        rich_markdown = kwargs["rich_message"]["markdown"]
+        assert rich_markdown == (
+            "## Reasoning\n\n"
+            "### Planning selective history rewrite for plan files\n\n"
+            "### Storing canonical preference for planning docs\n\n"
+            "### Planning git history rewrite"
+        )
+        assert "filesStoring" not in rich_markdown
+        adapter._bot.send_message.assert_not_awaited()
+
+    asyncio.run(run())
