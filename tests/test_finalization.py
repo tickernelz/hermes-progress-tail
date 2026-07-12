@@ -358,6 +358,27 @@ def test_finalize_auto_deletes_completed_progress_bubble_when_enabled():
     asyncio.run(run())
 
 
+def test_finalize_after_rollover_edits_only_latest_target():
+    async def run():
+        adapter = EditableAdapter()
+        renderer = make_renderer()
+        ctx = make_ctx(adapter)
+        renderer.register_context(ctx)
+        ctx.tool_lines.append("work")
+        await renderer._send_live_message(ctx, "first")
+        await renderer.delivery.send_live_message(ctx, "second", rollover=True)
+        started_at = ctx.delivery.message_started_at
+        edits_before = len(adapter.edits)
+
+        await renderer.finalize(session_id="s1", success=True)
+
+        assert ctx.delivery.progress_message_ids == ["m1", "m2"]
+        assert ctx.delivery.message_started_at == started_at
+        assert adapter.edits[edits_before:] == [("chat", "m2", "▰ 🧰 Tools\nwork")]
+
+    asyncio.run(run())
+
+
 def test_finalize_purge_keeps_auto_delete_task_alive():
     async def run():
         adapter = EditableAdapter()

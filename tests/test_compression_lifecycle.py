@@ -77,6 +77,9 @@ def test_renderer_migrates_active_context_across_compression_session_rotation():
         )
         assert ctx.message_id == "m1"
         ctx.compaction_count = 2
+        started_at = ctx.delivery.message_started_at
+        delivery_state = ctx.delivery
+        history = ctx.delivery.progress_message_ids
 
         migrated = renderer.migrate_context("old-session", "new-session", session_key="stable-key")
         assert migrated is True
@@ -85,6 +88,9 @@ def test_renderer_migrates_active_context_across_compression_session_rotation():
         assert renderer.find_context("", "stable-key") is ctx
         assert ctx.session_id == "new-session"
         assert ctx.message_id == "m1"
+        assert ctx.delivery is delivery_state
+        assert ctx.delivery.progress_message_ids is history
+        assert ctx.delivery.message_started_at == started_at
         assert ctx.compaction_count == 2
 
         await renderer.handle_event(

@@ -123,6 +123,10 @@ def test_architecture_registration_preserves_identity_and_generation():
     old.background_jobs["job"] = object()
     old.total_events = 4
     old.snapshots_sent = 2
+    old.delivery.message_started_at = 123.0
+    old.delivery.progress_message_ids.extend(["old", "progress"])
+    delivery_state = old.delivery
+    history = old.delivery.progress_message_ids
     item.register_context(old)
     incoming = context(source="m1")
     item.register_context(incoming)
@@ -131,6 +135,9 @@ def test_architecture_registration_preserves_identity_and_generation():
     assert incoming.tool_lines is old.tool_lines
     assert incoming.background_jobs is old.background_jobs
     assert incoming.message_id == "progress"
+    assert incoming.delivery is delivery_state
+    assert incoming.delivery.progress_message_ids is history
+    assert incoming.delivery.message_started_at == 123.0
     assert (incoming.total_events, incoming.snapshots_sent) == (4, 2)
     assert incoming.tool_lines.maxlen == 3
     assert spy.deleted == [old]

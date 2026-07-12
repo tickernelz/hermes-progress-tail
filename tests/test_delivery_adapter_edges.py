@@ -35,9 +35,14 @@ class EdgeAdapter(EditableAdapter):
 
     async def delete_message(self, chat_id, message_id):
         self.deleted.append((chat_id, message_id))
-        if isinstance(self.delete_outcome, Exception):
-            raise self.delete_outcome
-        return self.delete_outcome
+        outcome = self.delete_outcome
+        if isinstance(outcome, dict):
+            outcome = outcome[message_id]
+        if callable(outcome):
+            outcome = await outcome(message_id)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 class SequentialAdapter(EdgeAdapter):
@@ -264,6 +269,70 @@ def test_auto_delete_stale_generation_and_message_fences(monkeypatch):
             assert ctx.delete_task is None and ctx.adapter.deleted == []
             assert ctx.message_id == ("m1" if stale_generation else "m2")
             assert ctx.progress_state == "active" and ctx.can_edit
+
+    asyncio.run(run())
+
+
+def test_auto_delete_attempts_ordered_unique_history_and_retains_failures(monkeypatch):
+    async def run():
+        r = renderer({"cleanup": {"auto_delete": True, "delay_seconds": 0}})
+        outcomes = {"m1": True, "m2": False, "m3": RuntimeError("m3 failed")}
+        ctx = make_live_context(EdgeAdapter(delete=outcomes))
+        ctx.message_id = "m3"
+        ctx.delivery.progress_message_ids = ["m1", "m2", "m1"]
+        real_sleep = asyncio.sleep
+
+        async def yielding(_delay):
+            await real_sleep(0)
+
+        monkeypatch.setattr(delivery.asyncio, "sleep", yielding)
+        r._schedule_auto_delete(ctx, success=True)
+        await ctx.delete_task
+
+        assert ctx.adapter.deleted == [
+            (ctx.chat_id, "m1"),
+            (ctx.chat_id, "m2"),
+            (ctx.chat_id, "m3"),
+        ]
+        assert ctx.delivery.progress_message_ids == ["m2"]
+        assert (ctx.message_id, ctx.can_edit, ctx.progress_state) == ("m3", True, "active")
+        assert ctx.last_error == "m3 failed"
+
+    asyncio.run(run())
+
+
+def test_auto_delete_does_not_clear_new_active_target_during_delete(monkeypatch):
+    async def run():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def blocked(message_id):
+            if message_id == "m2":
+                started.set()
+                await release.wait()
+            return True
+
+        r = renderer({"cleanup": {"auto_delete": True, "delay_seconds": 0}})
+        ctx = make_live_context(EdgeAdapter(delete=blocked))
+        ctx.message_id = "m2"
+        ctx.delivery.progress_message_ids = ["m1", "m2"]
+        real_sleep = asyncio.sleep
+
+        async def yielding(_delay):
+            await real_sleep(0)
+
+        monkeypatch.setattr(delivery.asyncio, "sleep", yielding)
+        r._schedule_auto_delete(ctx, success=True)
+        task = ctx.delete_task
+        await started.wait()
+        ctx.message_id = "m3"
+        ctx.delivery.progress_message_ids.append("m3")
+        release.set()
+        await task
+
+        assert ctx.adapter.deleted == [(ctx.chat_id, "m1"), (ctx.chat_id, "m2")]
+        assert ctx.delivery.progress_message_ids == ["m3"]
+        assert (ctx.message_id, ctx.can_edit, ctx.progress_state) == ("m3", True, "active")
 
     asyncio.run(run())
 

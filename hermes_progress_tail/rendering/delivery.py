@@ -261,21 +261,44 @@ class RendererDelivery:
             return
         self.cancel_delete(ctx)
         generation = ctx.generation
-        message_id = str(ctx.delivery.message_id)
+        active_message_id = str(ctx.delivery.message_id)
+        message_ids = list(
+            dict.fromkeys(
+                str(message_id)
+                for message_id in [*ctx.delivery.progress_message_ids, active_message_id]
+                if message_id
+            )
+        )
         delay = max(0, cleanup.delay_seconds)
 
         async def _delete_later() -> None:
             try:
                 await asyncio.sleep(delay)
-                if ctx.generation != generation or ctx.delivery.message_id != message_id:
+                if (
+                    ctx.generation != generation
+                    or str(ctx.delivery.message_id) != active_message_id
+                ):
                     return
-                try:
-                    deleted = await delete_message(ctx.adapter, ctx.chat_id, message_id)
-                except Exception as exc:
-                    logger.debug("hermes-progress-tail delete failed: %s", exc)
-                    ctx.diagnostics.last_error = str(exc)
-                    return
-                if deleted:
+                deleted_ids: set[str] = set()
+                for message_id in message_ids:
+                    try:
+                        deleted = await delete_message(ctx.adapter, ctx.chat_id, message_id)
+                    except Exception as exc:
+                        logger.debug("hermes-progress-tail delete failed: %s", exc)
+                        ctx.diagnostics.last_error = str(exc)
+                        continue
+                    if deleted:
+                        deleted_ids.add(message_id)
+                if deleted_ids:
+                    ctx.delivery.progress_message_ids[:] = [
+                        message_id
+                        for message_id in ctx.delivery.progress_message_ids
+                        if str(message_id) not in deleted_ids
+                    ]
+                if (
+                    active_message_id in deleted_ids
+                    and str(ctx.delivery.message_id) == active_message_id
+                ):
                     ctx.delivery.message_id = None
                     ctx.delivery.can_edit = False
                     ctx.delivery.progress_state = "deleted"
