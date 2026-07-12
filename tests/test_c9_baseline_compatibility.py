@@ -62,6 +62,7 @@ def test_legacy_delivery_diagnostics_values_and_task_identity():
         compaction_count=12,
     )
     assert ctx.message_id == "m" and ctx.can_edit is False and ctx.disabled is True
+
     assert (ctx.progress_state, ctx.finalized_at, ctx.last_render_at) == ("finalized", 1.0, 2.0)
     assert (ctx.edit_state, ctx.edit_backoff_until, ctx.edit_failure_count) == (
         "recovering",
@@ -83,6 +84,9 @@ def test_legacy_delivery_diagnostics_values_and_task_identity():
 def test_legacy_defaults_remain_compatible_and_independent():
     first, second = make_context(), make_context()
     assert first.message_id is None and first.can_edit is True and first.disabled is False
+    assert first.delivery.message_started_at == 0.0
+    assert first.delivery.progress_message_ids == []
+    assert first.delivery.progress_message_ids is not second.delivery.progress_message_ids
     assert first.progress_state == "active" and first.finalized_at == 0.0
     assert first.last_render_at == 0.0 and first.edit_state == "editable"
     assert first.edit_backoff_until == 0.0 and first.edit_failure_count == 0

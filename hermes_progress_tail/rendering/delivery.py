@@ -36,6 +36,34 @@ class RendererDelivery:
     def edit_backoff_seconds(error: Any, kind: str, failure_count: int) -> float:
         return _edit_backoff_seconds(error, kind, failure_count)
 
+    def message_rollover_due(self, ctx: SessionContext, now: float) -> bool:
+        started_at = ctx.delivery.message_started_at
+        return bool(
+            ctx.routing.strategy == "live_tail"
+            and ctx.delivery.message_id
+            and ctx.delivery.can_edit
+            and started_at
+            and now - started_at >= self.settings.renderer.message_rollover_minutes * 60
+        )
+
+    @staticmethod
+    def _record_active_message(ctx: SessionContext, message_id: Any, now: float) -> None:
+        if not message_id:
+            return
+        message_id = str(message_id)
+        ctx.delivery.message_id = message_id
+        if message_id not in ctx.delivery.progress_message_ids:
+            ctx.delivery.progress_message_ids.append(message_id)
+        ctx.delivery.message_started_at = now
+
+    @staticmethod
+    def _initialize_active_message(ctx: SessionContext, now: float) -> None:
+        message_id = ctx.delivery.message_id
+        if message_id and message_id not in ctx.delivery.progress_message_ids:
+            ctx.delivery.progress_message_ids.append(message_id)
+        if not ctx.delivery.message_started_at:
+            ctx.delivery.message_started_at = now
+
     async def render_live(
         self, ctx: SessionContext, force: bool = False, *, ignore_backoff: bool = False
     ) -> None:
@@ -54,6 +82,9 @@ class RendererDelivery:
             return
         content = self.prepare_message(ctx, content)
         if ctx.delivery.message_id and ctx.delivery.can_edit:
+            if self.message_rollover_due(ctx, now):
+                await self.send_live_message(ctx, content, rollover=True)
+                return
             try:
                 result = await ctx.adapter.edit_message(
                     chat_id=ctx.chat_id,
@@ -65,6 +96,7 @@ class RendererDelivery:
                 ctx.diagnostics.last_error = str(exc)
                 result = _Result(False, ctx.delivery.message_id, str(exc))
             if getattr(result, "success", False):
+                self._initialize_active_message(ctx, time.monotonic())
                 ctx.assistant.pending_chars = 0
                 ctx.reasoning.pending_chars = 0
                 ctx.delivery.edit_state = "editable"
@@ -75,6 +107,7 @@ class RendererDelivery:
             error = str(getattr(result, "error", "") or "edit failed")
             kind = self.classify_edit_error(error)
             if kind == "noop_success":
+                self._initialize_active_message(ctx, time.monotonic())
                 ctx.assistant.pending_chars = 0
                 ctx.reasoning.pending_chars = 0
                 ctx.delivery.edit_state = "editable"
@@ -113,15 +146,21 @@ class RendererDelivery:
         await self.send_live_message(ctx, content)
 
     async def send_live_message(
-        self, ctx: SessionContext, content: str, *, recovery: bool = False
-    ) -> None:
+        self,
+        ctx: SessionContext,
+        content: str,
+        *,
+        recovery: bool = False,
+        rollover: bool = False,
+    ) -> bool:
         try:
             result = await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
         except Exception as exc:
             logger.debug("hermes-progress-tail send failed: %s", exc)
             result = _Result(False, None, str(exc))
         if getattr(result, "success", False):
-            ctx.delivery.message_id = getattr(result, "message_id", None) or ctx.delivery.message_id
+            now = time.monotonic()
+            self._record_active_message(ctx, getattr(result, "message_id", None), now)
             ctx.delivery.can_edit = True
             ctx.delivery.edit_state = "editable"
             ctx.delivery.edit_backoff_until = 0.0
@@ -131,7 +170,8 @@ class RendererDelivery:
                 ctx.delivery.fallback_send_count += 1
             ctx.assistant.pending_chars = 0
             ctx.reasoning.pending_chars = 0
-            ctx.delivery.last_render_at = time.monotonic()
+            ctx.delivery.last_render_at = now
+            return True
         else:
             error = str(getattr(result, "error", "send failed") or "send failed")
             ctx.diagnostics.last_error = error
@@ -145,8 +185,10 @@ class RendererDelivery:
                 ctx.delivery.edit_state = kind
                 ctx.delivery.edit_backoff_until = time.monotonic() + delay
                 self.schedule_delayed_live_flush(ctx, delay)
-                return
-            ctx.delivery.disabled = True
+                return False
+            if not rollover:
+                ctx.delivery.disabled = True
+            return False
 
     async def downgrade_to_snapshot(self, ctx: SessionContext, error: str, state: str) -> None:
         ctx.routing.strategy = "snapshot"

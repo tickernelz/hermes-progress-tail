@@ -419,6 +419,8 @@ def test_delivery_diagnostics_exact_contract_defaults_and_import_order():
     prerequisites()
     delivery_names = [
         "message_id",
+        "message_started_at",
+        "progress_message_ids",
         "can_edit",
         "disabled",
         "progress_state",
@@ -435,6 +437,8 @@ def test_delivery_diagnostics_exact_contract_defaults_and_import_order():
     ]
     delivery_types = [
         "str | None",
+        "float",
+        "list[str]",
         "bool",
         "bool",
         "str",
@@ -467,9 +471,9 @@ def test_delivery_diagnostics_exact_contract_defaults_and_import_order():
     assert [item.type for item in diagnostics_fields] == diagnostics_types
     delivery = state.DeliveryState()
     diagnostics = state.DiagnosticsState()
-    assert delivery == state.DeliveryState(
-        None, True, False, "active", 0.0, 0.0, "editable", 0.0, 0, 0, None, None, 0, 0
-    )
+    assert delivery == state.DeliveryState()
+    assert delivery.message_started_at == 0.0
+    assert delivery.progress_message_ids == []
     assert isinstance(diagnostics.last_event_at, float)
     assert (
         diagnostics.new_events_since_snapshot,

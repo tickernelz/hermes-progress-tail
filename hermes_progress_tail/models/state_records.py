@@ -150,6 +150,8 @@ class ToolState:
 @dataclass
 class DeliveryState:
     message_id: str | None = None
+    message_started_at: float = 0.0
+    progress_message_ids: list[str] = field(default_factory=list)
     can_edit: bool = True
     disabled: bool = False
     progress_state: str = "active"

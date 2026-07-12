@@ -40,6 +40,24 @@ class EdgeAdapter(EditableAdapter):
         return self.delete_outcome
 
 
+class SequentialAdapter(EdgeAdapter):
+    def __init__(self, outcomes=None):
+        super().__init__()
+        self.outcomes = list(outcomes or [])
+        self.next_id = 2
+
+    async def send(self, chat_id, content, metadata=None):
+        self.sent.append((chat_id, content, metadata))
+        if self.outcomes:
+            outcome = self.outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+        message_id = f"m{self.next_id}"
+        self.next_id += 1
+        return Result(True, message_id)
+
+
 def test_edit_exception_and_not_modified_success():
     async def run():
         r = renderer()
@@ -308,3 +326,82 @@ def test_delivery_pure_boundaries():
     assert delivery._classify_edit_error("not modified") == "noop_success"
     assert delivery._edit_backoff_seconds("", "rate_limited", 20) == 30
     assert delivery._edit_backoff_seconds("", "too_long", 2) == 1
+
+
+def test_live_rollover_boundaries_and_failure_semantics(monkeypatch):
+    async def run():
+        r = renderer({"renderer": {"message_rollover_minutes": 5}})
+        adapter = SequentialAdapter()
+        ctx = make_live_context(adapter)
+        ctx.tool_lines.append("work")
+        ctx.message_id = "m1"
+        ctx.delivery.message_started_at = 100.0
+        ctx.delivery.progress_message_ids = ["m1"]
+        monkeypatch.setattr(delivery.time, "monotonic", lambda: 399.999)
+        await r._render_live(ctx, force=True)
+        assert adapter.edits[-1][1] == "m1" and adapter.sent == []
+        monkeypatch.setattr(delivery.time, "monotonic", lambda: 400.0)
+        edits_before = list(adapter.edits)
+        await r._render_live(ctx, force=True)
+        assert (ctx.message_id, ctx.delivery.message_started_at) == ("m2", 400.0)
+        assert ctx.delivery.progress_message_ids == ["m1", "m2"]
+        assert adapter.edits == edits_before
+
+        for error, expected_state in (("forbidden", "editable"), ("timeout", "transient")):
+            failed = make_live_context(SequentialAdapter([Result(False, error=error)]))
+            failed.loop = None
+            failed.tool_lines.append("work")
+            failed.message_id = "m1"
+            failed.delivery.message_started_at = 100.0
+            failed.delivery.progress_message_ids = ["m1"]
+            await r._render_live(failed, force=True)
+            assert (failed.message_id, failed.delivery.message_started_at) == ("m1", 100.0)
+            assert failed.delivery.progress_message_ids == ["m1"]
+            assert failed.edit_state == expected_state and failed.disabled is False
+            assert failed.adapter.edits == []
+        assert failed.edit_backoff_until == 401.0
+
+    asyncio.run(run())
+
+
+def test_unknown_timestamp_and_recovery_activation(monkeypatch):
+    async def run():
+        r = renderer()
+        monkeypatch.setattr(delivery.time, "monotonic", lambda: 250.0)
+        for outcome in (Result(True, "m1"), Result(False, "m1", "message is not modified")):
+            ctx = make_live_context(EdgeAdapter(edit=outcome))
+            ctx.tool_lines.append("work")
+            ctx.message_id = "m1"
+            await r._render_live(ctx, force=True)
+            assert ctx.adapter.sent == [] and ctx.delivery.message_started_at == 250.0
+
+        adapter = SequentialAdapter()
+        adapter.edit_outcome = Result(False, "m1", "message to edit not found")
+        recovered = make_live_context(adapter)
+        recovered.tool_lines.append("work")
+        recovered.message_id = "m1"
+        recovered.delivery.message_started_at = 100.0
+        recovered.delivery.progress_message_ids = ["m1"]
+        await r._render_live(recovered, force=True)
+        assert (recovered.message_id, recovered.delivery.message_started_at) == ("m2", 250.0)
+        assert recovered.delivery.progress_message_ids == ["m1", "m2"]
+        assert recovered.edit_recovery_sends == 1
+
+    asyncio.run(run())
+
+
+def test_snapshot_delivery_does_not_consult_rollover(monkeypatch):
+    async def run():
+        r = renderer()
+        ctx = make_live_context(EdgeAdapter(), strategy="snapshot")
+        ctx.tool_lines.append("work")
+        monkeypatch.setattr(
+            r.delivery,
+            "message_rollover_due",
+            lambda *_args: (_ for _ in ()).throw(AssertionError("rollover consulted")),
+            raising=False,
+        )
+        await r._render_snapshot(ctx, force=True)
+        assert len(ctx.adapter.sent) == 1
+
+    asyncio.run(run())
