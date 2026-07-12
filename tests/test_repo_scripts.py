@@ -107,6 +107,17 @@ def test_shell_scripts_exist_and_are_executable():
     assert Path("uninstall.sh").stat().st_mode & 0o111
 
 
+def test_local_orchestration_artifacts_are_not_tracked():
+    tracked = subprocess.run(
+        ["git", "ls-files", ".superpowers"],
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.splitlines()
+
+    assert tracked == []
+
+
 def test_install_script_supports_local_source_dir(tmp_path):
     env = os.environ.copy()
     env["HPT_SOURCE_DIR"] = str(Path.cwd())
