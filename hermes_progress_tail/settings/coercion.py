@@ -18,13 +18,13 @@ def as_bool(value: Any, default: bool) -> bool:
 def as_int(value: Any, default: int, min_value: int = 1) -> int:
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     return parsed if parsed >= min_value else default
 
 
 def as_positive_minutes(value: Any, default: int) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
         return default
     return as_int(value, default, min_value=1)
 

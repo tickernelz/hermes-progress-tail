@@ -13,7 +13,19 @@ def test_renderer_rollover_has_canonical_default_and_loads_valid_minutes():
 
 
 def test_renderer_rollover_invalid_values_fall_back_to_canonical_default():
-    for invalid in (0, -2, "bad", None, True, False):
+    for invalid in (
+        0,
+        -2,
+        1.5,
+        5.9,
+        float("inf"),
+        float("-inf"),
+        float("nan"),
+        "bad",
+        None,
+        True,
+        False,
+    ):
         raw = {"progress_tail": {"renderer": {"message_rollover_minutes": invalid}}}
         assert loading.load_settings(raw).renderer.message_rollover_minutes == 5
 
