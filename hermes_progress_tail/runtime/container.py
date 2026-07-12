@@ -7,7 +7,7 @@ from typing import Any
 from ..hooks.contracts import HookCallbacks
 from ..hooks.install_report import PatchInstallReport
 from ..rendering.renderer import ProgressRenderer
-from ..settings.config import Settings
+from ..settings.types import Settings
 from . import agent_events, context
 from .config_runtime import _load_runtime_settings
 from .environment import _agent_session_id, _agent_session_key

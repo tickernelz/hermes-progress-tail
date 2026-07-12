@@ -4,7 +4,7 @@ import time
 from collections.abc import Callable
 
 from ..models.state import AssistantLine, SessionContext, TodoItem, ToolEvent
-from ..settings.config import Settings
+from ..settings.types import Settings
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_tail_text, truncate_text
 from . import announcements

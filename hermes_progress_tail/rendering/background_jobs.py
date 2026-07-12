@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 
 from ..models.state import BackgroundJob, BackgroundJobEvent, SessionContext
-from ..settings.config import BackgroundJobSettings, Settings
+from ..settings.types import BackgroundJobSettings, Settings
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
 

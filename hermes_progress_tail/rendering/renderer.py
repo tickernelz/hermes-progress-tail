@@ -14,7 +14,7 @@ from ..models.state import (
     SessionContext,
     ToolEvent,
 )
-from ..settings.config import Settings
+from ..settings.types import Settings
 from . import finalization as finalization_helpers
 from .background_jobs import background_jobs_section, cancel_background_poll
 from .delegate import DelegateProgressRenderer

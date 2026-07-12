@@ -4,7 +4,7 @@ import re
 import time
 
 from ..models.state import SessionContext, TodoItem
-from ..settings.config import Settings
+from ..settings.types import Settings
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_text
 from . import announcements

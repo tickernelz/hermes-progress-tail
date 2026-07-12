@@ -1,5 +1,5 @@
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from importlib import import_module
 
 import pytest
@@ -102,6 +102,52 @@ EXPECTED_SETTINGS_DEFAULTS = {
     },
     "platforms": None,
 }
+
+EXPECTED_SETTINGS_TYPE_ALL = (
+    "ToolSettings",
+    "DelegateSettings",
+    "TodoSettings",
+    "PatchSettings",
+    "AssistantSettings",
+    "ReasoningSettings",
+    "BackgroundJobSettings",
+    "NativeGatewaySettings",
+    "CleanupSettings",
+    "FooterSettings",
+    "TelegramSettings",
+    "LegacyDefaultSettings",
+    "RendererSettings",
+    "NoEditSettings",
+    "PlatformSettings",
+    "Settings",
+)
+
+EXPECTED_SETTINGS_CONFIG_ALL = EXPECTED_SETTINGS_TYPE_ALL + (
+    "load_settings",
+    "resolve_platform_settings",
+    "find_unknown_config_keys",
+    "find_retired_config_keys",
+)
+
+EXPECTED_SETTINGS_FIELDS = (
+    "enabled",
+    "tools",
+    "delegates",
+    "todo",
+    "patch",
+    "assistant",
+    "reasoning",
+    "background_jobs",
+    "native_gateway",
+    "cleanup",
+    "footer",
+    "telegram",
+    "renderer",
+    "no_edit",
+    "platforms",
+)
+
+NESTED_SETTINGS_FIELDS = EXPECTED_SETTINGS_FIELDS[1:-1]
 
 EXPECTED_RUNTIME_PLUGIN_ALL = (
     "Path",
@@ -208,6 +254,23 @@ def test_settings_and_every_nested_default_are_frozen():
         "redact_secrets": True,
         "show_completed": True,
     }
+
+
+@pytest.mark.parametrize("field_name", NESTED_SETTINGS_FIELDS)
+def test_nested_settings_defaults_are_equal_but_independently_owned(field_name):
+    first = Settings()
+    second = Settings()
+
+    assert getattr(first, field_name) == getattr(second, field_name)
+    assert getattr(first, field_name) is not getattr(second, field_name)
+
+
+def test_settings_field_surface_and_keyword_construction_are_stable():
+    default = Settings()
+    assert tuple(field.name for field in fields(Settings)) == EXPECTED_SETTINGS_FIELDS
+
+    kwargs = {field.name: getattr(default, field.name) for field in fields(Settings)}
+    assert Settings(**kwargs) == default
 
 
 @pytest.mark.parametrize(
@@ -332,6 +395,16 @@ def test_config_facade_is_the_settings_config_module_and_objects_are_identical()
         "find_retired_config_keys",
     ):
         assert getattr(config_facade, name) is getattr(settings_config, name)
+
+
+def test_settings_types_are_canonical_and_exports_are_exact():
+    settings_types = import_module("hermes_progress_tail.settings.types")
+    assert tuple(settings_types.__all__) == EXPECTED_SETTINGS_TYPE_ALL
+    assert tuple(settings_config.__all__) == EXPECTED_SETTINGS_CONFIG_ALL
+    for name in EXPECTED_SETTINGS_TYPE_ALL:
+        canonical = getattr(settings_types, name)
+        assert getattr(settings_config, name) is canonical
+        assert getattr(config_facade, name) is canonical
 
 
 @pytest.mark.parametrize(

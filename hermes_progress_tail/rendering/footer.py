@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..models.release import FooterInfo, FooterInfoProvider, is_newer_version, no_footer_info
 from ..models.state import EnvironmentSnapshot, SessionContext
-from ..settings.config import Settings
+from ..settings.types import Settings
 from ..utils.redaction import simplify_path
 from ..utils.text import truncate_text
 

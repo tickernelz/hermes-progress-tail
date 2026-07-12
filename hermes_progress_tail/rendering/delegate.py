@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from ..models.state import DelegateBranch, DelegateEvent, DelegateLine, SessionContext
-from ..settings.config import Settings
+from ..settings.types import Settings
 from ..utils.text import truncate_text
 from . import delegate_helpers
 from .delegate_formatting import duration, event_preview_args, status_symbol

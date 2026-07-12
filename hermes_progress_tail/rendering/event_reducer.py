@@ -13,7 +13,7 @@ from ..models.state import (
     SessionContext,
     ToolEvent,
 )
-from ..settings.config import Settings
+from ..settings.types import Settings
 from .background_jobs import apply_background_job_event
 from .reasoning import (
     normalize_reasoning_text,
