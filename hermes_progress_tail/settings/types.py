@@ -143,6 +143,7 @@ class LegacyDefaultSettings:
 class RendererSettings:
     strategy: str = "auto"
     edit_interval: float = 5.0
+    message_rollover_minutes: int = 5
     stale_ttl_seconds: int = 900
     redact_secrets: bool = True
     mode: str = "sectioned"

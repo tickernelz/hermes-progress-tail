@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 from hermes_progress_tail.cli.installer_defaults import DEFAULT_CONFIG
+from hermes_progress_tail.settings.schema import PROGRESS_TAIL_CONFIG_CONTRACT
 from hermes_progress_tail.settings.types import Settings
 
 ROOT = Path(__file__).parents[1]
@@ -83,6 +84,9 @@ def test_readme_and_installer_examples_match_canonical_settings():
     readme = _read_readme_config()
     readme.pop("platforms", None)
     assert readme == _applicable_canonical(readme, canonical)
+    assert DEFAULT_CONFIG["renderer"]["message_rollover_minutes"] == 5
+    assert readme["renderer"]["message_rollover_minutes"] == 5
+    assert "message_rollover_minutes" in PROGRESS_TAIL_CONFIG_CONTRACT["renderer"]
 
 
 def test_docs_and_installer_are_not_runtime_default_sources():

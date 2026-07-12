@@ -89,6 +89,7 @@ PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
     "renderer": {
         "strategy": None,
         "edit_interval": None,
+        "message_rollover_minutes": None,
         "stale_ttl_seconds": None,
         "redact_secrets": None,
         "mode": None,

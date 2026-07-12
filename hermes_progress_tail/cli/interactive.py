@@ -242,6 +242,9 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
             "Renderer density", ("compact", "normal", "verbose", "debug"), "normal", input_stream
         ),
         "edit_interval": _prompt_float("Minimum seconds between live edits", 5.0, input_stream),
+        "message_rollover_minutes": _prompt_int(
+            "Progress message rollover minutes", 5, input_stream, min_value=1
+        ),
         "stale_ttl_seconds": _prompt_int("Stale session TTL seconds", 900, input_stream),
         "redact_secrets": _confirm("Redact common secrets before rendering", True, input_stream),
     }

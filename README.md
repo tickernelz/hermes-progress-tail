@@ -174,6 +174,7 @@ progress_tail:
   renderer:
     strategy: auto
     edit_interval: 5.0
+    message_rollover_minutes: 5
     stale_ttl_seconds: 900
     redact_secrets: true
     mode: sectioned # focused|sectioned

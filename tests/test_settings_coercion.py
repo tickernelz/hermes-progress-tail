@@ -8,10 +8,19 @@ from hermes_progress_tail.settings.coercion import (
     as_footer_density,
     as_int,
     as_patch_detail,
+    as_positive_minutes,
     as_strategy,
     as_style,
     renderer_mode_and_density,
 )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(1, 1), ("12", 12), (0, 5), (-1, 5), ("bad", 5), (None, 5), (True, 5), (False, 5)],
+)
+def test_as_positive_minutes_accepts_whole_positive_minutes_only(value, expected):
+    assert as_positive_minutes(value, 5) == expected
 
 
 @pytest.mark.parametrize(

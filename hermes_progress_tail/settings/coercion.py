@@ -23,6 +23,12 @@ def as_int(value: Any, default: int, min_value: int = 1) -> int:
     return parsed if parsed >= min_value else default
 
 
+def as_positive_minutes(value: Any, default: int) -> int:
+    if isinstance(value, bool):
+        return default
+    return as_int(value, default, min_value=1)
+
+
 def as_float(value: Any, default: float, min_value: float = 0.0) -> float:
     try:
         parsed = float(value)

@@ -9,6 +9,7 @@ from .coercion import (
     as_footer_density,
     as_int,
     as_patch_detail,
+    as_positive_minutes,
     as_strategy,
     as_style,
     renderer_mode_and_density,
@@ -185,6 +186,9 @@ def _build_renderer(raw: dict[str, Any], defaults: RendererSettings) -> Renderer
     return RendererSettings(
         strategy=as_strategy(raw.get("strategy"), defaults.strategy),
         edit_interval=as_float(raw.get("edit_interval"), defaults.edit_interval),
+        message_rollover_minutes=as_positive_minutes(
+            raw.get("message_rollover_minutes"), defaults.message_rollover_minutes
+        ),
         stale_ttl_seconds=as_int(raw.get("stale_ttl_seconds"), defaults.stale_ttl_seconds),
         redact_secrets=as_bool(raw.get("redact_secrets"), defaults.redact_secrets),
         mode=renderer_mode,

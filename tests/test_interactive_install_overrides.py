@@ -59,6 +59,7 @@ ADVANCED_ANSWERS = {
     "Renderer style": "plain",
     "Renderer density": "debug",
     "Minimum seconds between live edits": "0.25",
+    "Progress message rollover minutes": "7",
     "Stale session TTL seconds": "14",
     "Redact common secrets before rendering": "no",
     "Snapshot interval seconds": "15",
@@ -121,6 +122,7 @@ def test_advanced_overrides_route_named_nondefault_answers(monkeypatch):
             "style": "plain",
             "density": "debug",
             "edit_interval": 0.25,
+            "message_rollover_minutes": 7,
             "stale_ttl_seconds": 14,
             "redact_secrets": False,
         },
@@ -133,6 +135,28 @@ def test_advanced_overrides_route_named_nondefault_answers(monkeypatch):
     }
     assert len(prompted) == len(set(prompted))
     assert set(prompted) == set(ADVANCED_ANSWERS)
+
+
+def test_advanced_rollover_prompt_uses_canonical_default(monkeypatch):
+    rendered_prompts = []
+
+    def default_prompt(_stream, rendered):
+        rendered_prompts.append(rendered)
+        return ""
+
+    monkeypatch.setattr(interactive, "_prompt", default_prompt)
+    overrides = interactive._advanced_install_overrides(SimpleNamespace())
+    assert overrides["renderer"]["message_rollover_minutes"] == 5
+    assert "Progress message rollover minutes [5]: " in rendered_prompts
+
+
+def test_advanced_rollover_prompt_rejects_zero(monkeypatch):
+    def zero_rollover(_stream, rendered):
+        return "0" if rendered.startswith("Progress message rollover minutes") else ""
+
+    monkeypatch.setattr(interactive, "_prompt", zero_rollover)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        interactive._advanced_install_overrides(SimpleNamespace())
 
 
 @pytest.mark.parametrize(

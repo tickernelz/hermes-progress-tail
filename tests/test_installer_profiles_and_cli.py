@@ -278,6 +278,7 @@ def test_interactive_cli_accepts_advanced_alias_for_full_setup(tmp_path):
         "\n"  # renderer.style
         "\n"  # renderer.density
         "\n"  # renderer.edit_interval
+        "\n"  # renderer.message_rollover_minutes
         "\n"  # renderer.stale_ttl_seconds
         "\n"  # renderer.redact_secrets
         "\n"  # no_edit.interval_seconds

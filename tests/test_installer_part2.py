@@ -95,6 +95,7 @@ def test_interactive_cli_selects_profiles_and_features(tmp_path):
         "plain\n"  # renderer.style
         "compact\n"  # renderer.density
         "2.5\n"  # renderer.edit_interval
+        "5\n"  # renderer.message_rollover_minutes
         "1200\n"  # renderer.stale_ttl_seconds
         "y\n"  # renderer.redact_secrets
         "45\n"  # no_edit.interval_seconds
