@@ -10,6 +10,15 @@ def test_readme_omits_inline_version_note():
     assert "v0.1.0" not in readme
 
 
+def test_ci_python_matrix_matches_runtime_floor():
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+    workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert 'requires-python = ">=3.12"' in pyproject
+    assert 'python-version: ["3.12"]' in workflow
+    assert '"3.10"' not in workflow
+
+
 def test_curl_install_commands_are_documented():
     readme = Path("README.md").read_text(encoding="utf-8")
 
