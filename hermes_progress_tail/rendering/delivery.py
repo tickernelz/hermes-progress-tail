@@ -159,8 +159,13 @@ class RendererDelivery:
             logger.debug("hermes-progress-tail send failed: %s", exc)
             result = _Result(False, None, str(exc))
         if getattr(result, "success", False):
+            message_id = getattr(result, "message_id", None)
+            active_id = ctx.delivery.message_id
+            if (rollover or recovery) and (not message_id or str(message_id) == str(active_id)):
+                ctx.diagnostics.last_error = "send succeeded without a new message id"
+                return False
             now = time.monotonic()
-            self._record_active_message(ctx, getattr(result, "message_id", None), now)
+            self._record_active_message(ctx, message_id, now)
             ctx.delivery.can_edit = True
             ctx.delivery.edit_state = "editable"
             ctx.delivery.edit_backoff_until = 0.0

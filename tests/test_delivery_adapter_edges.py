@@ -58,6 +58,14 @@ class SequentialAdapter(EdgeAdapter):
         return Result(True, message_id)
 
 
+class Clock:
+    def __init__(self, now):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
 def test_edit_exception_and_not_modified_success():
     async def run():
         r = renderer()
@@ -364,6 +372,72 @@ def test_live_rollover_boundaries_and_failure_semantics(monkeypatch):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("replacement_id", [None, "", "m1"])
+def test_rollover_malformed_success_preserves_transaction(monkeypatch, replacement_id):
+    async def run():
+        r = renderer()
+        monkeypatch.setattr(delivery.time, "monotonic", Clock(400.0))
+        ctx = make_live_context(EdgeAdapter(send=Result(True, replacement_id)))
+        ctx.message_id = "m1"
+        ctx.delivery.message_started_at = 100.0
+        ctx.delivery.progress_message_ids = ["older", "m1"]
+        ctx.assistant_pending_chars = 7
+        ctx.reasoning_pending_chars = 11
+        ctx.edit_recovery_sends = 2
+        ctx.fallback_send_count = 3
+        ctx.last_render_at = 90.0
+        ctx.edit_state = "transient"
+        ctx.edit_failure_count = 4
+        ctx.edit_backoff_until = 450.0
+
+        assert await r.delivery.send_live_message(ctx, "work", rollover=True) is False
+        assert (ctx.message_id, ctx.delivery.message_started_at) == ("m1", 100.0)
+        assert ctx.delivery.progress_message_ids == ["older", "m1"]
+        assert (ctx.assistant_pending_chars, ctx.reasoning_pending_chars) == (7, 11)
+        assert (ctx.edit_recovery_sends, ctx.fallback_send_count) == (2, 3)
+        assert ctx.last_render_at == 90.0
+        assert (ctx.edit_state, ctx.edit_failure_count, ctx.edit_backoff_until) == (
+            "transient",
+            4,
+            450.0,
+        )
+        assert ctx.can_edit and not ctx.disabled
+
+    asyncio.run(run())
+
+
+def test_transient_rollover_retries_only_after_backoff(monkeypatch):
+    async def run():
+        r = renderer({"renderer": {"message_rollover_minutes": 5}})
+        clock = Clock(400.0)
+        monkeypatch.setattr(delivery.time, "monotonic", clock)
+        adapter = SequentialAdapter(
+            [Result(False, error="timeout"), Result(False, error="timeout")]
+        )
+        ctx = make_live_context(adapter)
+        ctx.loop = None
+        ctx.tool_lines.append("work")
+        ctx.message_id = "m1"
+        ctx.delivery.message_started_at = 100.0
+        ctx.delivery.progress_message_ids = ["m1"]
+        ctx.assistant_pending_chars = 7
+
+        await r._render_live(ctx, force=True)
+        assert len(adapter.sent) == 1
+        assert (ctx.edit_failure_count, ctx.edit_backoff_until) == (1, 401.0)
+        assert ctx.delivery.message_started_at == 100.0 and ctx.assistant_pending_chars == 7
+        clock.now = 400.999
+        await r._render_live(ctx, force=True)
+        assert len(adapter.sent) == 1
+        clock.now = 401.0
+        await r._render_live(ctx, force=True)
+        assert len(adapter.sent) == 2
+        assert (ctx.edit_failure_count, ctx.edit_backoff_until) == (2, 403.0)
+        assert ctx.delivery.message_started_at == 100.0 and ctx.assistant_pending_chars == 7
+
+    asyncio.run(run())
+
+
 def test_unknown_timestamp_and_recovery_activation(monkeypatch):
     async def run():
         r = renderer()
@@ -385,7 +459,38 @@ def test_unknown_timestamp_and_recovery_activation(monkeypatch):
         await r._render_live(recovered, force=True)
         assert (recovered.message_id, recovered.delivery.message_started_at) == ("m2", 250.0)
         assert recovered.delivery.progress_message_ids == ["m1", "m2"]
-        assert recovered.edit_recovery_sends == 1
+        assert (recovered.edit_recovery_sends, recovered.fallback_send_count) == (1, 1)
+        assert (recovered.assistant_pending_chars, recovered.reasoning_pending_chars) == (0, 0)
+        assert (
+            recovered.edit_state,
+            recovered.edit_failure_count,
+            recovered.edit_backoff_until,
+        ) == (
+            "editable",
+            0,
+            0.0,
+        )
+
+        for replacement_id in (None, "", "m1"):
+            malformed = make_live_context(EdgeAdapter(send=Result(True, replacement_id)))
+            malformed.message_id = "m1"
+            malformed.delivery.message_started_at = 100.0
+            malformed.delivery.progress_message_ids = ["m1"]
+            malformed.assistant_pending_chars = 5
+            malformed.reasoning_pending_chars = 6
+            malformed.edit_state = "recovering"
+            malformed.edit_failure_count = 1
+            malformed.edit_backoff_until = 275.0
+            assert await r._send_live_message(malformed, "work", recovery=True) is False
+            assert (malformed.message_id, malformed.delivery.message_started_at) == ("m1", 100.0)
+            assert malformed.delivery.progress_message_ids == ["m1"]
+            assert (malformed.edit_recovery_sends, malformed.fallback_send_count) == (0, 0)
+            assert (malformed.assistant_pending_chars, malformed.reasoning_pending_chars) == (5, 6)
+            assert (
+                malformed.edit_state,
+                malformed.edit_failure_count,
+                malformed.edit_backoff_until,
+            ) == ("recovering", 1, 275.0)
 
     asyncio.run(run())
 
