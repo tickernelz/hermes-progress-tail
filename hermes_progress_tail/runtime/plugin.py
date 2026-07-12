@@ -209,7 +209,7 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-VERSION = "0.2.06"
+VERSION = "0.2.07"
 
 
 def _footer_info() -> FooterInfo:

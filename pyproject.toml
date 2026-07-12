@@ -1,6 +1,6 @@
 [project]
 name = "hermes-progress-tail"
-version = "0.2.06"
+version = "0.2.07"
 description = "Compact tool and reasoning progress tail for Hermes gateway platforms"
 requires-python = ">=3.12"
 dependencies = ["PyYAML>=6"]
