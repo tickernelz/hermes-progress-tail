@@ -14,13 +14,12 @@ from .coercion import (
     as_style,
     renderer_mode_and_density,
 )
-from .schema import (
-    BATCH_DEFAULT_OFF,
-    PLATFORM_CONFIG_CONTRACT,
-    PROGRESS_TAIL_CONFIG_CONTRACT,
-    RETIRED_CONFIG_KEYS,
-    SNAPSHOT_DEFAULTS,
+from .migration import (
+    extract_progress_tail_section,
+    find_retired_config_keys,
+    find_unknown_config_keys,
 )
+from .schema import BATCH_DEFAULT_OFF, SNAPSHOT_DEFAULTS
 from .types import (
     AssistantSettings,
     BackgroundJobSettings,
@@ -64,115 +63,9 @@ __all__ = (
 )
 
 
-def _as_dict(config: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(config, dict):
-        return {}
-    section = config.get("progress_tail")
-    if isinstance(section, dict):
-        return section
-    legacy = config.get("tool_progress_tail")
-    if isinstance(legacy, dict):
-        return _legacy_to_progress_tail(legacy)
-    return config
-
-
-def _config_section(config: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(config, dict):
-        return {}
-    section = config.get("progress_tail")
-    if isinstance(section, dict):
-        return section
-    legacy = config.get("tool_progress_tail")
-    if isinstance(legacy, dict):
-        return _legacy_to_progress_tail(legacy)
-    return config
-
-
-def _walk_unknown_keys(raw: dict[str, Any], contract: dict[str, Any], prefix: str) -> list[str]:
-    if not isinstance(raw, dict):
-        return []
-    unknown: list[str] = []
-    for key, value in raw.items():
-        path = f"{prefix}.{key}"
-        if path in RETIRED_CONFIG_KEYS:
-            continue
-        expected = contract.get(key, "__missing__")
-        if expected == "__missing__":
-            unknown.append(path)
-            continue
-        if expected == "legacy_map":
-            continue
-        if expected == "platform_map":
-            if not isinstance(value, dict):
-                continue
-            for platform, platform_raw in value.items():
-                platform_path = f"{path}.{platform}"
-                if not isinstance(platform_raw, dict):
-                    continue
-                for platform_key in platform_raw:
-                    nested_path = f"{platform_path}.{platform_key}"
-                    if nested_path in RETIRED_CONFIG_KEYS:
-                        continue
-                    if platform_key not in PLATFORM_CONFIG_CONTRACT:
-                        unknown.append(nested_path)
-            continue
-        if isinstance(expected, dict) and isinstance(value, dict):
-            unknown.extend(_walk_unknown_keys(value, expected, path))
-    return unknown
-
-
-def find_unknown_config_keys(config: dict[str, Any] | None) -> list[str]:
-    section = _config_section(config)
-    return sorted(_walk_unknown_keys(section, PROGRESS_TAIL_CONFIG_CONTRACT, "progress_tail"))
-
-
-def find_retired_config_keys(config: dict[str, Any] | None) -> list[str]:
-    section = _config_section(config)
-    retired = []
-    if isinstance(section.get("finalization"), dict):
-        retired.append("progress_tail.finalization")
-    background_jobs = section.get("background_jobs")
-    if isinstance(background_jobs, dict) and "default_notify_on_complete" in background_jobs:
-        retired.append("progress_tail.background_jobs.default_notify_on_complete")
-    telegram = section.get("telegram")
-    if isinstance(telegram, dict):
-        if "collapsible_details" in telegram:
-            retired.append("progress_tail.telegram.collapsible_details")
-        if "details_open_on_failure" in telegram:
-            retired.append("progress_tail.telegram.details_open_on_failure")
-    return retired
-
-
-def _legacy_to_progress_tail(section: dict[str, Any]) -> dict[str, Any]:
-    defaults = section.get("defaults") if isinstance(section.get("defaults"), dict) else {}
-    migrated = {
-        "enabled": section.get("enabled", True),
-        "tools": {
-            "enabled": True,
-            "lines": defaults.get("lines", 3),
-            "preview_length": defaults.get("preview_length", 120),
-            "show_completed": defaults.get("show_completed", True),
-            "show_duration": defaults.get("show_duration", True),
-            "timestamp": defaults.get("timestamp", True),
-            "timestamp_format": defaults.get("timestamp_format", "%H:%M"),
-        },
-        "delegates": section.get("delegates", {}),
-        "assistant": section.get("assistant", {}),
-        "renderer": {
-            "strategy": "auto",
-            "edit_interval": defaults.get("edit_interval", 5.0),
-            "stale_ttl_seconds": defaults.get("stale_ttl_seconds", 900),
-            "redact_secrets": defaults.get("redact_secrets", True),
-        },
-        "no_edit": section.get("no_edit", {}),
-        "platforms": section.get("platforms", {}),
-    }
-    return migrated
-
-
 def load_settings(config: dict[str, Any] | None) -> Settings:
     defaults = Settings()
-    section = _as_dict(config)
+    section = extract_progress_tail_section(config)
     legacy_defaults = section.get("defaults") if isinstance(section.get("defaults"), dict) else {}
     tools_raw = section.get("tools") if isinstance(section.get("tools"), dict) else legacy_defaults
     renderer_raw = (
