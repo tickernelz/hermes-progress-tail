@@ -475,3 +475,30 @@ def test_telegram_send_patch_separates_glued_reasoning_headings(monkeypatch):
         adapter._bot.send_message.assert_not_awaited()
 
     asyncio.run(run())
+
+
+def test_telegram_fallback_separates_leading_heading_from_glued_body(monkeypatch):
+    from hermes_progress_tail.rendering.reasoning import render_reasoning_tail
+
+    install_fake_gateway_base(monkeypatch)
+
+    async def run():
+        uninstall_telegram_format_monkeypatch(GatewayLikeTelegramAdapter)
+        assert install_telegram_format_monkeypatch(GatewayLikeTelegramAdapter) is True
+        adapter = GatewayLikeTelegramAdapter()
+        adapter._rich_send_disabled = True
+        raw = (
+            "**Confirming documentation integrity and hash updates**"
+            "Final gate: cek ulang bot/token state dan hash artifact."
+        )
+        reasoning = render_reasoning_tail(raw, max_lines=3, max_chars=600, redact=False)
+
+        result = await adapter.send("123", "**__Reasoning__**\n" + reasoning)
+
+        assert result.success is True
+        adapter.rich_request.assert_not_awaited()
+        legacy_text = adapter.legacy_sent[-1][1]
+        assert "hash updates**\nFinal gate:" in legacy_text
+        assert "updates**Final gate:" not in legacy_text
+
+    asyncio.run(run())

@@ -21,6 +21,11 @@ _ADJACENT_BOLD_HEADING_RUN_RE = re.compile(
     r"(?P<run>(?:(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__)){2,})"
     r"(?![`*_])"
 )
+_LEADING_BOLD_HEADING_BODY_RE = re.compile(
+    r"^(?P<indent>[ \t]*)"
+    r"(?P<heading>(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__))"
+    r"(?P<body>\S.*)$"
+)
 _MISSING_SENTENCE_SPACE_RE = re.compile(r"(?<=[a-z])([.])(?=[A-Z])")
 _GLUED_NUMBERED_LIST_RE = re.compile(r'(?<=[a-zA-Z):;\]}"\'])(?=\d{1,2}[.)]\s+[A-Z])')
 _EMPTY_HTML_COMMENT_SEPARATOR_RE = re.compile(
@@ -304,6 +309,12 @@ def _normalize_adjacent_bold_heading_boundaries(text: str) -> str:
             return run
         return "\n\n".join(headings)
 
+    def replace_leading(match: re.Match[str]) -> str:
+        heading = match.group("heading")
+        if not _detect_heading(heading):
+            return match.group(0)
+        return f"{match.group('indent')}{heading}\n{match.group('body')}"
+
     output: list[str] = []
     fence_state: tuple[str, int] | None = None
     for raw_line in text.splitlines(keepends=True):
@@ -311,6 +322,7 @@ def _normalize_adjacent_bold_heading_boundaries(text: str) -> str:
         fence_state = _advance_code_fence(raw_line, fence_state)
         if previous_state is None and fence_state is None:
             raw_line = _ADJACENT_BOLD_HEADING_RUN_RE.sub(replace, raw_line)
+            raw_line = _LEADING_BOLD_HEADING_BODY_RE.sub(replace_leading, raw_line)
         output.append(raw_line)
     return "".join(output)
 

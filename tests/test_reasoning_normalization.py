@@ -466,3 +466,25 @@ def test_streaming_glue_does_not_break_camelcase_or_version_numbers():
     # camelCase must stay intact (lowercase-lowercase, not sentence boundary)
     assert "callKw" in normalized
     assert "searchRead" in normalized
+
+
+def test_leading_bold_heading_with_glued_body_gets_newline():
+    text = (
+        "**Confirming documentation integrity and hash updates**"
+        "Final gate: cek ulang bot/token state dan hash artifact."
+    )
+
+    normalized = normalize_reasoning_text(text)
+    rendered = render_reasoning_tail(text, max_lines=3, max_chars=600, redact=False)
+
+    assert normalized == (
+        "**Confirming documentation integrity and hash updates**\n"
+        "Final gate: cek ulang bot/token state dan hash artifact."
+    )
+    assert rendered == normalized
+
+
+def test_leading_bold_sentence_with_glued_prose_stays_inline():
+    text = "**This is very important.**Next sentence continues."
+
+    assert normalize_reasoning_text(text) == text
