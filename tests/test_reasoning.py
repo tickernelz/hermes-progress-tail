@@ -307,3 +307,51 @@ def test_inline_reasoning_capture_marks_new_api_call_segment():
     ]
     assert visible == ["visible one", "visible two"]
     uninstall_monkeypatches(FakeAgent)
+
+
+def test_inline_reasoning_callback_failure_keeps_boundary_and_fails_open():
+    captured = []
+    visible = []
+    fail_next = [False]
+
+    def capture(_agent, text, *, source="provider"):
+        if fail_next[0]:
+            fail_next[0] = False
+            raise RuntimeError("transient inline callback failure")
+        captured.append((source, text))
+
+    callbacks = replace(
+        inert_hook_callbacks(),
+        reasoning_enabled=lambda _agent: True,
+        on_reasoning_delta=capture,
+    )
+
+    class FakeAgent:
+        def __init__(self):
+            self.reasoning_callback = None
+            self.stream_delta_callback = visible.append
+            self._api_call_count = 1
+
+        def _fire_reasoning_delta(self, text):
+            return text
+
+    assert install_agent_monkeypatches(FakeAgent, callbacks=callbacks) is True
+    agent = FakeAgent()
+
+    agent.stream_delta_callback("<think>first thought</think>visible one")
+    assert agent._hermes_progress_tail_reasoning_api_call == 1
+
+    agent._api_call_count = 2
+    fail_next[0] = True
+    failed_chunk = "<think>dropped thought</think>visible two"
+    agent.stream_delta_callback(failed_chunk)
+    assert agent._hermes_progress_tail_reasoning_api_call == 1
+
+    agent.stream_delta_callback("<think>recovered thought</think>visible three")
+
+    assert captured == [
+        ("inline_think", "first thought"),
+        ("inline_think", "\n\nrecovered thought"),
+    ]
+    assert visible == ["visible one", failed_chunk, "visible three"]
+    uninstall_monkeypatches(FakeAgent)
