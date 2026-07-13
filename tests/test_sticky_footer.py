@@ -128,7 +128,7 @@ def test_footer_renders_per_progress_compaction_count_and_resets_on_new_context(
 def test_focused_footer_shows_github_latest_release_update_only_when_newer(monkeypatch):
     async def run():
         def update_info():
-            return FooterInfo("0.2.09", "v0.2.10", "https://example.test/v0.2.10")
+            return FooterInfo("0.2.10", "v0.2.11", "https://example.test/v0.2.11")
 
         adapter = EditableAdapter()
         renderer = make_renderer()
@@ -152,13 +152,13 @@ def test_focused_footer_shows_github_latest_release_update_only_when_newer(monke
         content = adapter.sent[-1][1]
 
         assert "**__Status__**" in content
-        assert "⬆️ update `v0.2.10`" in content
-        assert "https://example.test/v0.2.10" in content
+        assert "⬆️ update `v0.2.11`" in content
+        assert "https://example.test/v0.2.11" in content
         assert content.rfind("**__Status__**") > content.rfind("**__Tools__**")
 
         adapter2 = EditableAdapter()
         renderer2 = make_renderer()
-        renderer2.footer_info_provider = lambda: FooterInfo("0.2.09", "v0.2.09", "")
+        renderer2.footer_info_provider = lambda: FooterInfo("0.2.10", "v0.2.10", "")
         ctx2 = make_ctx(adapter2, env=env)
         renderer2.register_context(ctx2)
 
@@ -168,7 +168,7 @@ def test_focused_footer_shows_github_latest_release_update_only_when_newer(monke
         current_content = adapter2.sent[-1][1]
 
         assert "⬆️ update" not in current_content
-        assert "v0.2.09" not in current_content
+        assert "v0.2.10" not in current_content
 
     asyncio.run(run())
 
