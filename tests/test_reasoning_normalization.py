@@ -484,6 +484,24 @@ def test_leading_bold_heading_with_glued_body_gets_newline():
     assert rendered == normalized
 
 
+def test_adjacent_heading_chain_with_glued_body_normalizes_compositionally():
+    text = (
+        "**Writing management test**"
+        "**Running RED targeted in parallel**"
+        "**Implementing production M1 minimal with interface and adapter patches**"
+        "RED gate valid: seluruh test gagal tepat pada defect target."
+    )
+
+    normalized = normalize_reasoning_text(text)
+
+    assert normalized == (
+        "**Writing management test**\n\n"
+        "**Running RED targeted in parallel**\n\n"
+        "**Implementing production M1 minimal with interface and adapter patches**\n"
+        "RED gate valid: seluruh test gagal tepat pada defect target."
+    )
+
+
 def test_leading_bold_sentence_with_glued_prose_stays_inline():
     text = "**This is very important.**Next sentence continues."
 

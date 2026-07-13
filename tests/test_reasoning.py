@@ -1,5 +1,8 @@
 import asyncio
+from dataclasses import replace
 
+from hermes_progress_tail.hooks.agent import install_agent_monkeypatches
+from hermes_progress_tail.hooks.contracts import inert_hook_callbacks
 from hermes_progress_tail.monkeypatches import (
     install_monkeypatches,
     uninstall_monkeypatches,
@@ -198,3 +201,40 @@ def test_monkeypatch_preserves_keyword_call_shape(monkeypatch):
         uninstall_monkeypatches(FakeAgent)
 
     asyncio.run(run())
+
+
+def test_monkeypatch_marks_new_api_call_as_reasoning_segment():
+    captured = []
+    callbacks = replace(
+        inert_hook_callbacks(),
+        on_reasoning_delta=lambda _agent, text, *, source="provider": captured.append(text),
+    )
+
+    class FakeAgent:
+        def __init__(self):
+            self.reasoning_callback = None
+            self.stream_delta_callback = None
+            self._api_call_count = 1
+
+        def _fire_reasoning_delta(self, text):
+            return text
+
+    assert install_agent_monkeypatches(FakeAgent, callbacks=callbacks) is True
+    agent = FakeAgent()
+
+    agent._fire_reasoning_delta("**Writing management test**")
+    agent._api_call_count = 2
+    agent._fire_reasoning_delta("**Running RED targeted in parallel**")
+    agent._api_call_count = 3
+    agent._fire_reasoning_delta(
+        "**Implementing production M1 minimal with interface and adapter patches**"
+    )
+    agent._fire_reasoning_delta("RED gate valid: seluruh test gagal tepat pada defect target.")
+
+    assert captured == [
+        "**Writing management test**",
+        "\n\n**Running RED targeted in parallel**",
+        "\n\n**Implementing production M1 minimal with interface and adapter patches**",
+        "RED gate valid: seluruh test gagal tepat pada defect target.",
+    ]
+    uninstall_monkeypatches(FakeAgent)

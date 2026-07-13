@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _ORIGINALS: dict[type, dict[str, Any]] = {}
 _NOOP_MARKER = "_hermes_progress_tail_noop"
 _PATCH_MARKER = "_hermes_progress_tail_patched"
+_REASONING_API_CALL_MARKER = "_hermes_progress_tail_reasoning_api_call"
 _TOOL_AGENT_CONTEXT_LOCAL = threading.local()
 
 
@@ -99,6 +100,19 @@ def _positive_int(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
+def _mark_reasoning_segment(agent: Any, text: str) -> str:
+    """Restore the boundary between reasoning emitted by separate model calls."""
+    current = _positive_int(getattr(agent, "_api_call_count", None))
+    if current is None:
+        return text
+    previous = _positive_int(getattr(agent, _REASONING_API_CALL_MARKER, None))
+    with suppress(Exception):
+        setattr(agent, _REASONING_API_CALL_MARKER, current)
+    if previous is None or previous == current:
+        return text
+    return "\n\n" + text.lstrip("\n")
+
+
 def _mutate_agent_monkeypatches(
     agent_cls: type | None = None, *, callbacks: HookCallbacks | None = None
 ) -> bool:
@@ -163,7 +177,7 @@ def _mutate_agent_monkeypatches(
                     break
         if text:
             try:
-                callbacks.on_reasoning_delta(self, str(text))
+                callbacks.on_reasoning_delta(self, _mark_reasoning_segment(self, str(text)))
             except Exception:
                 logger.debug("hermes-progress-tail reasoning capture failed", exc_info=True)
         return fire_reasoning(self, *args, **kwargs)
@@ -305,7 +319,9 @@ def _wrap_stream_delta_callback(
         captured, visible = _capture_inline_reasoning(agent, raw_text)
         if captured:
             try:
-                callbacks.on_reasoning_delta(agent, captured, source="inline_think")
+                callbacks.on_reasoning_delta(
+                    agent, _mark_reasoning_segment(agent, captured), source="inline_think"
+                )
             except Exception:
                 logger.debug("hermes-progress-tail inline think capture failed", exc_info=True)
                 _reset_inline_reasoning_state(agent)

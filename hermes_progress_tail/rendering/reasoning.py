@@ -300,7 +300,7 @@ def _normalize_inline_heading_boundaries(text: str) -> str:
 
 
 def _normalize_adjacent_bold_heading_boundaries(text: str) -> str:
-    """Split complete bold heading runs that arrived without separators."""
+    """Split complete bold heading runs, then split a glued body from the last one."""
 
     def replace(match: re.Match[str]) -> str:
         run = match.group("run")
@@ -322,6 +322,15 @@ def _normalize_adjacent_bold_heading_boundaries(text: str) -> str:
         fence_state = _advance_code_fence(raw_line, fence_state)
         if previous_state is None and fence_state is None:
             raw_line = _ADJACENT_BOLD_HEADING_RUN_RE.sub(replace, raw_line)
+        output.append(raw_line)
+    separated = "".join(output)
+
+    output = []
+    fence_state = None
+    for raw_line in separated.splitlines(keepends=True):
+        previous_state = fence_state
+        fence_state = _advance_code_fence(raw_line, fence_state)
+        if previous_state is None and fence_state is None:
             raw_line = _LEADING_BOLD_HEADING_BODY_RE.sub(replace_leading, raw_line)
         output.append(raw_line)
     return "".join(output)

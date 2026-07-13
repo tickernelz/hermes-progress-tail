@@ -502,3 +502,32 @@ def test_telegram_fallback_separates_leading_heading_from_glued_body(monkeypatch
         assert "updates**Final gate:" not in legacy_text
 
     asyncio.run(run())
+
+
+def test_focused_rich_reasoning_handles_heading_chain_followed_by_body():
+    from hermes_progress_tail.rendering.focused import focused_block
+    from hermes_progress_tail.rendering.reasoning import render_reasoning_tail
+    from hermes_progress_tail.rendering.telegram_rich import (
+        format_progress_tail_telegram_rich_markdown,
+    )
+
+    raw = (
+        "**Writing management test**"
+        "**Running RED targeted in parallel**"
+        "**Implementing production M1 minimal with interface and adapter patches**"
+        "RED gate valid: seluruh test gagal tepat pada defect target."
+    )
+    reasoning = render_reasoning_tail(raw, max_lines=8, max_chars=1200, redact=False)
+    focused = focused_block("Reasoning", reasoning, platform="telegram")
+
+    rich_markdown = format_progress_tail_telegram_rich_markdown(focused)
+
+    assert rich_markdown == (
+        "## Reasoning\n\n"
+        "### Writing management test\n\n"
+        "### Running RED targeted in parallel\n\n"
+        "### Implementing production M1 minimal with interface and adapter patches\n\n"
+        "*RED gate valid: seluruh test gagal tepat pada defect target.*"
+    )
+    assert "patchesRED" not in rich_markdown
+    assert "***" not in rich_markdown
