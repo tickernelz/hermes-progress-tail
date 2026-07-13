@@ -238,3 +238,72 @@ def test_monkeypatch_marks_new_api_call_as_reasoning_segment():
         "RED gate valid: seluruh test gagal tepat pada defect target.",
     ]
     uninstall_monkeypatches(FakeAgent)
+
+
+def test_reasoning_segment_marker_advances_only_after_successful_callback():
+    captured = []
+    fail_next = [False]
+
+    def capture(_agent, text, *, source="provider"):
+        if fail_next[0]:
+            fail_next[0] = False
+            raise RuntimeError("transient callback failure")
+        captured.append(text)
+
+    callbacks = replace(inert_hook_callbacks(), on_reasoning_delta=capture)
+
+    class FakeAgent:
+        def __init__(self):
+            self.reasoning_callback = None
+            self.stream_delta_callback = None
+            self._api_call_count = 1
+
+        def _fire_reasoning_delta(self, text):
+            return text
+
+    assert install_agent_monkeypatches(FakeAgent, callbacks=callbacks) is True
+    agent = FakeAgent()
+
+    agent._fire_reasoning_delta("first call")
+    agent._api_call_count = 2
+    fail_next[0] = True
+    assert agent._fire_reasoning_delta("dropped delta") == "dropped delta"
+    agent._fire_reasoning_delta("next successful delta")
+
+    assert captured == ["first call", "\n\nnext successful delta"]
+    uninstall_monkeypatches(FakeAgent)
+
+
+def test_inline_reasoning_capture_marks_new_api_call_segment():
+    captured = []
+    visible = []
+    callbacks = replace(
+        inert_hook_callbacks(),
+        reasoning_enabled=lambda _agent: True,
+        on_reasoning_delta=lambda _agent, text, *, source="provider": captured.append(
+            (source, text)
+        ),
+    )
+
+    class FakeAgent:
+        def __init__(self):
+            self.reasoning_callback = None
+            self.stream_delta_callback = visible.append
+            self._api_call_count = 1
+
+        def _fire_reasoning_delta(self, text):
+            return text
+
+    assert install_agent_monkeypatches(FakeAgent, callbacks=callbacks) is True
+    agent = FakeAgent()
+
+    agent.stream_delta_callback("<think>first thought</think>visible one")
+    agent._api_call_count = 2
+    agent.stream_delta_callback("<think>second thought</think>visible two")
+
+    assert captured == [
+        ("inline_think", "first thought"),
+        ("inline_think", "\n\nsecond thought"),
+    ]
+    assert visible == ["visible one", "visible two"]
+    uninstall_monkeypatches(FakeAgent)

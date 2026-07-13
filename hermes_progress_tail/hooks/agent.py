@@ -100,17 +100,22 @@ def _positive_int(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
-def _mark_reasoning_segment(agent: Any, text: str) -> str:
-    """Restore the boundary between reasoning emitted by separate model calls."""
+def _prepare_reasoning_segment(agent: Any, text: str) -> tuple[str, int | None]:
+    """Compute a model-call boundary without advancing delivery state."""
     current = _positive_int(getattr(agent, "_api_call_count", None))
     if current is None:
-        return text
+        return text, None
     previous = _positive_int(getattr(agent, _REASONING_API_CALL_MARKER, None))
-    with suppress(Exception):
-        setattr(agent, _REASONING_API_CALL_MARKER, current)
     if previous is None or previous == current:
-        return text
-    return "\n\n" + text.lstrip("\n")
+        return text, current
+    return "\n\n" + text.lstrip("\n"), current
+
+
+def _ack_reasoning_segment(agent: Any, api_call: int | None) -> None:
+    if api_call is None:
+        return
+    with suppress(Exception):
+        setattr(agent, _REASONING_API_CALL_MARKER, api_call)
 
 
 def _mutate_agent_monkeypatches(
@@ -177,7 +182,9 @@ def _mutate_agent_monkeypatches(
                     break
         if text:
             try:
-                callbacks.on_reasoning_delta(self, _mark_reasoning_segment(self, str(text)))
+                segmented, api_call = _prepare_reasoning_segment(self, str(text))
+                callbacks.on_reasoning_delta(self, segmented)
+                _ack_reasoning_segment(self, api_call)
             except Exception:
                 logger.debug("hermes-progress-tail reasoning capture failed", exc_info=True)
         return fire_reasoning(self, *args, **kwargs)
@@ -319,9 +326,9 @@ def _wrap_stream_delta_callback(
         captured, visible = _capture_inline_reasoning(agent, raw_text)
         if captured:
             try:
-                callbacks.on_reasoning_delta(
-                    agent, _mark_reasoning_segment(agent, captured), source="inline_think"
-                )
+                segmented, api_call = _prepare_reasoning_segment(agent, captured)
+                callbacks.on_reasoning_delta(agent, segmented, source="inline_think")
+                _ack_reasoning_segment(agent, api_call)
             except Exception:
                 logger.debug("hermes-progress-tail inline think capture failed", exc_info=True)
                 _reset_inline_reasoning_state(agent)
