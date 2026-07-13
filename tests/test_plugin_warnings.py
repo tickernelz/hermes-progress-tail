@@ -39,9 +39,9 @@ def test_status_warns_when_builtin_reasoning_is_enabled(monkeypatch):
 
     status = plugin._command("status")
 
-    assert "hermes-progress-tail 0.2.08" in status
+    assert "hermes-progress-tail 0.2.09" in status
     assert "## Hermes Progress Tail" in status
-    assert "| Version | `0.2.08` |" in status
+    assert "| Version | `0.2.09` |" in status
     assert "## Runtime" in status
     assert "tools=enabled" in status
     assert "completed=True" in status
@@ -73,14 +73,14 @@ def test_status_reports_update_only_when_newer_release_exists(monkeypatch):
     monkeypatch.setattr(
         commands,
         "_latest_release_info",
-        lambda: {"tag_name": "v0.2.09", "html_url": "https://example.test/v0.2.09"},
+        lambda: {"tag_name": "v0.2.10", "html_url": "https://example.test/v0.2.10"},
     )
 
     status = plugin._command("status")
 
     assert "## Update available" in status
-    assert "v0.2.08 → v0.2.09" in status
-    assert "https://example.test/v0.2.09" in status
+    assert "v0.2.09 → v0.2.10" in status
+    assert "https://example.test/v0.2.10" in status
 
 
 def test_status_hides_update_when_latest_release_is_not_newer(monkeypatch):
@@ -96,7 +96,7 @@ def test_status_hides_update_when_latest_release_is_not_newer(monkeypatch):
     monkeypatch.setattr(
         commands,
         "_latest_release_info",
-        lambda: {"tag_name": "v0.2.08", "html_url": "https://example.test/v0.2.08"},
+        lambda: {"tag_name": "v0.2.09", "html_url": "https://example.test/v0.2.09"},
     )
 
     status = plugin._command("status")
