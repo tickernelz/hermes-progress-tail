@@ -1,4 +1,4 @@
-__version__ = "0.2.07"
+__version__ = "0.2.08"
 
 from .plugin import (
     VERSION,
