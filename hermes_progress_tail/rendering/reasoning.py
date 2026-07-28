@@ -5,29 +5,37 @@ from dataclasses import dataclass
 
 from ..utils.redaction import redact_text
 from ..utils.text import truncate_tail_text
+from .markdown_code import sub_outside_inline_code
 
 _REASONING_TAG_NAMES = r"think|thinking|reasoning|thought|analysis|REASONING_SCRATCHPAD"
 _CODE_FENCE_LINE_RE = re.compile(r"^(?P<indent> {0,3})(?P<run>`{3,}|~{3,})(?P<tail>.*)$")
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 _BOLD_HEADING_RE = re.compile(r"^(?:\*\*|__)(?P<title>[^*_\n][^\n]*?)(?:\*\*|__)\s*$")
+# Allow identifiers such as ``node_modules`` without consuming the matching
+# double-marker delimiter that closes each streamed summary heading.
+_STAR_BOLD_HEADING_TOKEN = r"\*\*[A-Z](?:(?!\*\*)[^\n]){1,80}\*\*"
+_UNDERSCORE_BOLD_HEADING_TOKEN = r"__[A-Z](?:(?!__)[^\n]){1,80}__"
+_BOLD_HEADING_TOKEN = rf"(?:{_STAR_BOLD_HEADING_TOKEN}|{_UNDERSCORE_BOLD_HEADING_TOKEN})"
 _INLINE_BOLD_HEADING_RE = re.compile(
     r"(?P<prefix>[.!?])\s*"
-    r"(?P<heading>(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__))"
+    rf"(?P<heading>{_BOLD_HEADING_TOKEN})"
     r"[ \t]*(?=\n|$|[A-Z])"
 )
-_BOLD_HEADING_TOKEN_RE = re.compile(r"(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__)")
+_BOLD_HEADING_TOKEN_RE = re.compile(_BOLD_HEADING_TOKEN)
 _ADJACENT_BOLD_HEADING_RUN_RE = re.compile(
-    r"(?<![`*_])"
-    r"(?P<run>(?:(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__)){2,})"
+    r"^(?P<indent>[ \t]*)"
+    rf"(?P<run>(?:{_BOLD_HEADING_TOKEN}){{2,}})"
     r"(?![`*_])"
 )
 _LEADING_BOLD_HEADING_BODY_RE = re.compile(
     r"^(?P<indent>[ \t]*)"
-    r"(?P<heading>(?:\*\*|__)[A-Z][^*_\n]{1,80}(?:\*\*|__))"
+    rf"(?P<heading>{_BOLD_HEADING_TOKEN})"
     r"(?P<body>\S.*)$"
 )
-_MISSING_SENTENCE_SPACE_RE = re.compile(r"(?<=[a-z])([.])(?=[A-Z])")
-_GLUED_NUMBERED_LIST_RE = re.compile(r'(?<=[a-zA-Z):;\]}"\'])(?=\d{1,2}[.)]\s+[A-Z])')
+_STREAMING_GLUE_RE = re.compile(
+    r"(?P<sentence>(?<=[a-z])\.)(?=[A-Z])"
+    r'|(?P<list>(?<=[a-zA-Z):;\]}"\'])(?=\d{1,2}[.)]\s+[A-Z]))'
+)
 _EMPTY_HTML_COMMENT_SEPARATOR_RE = re.compile(
     r"^(?P<indent>[ \t]*)<!--[ \t]*-->[ \t]*"
     r"(?=(?:\*\*|__|#{1,6}\s)|$)"
@@ -296,7 +304,23 @@ def _normalize_inline_heading_boundaries(text: str) -> str:
             return match.group(0)
         return f"{match.group('prefix')}\n\n{heading}\n"
 
-    return _INLINE_BOLD_HEADING_RE.sub(replace, text)
+    output: list[str] = []
+    fence_state: tuple[str, int] | None = None
+    inline_code_marker = 0
+    for raw_line in text.splitlines(keepends=True):
+        previous_state = fence_state
+        fence_state = _advance_code_fence(raw_line, fence_state)
+        if previous_state is None and fence_state is None:
+            raw_line, inline_code_marker = sub_outside_inline_code(
+                raw_line,
+                _INLINE_BOLD_HEADING_RE,
+                replace,
+                marker_length=inline_code_marker,
+            )
+        else:
+            inline_code_marker = 0
+        output.append(raw_line)
+    return "".join(output)
 
 
 def _normalize_adjacent_bold_heading_boundaries(text: str) -> str:
@@ -306,8 +330,8 @@ def _normalize_adjacent_bold_heading_boundaries(text: str) -> str:
         run = match.group("run")
         headings = _BOLD_HEADING_TOKEN_RE.findall(run)
         if "".join(headings) != run or any(not _detect_heading(item) for item in headings):
-            return run
-        return "\n\n".join(headings)
+            return match.group(0)
+        return match.group("indent") + "\n\n".join(headings)
 
     def replace_leading(match: re.Match[str]) -> str:
         heading = match.group("heading")
@@ -317,21 +341,38 @@ def _normalize_adjacent_bold_heading_boundaries(text: str) -> str:
 
     output: list[str] = []
     fence_state: tuple[str, int] | None = None
+    inline_code_marker = 0
     for raw_line in text.splitlines(keepends=True):
         previous_state = fence_state
         fence_state = _advance_code_fence(raw_line, fence_state)
         if previous_state is None and fence_state is None:
-            raw_line = _ADJACENT_BOLD_HEADING_RUN_RE.sub(replace, raw_line)
+            raw_line, inline_code_marker = sub_outside_inline_code(
+                raw_line,
+                _ADJACENT_BOLD_HEADING_RUN_RE,
+                replace,
+                marker_length=inline_code_marker,
+            )
+        else:
+            inline_code_marker = 0
         output.append(raw_line)
     separated = "".join(output)
 
     output = []
     fence_state = None
+    inline_code_marker = 0
     for raw_line in separated.splitlines(keepends=True):
         previous_state = fence_state
         fence_state = _advance_code_fence(raw_line, fence_state)
         if previous_state is None and fence_state is None:
-            raw_line = _LEADING_BOLD_HEADING_BODY_RE.sub(replace_leading, raw_line)
+            raw_line, inline_code_marker = sub_outside_inline_code(
+                raw_line,
+                _LEADING_BOLD_HEADING_BODY_RE,
+                replace_leading,
+                marker_length=inline_code_marker,
+                protected_group="heading",
+            )
+        else:
+            inline_code_marker = 0
         output.append(raw_line)
     return "".join(output)
 
@@ -352,9 +393,28 @@ def _normalize_streaming_glue(text: str) -> str:
     and glued numbered list starts.  It runs before heading detection so the
     restored newlines create real block boundaries.
     """
-    text = _MISSING_SENTENCE_SPACE_RE.sub(r"\1 ", text)
-    text = _GLUED_NUMBERED_LIST_RE.sub("\n", text)
-    return text
+
+    def replace(match: re.Match[str]) -> str:
+        sentence = match.group("sentence")
+        return f"{sentence} " if sentence else "\n"
+
+    output: list[str] = []
+    fence_state: tuple[str, int] | None = None
+    inline_code_marker = 0
+    for raw_line in text.splitlines(keepends=True):
+        previous_state = fence_state
+        fence_state = _advance_code_fence(raw_line, fence_state)
+        if previous_state is None and fence_state is None:
+            raw_line, inline_code_marker = sub_outside_inline_code(
+                raw_line,
+                _STREAMING_GLUE_RE,
+                replace,
+                marker_length=inline_code_marker,
+            )
+        else:
+            inline_code_marker = 0
+        output.append(raw_line)
+    return "".join(output)
 
 
 def _extract_reasoning_tag_bodies(text: str) -> str:

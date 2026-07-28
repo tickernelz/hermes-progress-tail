@@ -450,7 +450,34 @@ def test_streaming_glue_adjacent_bold_headings_get_separate_lines():
 def test_streaming_glue_adjacent_bold_heading_examples_stay_literal():
     text = (
         "Literal: `**Planning one****Planning two**`\n"
+        "Literal: `prefix **Planning node_modules****Checking foo_bar** suffix`\n"
+        "Literal: `prefix. **Inspecting node_modules** suffix`\n"
+        "Literal: ``prefix ` **Planning node_modules****Checking foo_bar** suffix``\n"
+        "Literal: `prefix. **Inspecting node_modules** unmatched\n"
         "```md\n**Planning three****Planning four**\n```"
+    )
+
+    assert normalize_reasoning_text(text) == text
+
+
+def test_adjacent_bold_emphasis_inside_prose_stays_inline():
+    text = "Use **Safe node_modules****Only foo_bar** carefully."
+
+    assert normalize_reasoning_text(text) == text
+
+
+def test_multiline_inline_code_heading_chain_stays_literal():
+    text = "`prefix\n**Planning node_modules****Checking foo_bar**\nsuffix`"
+
+    assert normalize_reasoning_text(text) == text
+
+
+def test_streaming_glue_examples_stay_literal_in_code():
+    text = (
+        "Inline `spent.Let and x2. Look` literal.\n"
+        "``multi ` marker spent.Let and x2. Look``\n"
+        "```md\nspent.Let\nx2. Look\n```\n"
+        "`first\nspent.Let\nx2. Look\nlast`"
     )
 
     assert normalize_reasoning_text(text) == text
@@ -499,6 +526,44 @@ def test_adjacent_heading_chain_with_glued_body_normalizes_compositionally():
         "**Running RED targeted in parallel**\n\n"
         "**Implementing production M1 minimal with interface and adapter patches**\n"
         "RED gate valid: seluruh test gagal tepat pada defect target."
+    )
+
+
+def test_adjacent_heading_chain_allows_snake_case_identifiers():
+    text = (
+        "**Investigating removed node_modules symlink**"
+        "**Identifying bun x prettier removing node_modules symlink**"
+        "**Planning minimal test for symlink removal**"
+        "**Planning atomic push and PR verification**"
+        "**Evaluating duplicate conflict comments**"
+        "Package dry-run sudah pass (**116 files, 0.34 MB**). "
+        "Root cause: `node_modules` symlink worktree sudah hilang."
+    )
+
+    normalized = normalize_reasoning_text(text)
+
+    assert normalized == (
+        "**Investigating removed node_modules symlink**\n\n"
+        "**Identifying bun x prettier removing node_modules symlink**\n\n"
+        "**Planning minimal test for symlink removal**\n\n"
+        "**Planning atomic push and PR verification**\n\n"
+        "**Evaluating duplicate conflict comments**\n"
+        "Package dry-run sudah pass (**116 files, 0.34 MB**). "
+        "Root cause: `node_modules` symlink worktree sudah hilang."
+    )
+
+
+def test_adjacent_underscore_heading_chain_allows_snake_case_identifiers():
+    text = (
+        "__Inspecting node_modules symlink__"
+        "__Planning follow_up verification__"
+        "Continue with the smoke test."
+    )
+
+    assert normalize_reasoning_text(text) == (
+        "__Inspecting node_modules symlink__\n\n"
+        "__Planning follow_up verification__\n"
+        "Continue with the smoke test."
     )
 
 

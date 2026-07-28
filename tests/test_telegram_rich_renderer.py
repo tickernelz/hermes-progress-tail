@@ -531,3 +531,46 @@ def test_focused_rich_reasoning_handles_heading_chain_followed_by_body():
     )
     assert "patchesRED" not in rich_markdown
     assert "***" not in rich_markdown
+
+
+def test_telegram_send_patch_handles_snake_case_heading_chain(monkeypatch):
+    from hermes_progress_tail.rendering.focused import focused_block
+    from hermes_progress_tail.rendering.reasoning import render_reasoning_tail
+
+    install_fake_gateway_base(monkeypatch)
+
+    async def run():
+        uninstall_telegram_format_monkeypatch(GatewayLikeTelegramAdapter)
+        assert install_telegram_format_monkeypatch(GatewayLikeTelegramAdapter) is True
+        adapter = GatewayLikeTelegramAdapter()
+        raw = (
+            "**Investigating node_modules structure**\n\n"
+            "**Investigating removed node_modules symlink**"
+            "**Identifying bun x prettier removing node_modules symlink**"
+            "**Planning minimal test for symlink removal**"
+            "**Planning atomic push and PR verification**"
+            "**Evaluating duplicate conflict comments**"
+            "Package dry-run sudah pass (**116 files, 0.34 MB**). "
+            "Root cause: `node_modules` symlink worktree sudah hilang."
+        )
+        reasoning = render_reasoning_tail(raw, max_lines=3, max_chars=600, redact=False)
+        content = focused_block("Reasoning", reasoning, platform="telegram")
+
+        result = await adapter.send("123", content)
+
+        assert result.success is True
+        adapter.rich_request.assert_awaited_once()
+        rich_markdown = adapter.rich_request.await_args.kwargs["api_kwargs"]["rich_message"][
+            "markdown"
+        ]
+        assert rich_markdown == (
+            "## Reasoning\n\n"
+            "### Planning atomic push and PR verification\n\n"
+            "### Evaluating duplicate conflict comments\n\n"
+            "*Package dry-run sudah pass (**116 files, 0.34 MB**). "
+            "Root cause: `node_modules` symlink worktree sudah hilang.*"
+        )
+        assert "symlinkPlanning" not in rich_markdown
+        assert "verification**Evaluating" not in rich_markdown
+
+    asyncio.run(run())
