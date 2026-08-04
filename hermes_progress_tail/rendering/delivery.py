@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from ..gateway.compat import delete_message
+from ..models.decision import decision_is_waiting
 from ..models.state import SessionContext
 
 logger = logging.getLogger(__name__)
@@ -221,6 +222,7 @@ class RendererDelivery:
                     if (
                         ctx.delivery.disabled
                         or ctx.routing.strategy != "live_tail"
+                        or decision_is_waiting(ctx.decision)
                         or not self._content(ctx)
                     ):
                         return
@@ -261,16 +263,20 @@ class RendererDelivery:
             return
         self.cancel_delete(ctx)
         generation = ctx.generation
+        cleanup_epoch = ctx.decision.cleanup_epoch
         scheduled_delivery = ctx.delivery
         scheduled_history = scheduled_delivery.progress_message_ids
         active_message_id = str(scheduled_delivery.message_id)
+        protected_ids = ctx.decision.protected_message_ids
         message_ids = list(
             dict.fromkeys(
                 str(message_id)
                 for message_id in [*ctx.delivery.progress_message_ids, active_message_id]
-                if message_id
+                if message_id and str(message_id) not in protected_ids
             )
         )
+        if not message_ids:
+            return
         delay = max(0, cleanup.delay_seconds)
 
         def owns_scheduled_state() -> bool:
@@ -283,35 +289,44 @@ class RendererDelivery:
         async def _delete_later() -> None:
             try:
                 await asyncio.sleep(delay)
-                if (
-                    not owns_scheduled_state()
-                    or str(scheduled_delivery.message_id) != active_message_id
-                ):
-                    return
                 for message_id in message_ids:
-                    if not owns_scheduled_state():
-                        return
-                    try:
-                        deleted = await delete_message(ctx.adapter, ctx.chat_id, message_id)
-                    except Exception as exc:
-                        if not owns_scheduled_state():
+                    async with ctx.lock:
+                        if (
+                            not owns_scheduled_state()
+                            or ctx.decision.cleanup_epoch != cleanup_epoch
+                            or message_id in ctx.decision.protected_message_ids
+                            or str(scheduled_delivery.message_id) != active_message_id
+                        ):
                             return
-                        logger.debug("hermes-progress-tail delete failed: %s", exc)
-                        ctx.diagnostics.last_error = str(exc)
-                        continue
-                    if not owns_scheduled_state():
-                        return
-                    if not deleted:
-                        continue
-                    scheduled_history[:] = [
-                        retained_id
-                        for retained_id in scheduled_history
-                        if str(retained_id) != message_id
-                    ]
-                    if str(scheduled_delivery.message_id) == message_id:
-                        scheduled_delivery.message_id = None
-                        scheduled_delivery.can_edit = False
-                        scheduled_delivery.progress_state = "deleted"
+                        try:
+                            deleted = await delete_message(ctx.adapter, ctx.chat_id, message_id)
+                        except Exception as exc:
+                            if (
+                                not owns_scheduled_state()
+                                or ctx.decision.cleanup_epoch != cleanup_epoch
+                                or message_id in ctx.decision.protected_message_ids
+                            ):
+                                return
+                            logger.debug("hermes-progress-tail delete failed: %s", exc)
+                            ctx.diagnostics.last_error = str(exc)
+                            continue
+                        if (
+                            not owns_scheduled_state()
+                            or ctx.decision.cleanup_epoch != cleanup_epoch
+                            or message_id in ctx.decision.protected_message_ids
+                        ):
+                            return
+                        if not deleted:
+                            continue
+                        scheduled_history[:] = [
+                            retained_id
+                            for retained_id in scheduled_history
+                            if str(retained_id) != message_id
+                        ]
+                        if str(scheduled_delivery.message_id) == message_id:
+                            scheduled_delivery.message_id = None
+                            scheduled_delivery.can_edit = False
+                            scheduled_delivery.progress_state = "deleted"
             except asyncio.CancelledError:
                 raise
             finally:

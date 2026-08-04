@@ -242,24 +242,41 @@ def test_architecture_renderer_executes_reducer_intents_and_owns_finalize_orches
     assert poll.cancelled
     assert ctx.background_jobs["process"].poll_task is None
 
-    path = Path("hermes_progress_tail/rendering/renderer.py")
-    source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    renderer_path = Path("hermes_progress_tail/rendering/renderer.py")
+    renderer_source = renderer_path.read_text(encoding="utf-8")
+    renderer_tree = ast.parse(renderer_source)
     cls = next(
         node
-        for node in tree.body
+        for node in renderer_tree.body
         if isinstance(node, ast.ClassDef) and node.name == "ProgressRenderer"
     )
-    finalize = next(
+    renderer_finalize = next(
         node
         for node in cls.body
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "finalize"
     )
-    assert any(isinstance(node, ast.AsyncWith) for node in ast.walk(finalize))
-    assert any(isinstance(node, ast.Await) for node in ast.walk(finalize))
-    assert "renderer_orchestration" not in source
+    assert not any(isinstance(node, ast.AsyncWith) for node in ast.walk(renderer_finalize))
+    assert any(isinstance(node, ast.Await) for node in ast.walk(renderer_finalize))
+
+    lifecycle_path = Path("hermes_progress_tail/rendering/lifecycle.py")
+    lifecycle_source = lifecycle_path.read_text(encoding="utf-8")
+    lifecycle_tree = ast.parse(lifecycle_source)
+    lifecycle_cls = next(
+        node
+        for node in lifecycle_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "RendererLifecycle"
+    )
+    lifecycle_finalize = next(
+        node
+        for node in lifecycle_cls.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "finalize"
+    )
+    assert any(isinstance(node, ast.AsyncWith) for node in ast.walk(lifecycle_finalize))
+    assert any(isinstance(node, ast.Await) for node in ast.walk(lifecycle_finalize))
+    assert "ProgressRenderer" not in lifecycle_source
+    assert "renderer_orchestration" not in renderer_source
     assert not Path("hermes_progress_tail/rendering/renderer_orchestration.py").exists()
-    assert len(source.splitlines()) < 400
+    assert len(renderer_source.splitlines()) < 400
 
 
 def test_architecture_c4c_compatibility_forward_signatures_are_exact():

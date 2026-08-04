@@ -6,12 +6,13 @@ from typing import Any
 
 from ..gateway.compat import adapter_supports_edit
 from ..models.state import SessionContext
+from .lifecycle import retire_checkpoint_state
 
 CancelContext = Callable[[SessionContext], Any]
 
 
 class SessionRegistry:
-    """Owns session lookup, turn reuse, migration, and expiry."""
+    """Own session lookup, turn reuse, migration, and synchronous retirement."""
 
     def __init__(
         self,
@@ -31,13 +32,13 @@ class SessionRegistry:
     def register_context(self, ctx: SessionContext) -> None:
         existing = self.sessions.get(ctx.session_id)
         if existing is not None:
-            reuse_progress = (
-                existing.delivery.progress_state == "active"
-                and self.same_source_message(existing, ctx)
-            )
+            same_source = self.same_source_message(existing, ctx)
+            reuse_progress = existing.delivery.progress_state == "active" and same_source
             if reuse_progress:
                 self._cancel_delete(existing)
                 self._reuse_progress(existing, ctx)
+            elif not same_source:
+                self._retire_context(existing)
             self._reuse_session(existing, ctx, reuse_progress)
         ctx.resize(ctx.routing.lines)
         if ctx.routing.strategy == "auto":
@@ -51,6 +52,7 @@ class SessionRegistry:
     @staticmethod
     def _reuse_progress(existing: SessionContext, ctx: SessionContext) -> None:
         ctx.tool = existing.tool
+        ctx.decision = existing.decision
         fields = (
             "message_id",
             "started_at",
@@ -71,6 +73,20 @@ class SessionRegistry:
         )
         for name in fields:
             setattr(ctx, name, getattr(existing, name))
+
+    def _retire_context(self, ctx: SessionContext) -> None:
+        retire_checkpoint_state(ctx, self._delivery_adapter())
+        ctx.decision.reset_turn()
+
+    def _delivery_adapter(self) -> Any:
+        return type(
+            "DeliveryCancellation",
+            (),
+            {
+                "cancel_delete": staticmethod(self._cancel_delete),
+                "cancel_delayed_flush": staticmethod(self._cancel_delayed_flush),
+            },
+        )()
 
     def _reuse_session(
         self, existing: SessionContext, ctx: SessionContext, reuse_progress: bool
@@ -133,13 +149,39 @@ class SessionRegistry:
             self.session_keys[ctx.session_key] = new_session_id
         return True
 
-    def purge(self, session_id: str = "", platform: str = "") -> None:
-        if session_id:
-            ctx = self.sessions.pop(session_id, None)
-            if ctx:
-                self._cancel_delayed_flush(ctx)
-            if ctx and ctx.session_key:
-                self.session_keys.pop(ctx.session_key, None)
+    def purge(
+        self,
+        session_id: str = "",
+        platform: str = "",
+        session_key: str = "",
+        *,
+        generation: int | None = None,
+        expected_context: SessionContext | None = None,
+        preserve_cleanup: bool = False,
+    ) -> None:
+        if session_id or session_key:
+            ctx = None
+            if session_key:
+                mapped_id = self.session_keys.get(session_key)
+                if mapped_id:
+                    ctx = self.sessions.get(mapped_id)
+            if ctx is None and session_id:
+                ctx = self.sessions.get(session_id)
+            if (
+                ctx is None
+                or (generation is not None and ctx.generation != generation)
+                or (expected_context is not None and ctx is not expected_context)
+                or self.sessions.get(ctx.session_id) is not ctx
+            ):
+                return
+            captured_id = ctx.session_id
+            if not preserve_cleanup:
+                self._retire_context(ctx)
+            if self.sessions.get(captured_id) is ctx:
+                self.sessions.pop(captured_id, None)
+            for key, mapped_id in tuple(self.session_keys.items()):
+                if mapped_id == captured_id:
+                    self.session_keys.pop(key, None)
             return
         now = time.monotonic()
         stale = [
@@ -191,5 +233,5 @@ def migrate_context(
     return _compat_registry(owner).migrate_context(old_session_id, new_session_id, session_key)
 
 
-def purge(owner: Any, session_id: str = "", platform: str = "") -> None:
-    _compat_registry(owner).purge(session_id, platform)
+def purge(owner: Any, session_id: str = "", platform: str = "", session_key: str = "") -> None:
+    _compat_registry(owner).purge(session_id, platform, session_key)

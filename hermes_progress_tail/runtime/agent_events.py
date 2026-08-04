@@ -401,7 +401,9 @@ def _on_post_llm_call(session_id: str = "", agent: Any = None, **_: Any):
 def _on_session_reset(session_id: str = "", platform: str = "", agent: Any = None, **_: Any):
     _reset_inline_reasoning(agent)
     runtime_plugin = _runtime_plugin()
-    runtime_plugin.get_renderer().purge(session_id=session_id, platform=platform)
+    runtime_plugin.get_renderer().purge(
+        session_id=session_id, platform=platform, session_key=_agent_session_key(agent)
+    )
     return None
 
 

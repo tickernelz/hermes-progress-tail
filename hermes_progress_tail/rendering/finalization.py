@@ -44,6 +44,7 @@ def reset_turn(ctx: SessionContext) -> None:
     ctx.diagnostics.new_events_since_snapshot = 0
     ctx.delivery.snapshots_sent = 0
     ctx.diagnostics.total_events = 0
+    ctx.decision.reset_turn()
 
 
 def should_flush_before_reset(ctx: SessionContext) -> bool:

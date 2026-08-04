@@ -197,7 +197,7 @@ def test_session_reset_and_finalize(monkeypatch):
     calls = plugin(monkeypatch, renderer)
     monkeypatch.setattr(ae, "_reset_inline_reasoning", lambda a: None)
     ae._on_session_reset("sid", "discord", object())
-    assert purges == [{"session_id": "sid", "platform": "discord"}]
+    assert purges == [{"session_id": "sid", "platform": "discord", "session_key": "key"}]
     ae._on_session_finalize("sid", "discord", object())
     assert calls == [
         {"session_id": "sid", "platform": "discord", "session_key": "key", "purge": True}

@@ -400,7 +400,14 @@ def test_architecture_facade_methods_have_exact_signatures_and_class_body_owners
         "_same_source_message": ("existing", "incoming"),
         "find_context": ("self", "session_id", "session_key"),
         "migrate_context": ("self", "old_session_id", "new_session_id", "session_key"),
-        "purge": ("self", "session_id", "platform"),
+        "purge": (
+            "self",
+            "session_id",
+            "platform",
+            "session_key",
+            "generation",
+            "expected_context",
+        ),
     }
     assert expected.keys() <= ProgressRenderer.__dict__.keys()
     for name, names in expected.items():
