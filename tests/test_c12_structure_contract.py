@@ -175,5 +175,5 @@ def test_live_repository_measurements_are_exact():
     context = next(
         x for x in tree.body if isinstance(x, ast.ClassDef) and x.name == "SessionContext"
     )
-    assert sum(isinstance(x, ast.AnnAssign) for x in context.body) == 21
+    assert sum(isinstance(x, ast.AnnAssign) for x in context.body) == 22
     assert checker.repository_violations(ROOT) == ()

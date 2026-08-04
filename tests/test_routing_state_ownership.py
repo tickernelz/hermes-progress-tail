@@ -76,6 +76,7 @@ FINAL_FIELDS = [
     "assistant",
     "reasoning",
     "diagnostics",
+    "decision",
     "lock",
     "environment",
 ]
@@ -110,7 +111,7 @@ def test_routing_state_exact_contract_defaults_identity_and_conflicts():
 def test_final_session_context_shape_factories_and_import_identity():
     cls = prerequisites()
     assert [item.name for item in fields(cls)] == FINAL_FIELDS
-    assert len(cls.__annotations__) == 21
+    assert len(cls.__annotations__) == 22
     by_name = {item.name: item for item in fields(cls)}
     expected = {
         "routing": state.RoutingState,
@@ -121,6 +122,7 @@ def test_final_session_context_shape_factories_and_import_identity():
         "assistant": state.AssistantState,
         "reasoning": state.ReasoningState,
         "diagnostics": state.DiagnosticsState,
+        "decision": state.DecisionState,
     }
     assert {name: by_name[name].default_factory for name in expected} == expected
     checks = """
