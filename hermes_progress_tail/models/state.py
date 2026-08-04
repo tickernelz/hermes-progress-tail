@@ -6,6 +6,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+from .decision import DecisionState
 from .events import TodoItem, TodoStatus  # noqa: F401 - compatibility re-export
 from .state_compat import SessionStateCompatibility
 from .state_records import (
@@ -48,6 +49,7 @@ class SessionContext(SessionStateCompatibility):
     assistant: AssistantState = field(default_factory=AssistantState)
     reasoning: ReasoningState = field(default_factory=ReasoningState)
     diagnostics: DiagnosticsState = field(default_factory=DiagnosticsState)
+    decision: DecisionState = field(default_factory=DecisionState)
 
     lock: Any = field(default_factory=asyncio.Lock)
     environment: EnvironmentSnapshot = field(default_factory=EnvironmentSnapshot)
@@ -135,6 +137,7 @@ class SessionContext(SessionStateCompatibility):
         assistant=None,
         reasoning=None,
         diagnostics=None,
+        decision=None,
     ):
         self.session_id = session_id
         self.session_key = session_key
@@ -239,6 +242,7 @@ class SessionContext(SessionStateCompatibility):
         self.diagnostics = (
             diagnostics if diagnostics is not None else DiagnosticsState(**diagnostics_legacy)
         )
+        self.decision = DecisionState() if decision is None else decision
 
         self.lock = asyncio.Lock() if lock is _MISSING else lock
         self.environment = EnvironmentSnapshot() if environment is _MISSING else environment
@@ -274,5 +278,6 @@ ToolEvent = _events.ToolEvent
 DelegateEvent = _events.DelegateEvent
 ReasoningEvent = _events.ReasoningEvent
 AssistantEvent = _events.AssistantEvent
+DecisionEvent = _events.DecisionEvent
 BackgroundJobEvent = _events.BackgroundJobEvent
 ProgressEvent = _events.ProgressEvent

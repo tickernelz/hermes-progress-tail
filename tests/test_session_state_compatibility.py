@@ -52,6 +52,7 @@ def test_mutable_defaults_are_independent():
         "delegate_order",
         "background_jobs",
         "background_order",
+        "decision",
         "lock",
         "environment",
     )

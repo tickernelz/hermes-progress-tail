@@ -91,6 +91,7 @@ FIELD_NAMES = [
     "assistant",
     "reasoning",
     "diagnostics",
+    "decision",
     "lock",
     "environment",
 ]
@@ -167,6 +168,7 @@ LEGACY = [
     "assistant",
     "reasoning",
     "diagnostics",
+    "decision",
 ]
 
 
@@ -202,6 +204,7 @@ def test_exact_canonical_fields_annotations_and_factories():
     assert by_name["reasoning"].default_factory is state.ReasoningState
     assert by_name["delegate"].default_factory is state.DelegateState
     assert by_name["background"].default_factory is state.BackgroundState
+    assert by_name["decision"].default_factory is state.DecisionState
     assert by_name["assistant"].default is MISSING
     assert by_name["reasoning"].default is MISSING
 

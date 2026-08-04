@@ -4,6 +4,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .decision import DecisionRecord
+
 TodoStatus = Literal["pending", "in_progress", "completed", "cancelled"]
 
 
@@ -73,6 +75,15 @@ class AssistantEvent:
 
 
 @dataclass(frozen=True)
+class DecisionEvent:
+    session_id: str
+    session_key: str
+    platform: str
+    record: DecisionRecord
+    kind: Literal["decision"] = "decision"
+
+
+@dataclass(frozen=True)
 class BackgroundJobEvent:
     session_id: str
     session_key: str
@@ -89,4 +100,6 @@ class BackgroundJobEvent:
     kind: Literal["background_job"] = "background_job"
 
 
-ProgressEvent = ToolEvent | DelegateEvent | ReasoningEvent | AssistantEvent | BackgroundJobEvent
+ProgressEvent = (
+    ToolEvent | DelegateEvent | ReasoningEvent | AssistantEvent | DecisionEvent | BackgroundJobEvent
+)
