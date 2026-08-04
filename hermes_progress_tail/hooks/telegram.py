@@ -154,7 +154,7 @@ def _latch_rich_flood_off_for(adapter: Any, cooldown: float) -> None:
     adapter._hermes_progress_tail_rich_flood_until = time.monotonic() + cooldown
     logger.warning(
         "hermes-progress-tail Telegram rich flood-controlled; "
-        "latching rich off for %.0fs, falling back to MarkdownV2",
+        "latching rich off for %.0fs without an immediate retry",
         cooldown,
     )
 
@@ -203,7 +203,7 @@ async def _try_edit_rich_message(
             return None
         if _is_flood_control(exc):
             _latch_rich_flood_off(adapter, exc)
-            return None
+            return send_result_cls(success=False, message_id=message_id, error=err_text, retryable=True)  # fmt: skip
         logger.debug("hermes-progress-tail Telegram rich edit transient failure", exc_info=True)
         return send_result_cls(success=False, message_id=message_id, error=err_text, retryable=True)
 
@@ -235,7 +235,7 @@ async def _try_send_rich_message(
                 error_text = str(getattr(result, "error", "") or "")
                 if _is_flood_control_str(error_text):
                     _latch_rich_flood_off_str(adapter, error_text)
-                    return None
+                    return result
             return result
         except Exception as exc:
             return _send_rich_exception_result(adapter, exc, send_result_cls)
@@ -274,7 +274,7 @@ def _send_rich_exception_result(adapter: Any, exc: Exception, send_result_cls: A
         return None
     if _is_flood_control(exc):
         _latch_rich_flood_off(adapter, exc)
-        return None
+        return send_result_cls(success=False, error=str(exc), retryable=True)
     logger.debug("hermes-progress-tail Telegram rich send transient failure", exc_info=True)
     return send_result_cls(success=False, error=str(exc), retryable=True)
 

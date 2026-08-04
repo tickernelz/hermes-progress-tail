@@ -175,11 +175,14 @@ def test_editable_freeze_reaches_rich_adapter_with_checkpoint_hierarchy_and_one_
         resolution = adapter._bot.api_calls[-1][1]["rich_message"]["markdown"]
         assert "RESOLVED · yes" in resolution
 
+        call_count = len(adapter._bot.api_calls)
         await renderer.handle_event(
             ToolEvent("session", "key", "telegram", "✅ terminal: later work · done"), force=True
         )
         assert adapter.native_sends == []
-        assert adapter._bot.api_calls[-1][0] == "sendRichMessage"
+        later_calls = adapter._bot.api_calls[call_count:]
+        assert [call[0] for call in later_calls] == ["sendRichMessage"]
+        assert ctx.delivery.message_id == "999" and ctx.delivery.message_id != "41"
 
     asyncio.run(run())
 
@@ -217,36 +220,35 @@ def test_formatted_rich_and_markdownv2_checkpoint_payloads_fit_the_telegram_budg
 
 
 @pytest.mark.parametrize(
-    ("error", "markdown_attempts"),
-    [
-        (RuntimeError("temporary network failure"), 0),
-        (RuntimeError("too many requests retry after 1"), 1),
-    ],
+    "error",
+    [RuntimeError("temporary network failure"), RuntimeError("too many requests retry after 1")],
 )
-def test_transient_and_flood_checkpoint_errors_are_fail_open_without_checkpoint_spam(
-    patched_gateway, error, markdown_attempts
-):
-    async def run():
+def test_transient_and_flood_checkpoint_errors_fail_open_without_any_retry(patched_gateway, error):
+    with LoopThread() as worker:
         adapter = PatchedTelegramAdapter()
         adapter._bot.rich_error = error
         renderer = ProgressRenderer(settings())
-        ctx = context(adapter, asyncio.get_running_loop())
+        ctx = context(adapter, worker.loop)
         renderer.register_context(ctx)
 
-        result = await renderer.freeze_clarify(
-            ctx, {"question": "Continue?", "choices": []}, lambda: False
+        result = run_clarify_freeze_barrier(
+            ctx,
+            lambda guard: renderer.freeze_clarify(
+                ctx, {"question": "Continue?", "choices": []}, guard.is_cancelled
+            ),
         )
+        native_path = ["native-prompt"]
 
         assert [call[0] for call in adapter._bot.api_calls] == ["editMessageText"]
-        assert len(adapter._bot.markdown_edits) == markdown_attempts
-        assert not adapter.native_edits and not adapter.native_sends
-        assert len(ctx.decision.protected_message_ids) <= 1
-        if markdown_attempts:
-            assert result and ctx.decision.active_checkpoint is not None
-        else:
-            assert not result and ctx.decision.active_checkpoint is None
-
-    asyncio.run(run())
+        assert (
+            adapter._bot.markdown_edits == []
+            and adapter.native_edits == []
+            and adapter.native_sends == []
+        )
+        assert not result and native_path == ["native-prompt"]
+        assert ctx.decision.active_checkpoint is None and ctx.decision.pending_freeze is None
+        assert ctx.decision.protected_message_ids == set() and ctx.decision.sequence == 0
+        assert ctx.delivery.message_id == "41" and ctx.delivery.progress_message_ids == ["41"]
 
 
 def test_worker_thread_no_edit_snapshot_precedes_native_prompt_and_same_loop_is_best_effort():
