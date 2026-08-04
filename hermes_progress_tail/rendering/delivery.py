@@ -376,6 +376,43 @@ class RendererDelivery:
         return content
 
 
+def _normalize_checkpoint_result(result: Any) -> _Result:
+    """Normalize adapter replies without assigning them ordinary delivery ownership."""
+    if isinstance(result, dict):
+        success = result.get("success", False)
+        message_id = result.get("message_id")
+        error = result.get("error", "")
+    else:
+        success = getattr(result, "success", result)
+        message_id = getattr(result, "message_id", None)
+        error = getattr(result, "error", "")
+    return _Result(bool(success), str(message_id) if message_id else None, str(error or ""))
+
+
+async def send_content(ctx: SessionContext, content: str) -> _Result:
+    """Send checkpoint content without claiming it as live delivery state."""
+    try:
+        return _normalize_checkpoint_result(
+            await ctx.adapter.send(ctx.chat_id, content, metadata=ctx.metadata)
+        )
+    except Exception as exc:
+        logger.debug("hermes-progress-tail checkpoint send failed: %s", exc)
+        return _Result(False, None, str(exc))
+
+
+async def edit_content(ctx: SessionContext, message_id: str, content: str) -> _Result:
+    """Edit checkpoint content without recovery, retry, or delivery-state mutation."""
+    try:
+        return _normalize_checkpoint_result(
+            await ctx.adapter.edit_message(
+                chat_id=ctx.chat_id, message_id=message_id, content=content
+            )
+        )
+    except Exception as exc:
+        logger.debug("hermes-progress-tail checkpoint edit failed: %s", exc)
+        return _Result(False, message_id, str(exc))
+
+
 def _fit_message(content: str, limit: int) -> str:
     if limit <= 0 or len(content) <= limit:
         return content
