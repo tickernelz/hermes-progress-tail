@@ -176,10 +176,14 @@ def test_editable_freeze_reaches_rich_adapter_with_checkpoint_hierarchy_and_one_
         assert "RESOLVED · yes" in resolution
 
         call_count = len(adapter._bot.api_calls)
+        markdown_edit_count = len(adapter._bot.markdown_edits)
+        native_edit_count = len(adapter.native_edits)
         await renderer.handle_event(
             ToolEvent("session", "key", "telegram", "✅ terminal: later work · done"), force=True
         )
         assert adapter.native_sends == []
+        assert len(adapter._bot.markdown_edits) == markdown_edit_count
+        assert len(adapter.native_edits) == native_edit_count
         later_calls = adapter._bot.api_calls[call_count:]
         assert [call[0] for call in later_calls] == ["sendRichMessage"]
         assert ctx.delivery.message_id == "999" and ctx.delivery.message_id != "41"
