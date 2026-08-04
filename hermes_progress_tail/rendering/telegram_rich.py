@@ -296,11 +296,18 @@ _PROGRESS_SECTION_TITLES = {
     "status",
     "failed tools",
     "verification evidence",
+    "decision",
+    "choices",
+    "context so far",
+    "relevant evidence",
 }
 
 
 def progress_section_title(line: str) -> str:
     text = str(line or "").strip()
+    plain = strip_control_markdown(text)
+    if plain.lower() in _PROGRESS_SECTION_TITLES:
+        return plain
     patterns = (
         (r"^\*\*__([^*\n]+)__\*\*$", False),
         (r"^##\s+(.+?)\s*$", True),

@@ -15,6 +15,15 @@ Compact Hermes gateway plugin for live progress tails.
 - Redacts common secrets before rendering progress.
 - Suppresses conflicting Hermes built-in gateway progress/reasoning display plugin-side on owned gateway sessions.
 
+## Clarify decision checkpoints
+
+- Normal work keeps the compact live tail unchanged.
+- `clarify` freezes a bounded, decision-complete checkpoint rather than an activity transcript.
+- Editable platforms freeze the current bubble; no-edit platforms send one checkpoint snapshot.
+- A response updates that checkpoint at most once, and later activity starts a fresh progress bubble.
+- Checkpoint data is runtime-only and redacted; it never includes raw chain-of-thought.
+- This release adds no new configuration.
+
 ## Before / after
 
 ![Before and after progress tail](assets/hermes-progress-tail-before-after.png)
