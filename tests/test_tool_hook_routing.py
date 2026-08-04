@@ -76,6 +76,9 @@ def test_foreground_tool_hooks_work_from_worker_thread(monkeypatch):
 
         assert adapter.sent
         assert "worker thread tool" in adapter.sent[0][1]
+        renderer = hermes_progress_tail._get_renderer()
+        ctx = renderer.find_context("session-1", "key-1")
+        assert ctx.decision.records[-1].identity == "tool:fg-terminal"
 
     asyncio.run(run())
 

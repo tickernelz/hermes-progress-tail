@@ -3,7 +3,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from hermes_progress_tail.models.state import BackgroundJobEvent, SessionContext, ToolEvent
+from hermes_progress_tail.models.state import (
+    BackgroundJobEvent,
+    DecisionEvent,
+    SessionContext,
+    ToolEvent,
+)
 from hermes_progress_tail.runtime import tool_events
 
 
@@ -160,7 +165,8 @@ def test_pre_tool_guards_and_running_background_fields(monkeypatch):
 
     ctx.tools_enabled = False
     assert tool_events._on_pre_tool_call("terminal") is None
-    assert events == []
+    assert [type(event) for event in events] == [DecisionEvent]
+    events.clear()
     ctx.tools_enabled = True
     tool_events._on_pre_tool_call(
         "terminal", {"command": "build", "background": True}, tool_call_id="call"
@@ -219,4 +225,4 @@ def test_post_tool_emits_background_and_completed_result_fields(monkeypatch):
     events.clear()
     renderer.settings.tools.show_completed = False
     tool_events._on_post_tool_call("read_file", result="ok")
-    assert events == []
+    assert [type(event) for event in events] == [DecisionEvent]

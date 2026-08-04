@@ -11,13 +11,20 @@ from typing import TYPE_CHECKING, Any, Protocol
 from ..models.state import (
     AssistantEvent,
     BackgroundJobEvent,
+    DecisionEvent,
     DelegateEvent,
     ReasoningEvent,
     SessionContext,
     ToolEvent,
 )
 from ..rendering.formatter import extract_todo_items, format_tool_line
+from .clarify import (
+    classify_clarify_result,
+    run_clarify_freeze_barrier,
+    run_clarify_resolution_bridge,
+)
 from .context import _context_for
+from .decision_events import build_tool_completion_record, build_tool_start_record
 from .environment import _update_environment_from_agent, _update_environment_from_terminal
 from .origin import _is_background_review_thread, _should_suppress_agent_progress
 
@@ -42,7 +49,12 @@ if TYPE_CHECKING:
 
 def _schedule_render(
     ctx: SessionContext,
-    event: ToolEvent | ReasoningEvent | AssistantEvent | DelegateEvent | BackgroundJobEvent,
+    event: ToolEvent
+    | ReasoningEvent
+    | AssistantEvent
+    | DelegateEvent
+    | DecisionEvent
+    | BackgroundJobEvent,
     *,
     force: bool = False,
 ) -> bool:
@@ -378,6 +390,23 @@ def _on_pre_tool_call(
     ctx = _context_for_non_background_thread(renderer, lookup_session_id, lookup_session_key)
     if ctx is None:
         return None
+    if getattr(ctx, "routing", ctx).strategy == "off":
+        return None
+    if tool_name == "clarify":
+        run_clarify_freeze_barrier(
+            ctx,
+            lambda guard: renderer.freeze_clarify(ctx, args or {}, guard.is_cancelled),
+        )
+        return None
+    _schedule_render(
+        ctx,
+        DecisionEvent(
+            ctx.session_id,
+            ctx.session_key,
+            ctx.platform,
+            build_tool_start_record(tool_name, args or {}, tool_call_id or ""),
+        ),
+    )
     if not getattr(ctx, "routing", ctx).tools_enabled:
         logger.debug(
             "hermes-progress-tail ignored tool event because tools disabled: tool=%s", tool_name
@@ -446,6 +475,23 @@ def _on_post_tool_call(
     ctx = _context_for_non_background_thread(renderer, lookup_session_id, lookup_session_key)
     if ctx is None:
         return None
+    if getattr(ctx, "routing", ctx).strategy == "off":
+        return None
+    if tool_name == "clarify":
+        status, answer = classify_clarify_result(result)
+        run_clarify_resolution_bridge(
+            ctx, lambda: renderer.resolve_clarify(ctx, status, answer=answer)
+        )
+        return None
+    _schedule_render(
+        ctx,
+        DecisionEvent(
+            ctx.session_id,
+            ctx.session_key,
+            ctx.platform,
+            build_tool_completion_record(tool_name, args or {}, result, tool_call_id or ""),
+        ),
+    )
     if not getattr(ctx, "routing", ctx).tools_enabled:
         logger.debug(
             "hermes-progress-tail ignored post-tool event because tools disabled: tool=%s",
