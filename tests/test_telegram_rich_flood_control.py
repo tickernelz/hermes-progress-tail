@@ -9,8 +9,8 @@ from hermes_progress_tail.monkeypatches import (
 from tests.support.telegram import FakeTelegramAdapter, SendResult
 
 
-def test_rich_edit_flood_control_falls_back_to_markdownv2(monkeypatch):
-    """Flood control on rich endpoint must fallback to MarkdownV2, not block."""
+def test_rich_edit_flood_control_fails_without_markdownv2_retry(monkeypatch):
+    """A rich edit flood must fail open without an immediate second API call."""
     parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
     monkeypatch.setitem(
         __import__("sys").modules,
@@ -34,15 +34,19 @@ def test_rich_edit_flood_control_falls_back_to_markdownv2(monkeypatch):
 
     result = asyncio.run(adapter.edit_message("123", "456", "**__Tools__**\n✓ done"))
 
-    assert result.success is True
+    assert result.success is False
+    assert result.message_id == "456"
+    assert result.retryable is True
+    assert "Flood control exceeded" in result.error
     adapter._bot.do_api_request.assert_awaited_once()
-    adapter._bot.edit_message_text.assert_awaited_once()
+    adapter._bot.edit_message_text.assert_not_awaited()
+    assert adapter.original_calls == []
     assert adapter._hermes_progress_tail_rich_disabled is True
     uninstall_telegram_format_monkeypatch(FakeTelegramAdapter)
 
 
-def test_rich_send_flood_control_falls_back_to_legacy_send(monkeypatch):
-    """Flood control on rich send must fallback to legacy send, not block."""
+def test_rich_send_flood_control_fails_without_legacy_retry(monkeypatch):
+    """A rich send flood must fail open without an immediate legacy retry."""
     parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
     monkeypatch.setitem(
         __import__("sys").modules,
@@ -76,19 +80,22 @@ def test_rich_send_flood_control_falls_back_to_legacy_send(monkeypatch):
 
     result = asyncio.run(adapter.send("123", "**bold content**"))
 
-    assert result.success is True
-    assert len(adapter.send_calls) >= 1
+    assert result.success is False
+    assert result.retryable is True
+    assert "Flood control exceeded" in result.error
+    assert adapter.send_calls == []
+    adapter._bot.do_api_request.assert_awaited_once()
     assert adapter._hermes_progress_tail_rich_disabled is True
     # Flood deadline must be set in the future
     assert adapter._hermes_progress_tail_rich_flood_until > 0
     uninstall_telegram_format_monkeypatch(LegacySendAdapter)
 
 
-def test_rich_send_flood_in_sendresult_triggers_fallback(monkeypatch):
+def test_rich_send_flood_in_sendresult_returns_failure_without_retry(monkeypatch):
     """Core adapter catches flood errors internally and returns a failed SendResult.
 
     The plugin must detect flood in the result's error string, latch rich off,
-    and return None so the caller falls back to legacy send.
+    and return the failure without invoking the legacy send path.
     """
     parse_mode = SimpleNamespace(MARKDOWN_V2="MarkdownV2")
     monkeypatch.setitem(
@@ -133,8 +140,10 @@ def test_rich_send_flood_in_sendresult_triggers_fallback(monkeypatch):
 
     result = asyncio.run(adapter.send("123", "**bold content**"))
 
-    assert result.success is True
-    assert len(adapter.send_calls) >= 1
+    assert result.success is False
+    assert result.retryable is True
+    assert "Flood control exceeded" in result.error
+    assert adapter.send_calls == []
     assert adapter._hermes_progress_tail_rich_disabled is True
     assert adapter._hermes_progress_tail_rich_flood_until > 0
     uninstall_telegram_format_monkeypatch(CoreFloodAdapter)
