@@ -32,6 +32,10 @@ _TELEGRAM_ORIGINALS: dict[type, Any] = {}; _TELEGRAM_SEND_ORIGINALS: dict[type, 
 _TELEGRAM_TOPIC_RECOVERY_ORIGINALS: dict[type, Any] = {}
 _TELEGRAM_PATCH_MARKER = "_hermes_progress_tail_telegram_format_patched"; _TELEGRAM_TOPIC_RECOVERY_PATCH_MARKER = "_hermes_progress_tail_telegram_topic_recovery_patched"  # noqa: E702  # fmt: skip
 
+# Legacy MarkdownV2 cap. Bot API 10.1 rich messages allow ~32k chars, but this
+# constant stays for the legacy fallback path and overflow pre-flight checks.
+LEGACY_MESSAGE_LIMIT = 4096
+
 
 def _runtime_telegram_settings(callbacks: HookCallbacks | None = None) -> Any:
     resolved = callbacks if callbacks is not None else current_hook_callbacks()
@@ -98,26 +102,15 @@ def _telegram_rich_fallback_error(exc: Exception) -> bool:
 
 
 def _is_flood_control(exc: Exception) -> bool:
-    text = str(exc).lower()
-    return (
-        "flood control" in text
-        or "retry after" in text
-        or "retry in" in text
-        or "too many requests" in text
-        or getattr(exc, "error_code", None) == 429
-    )
+    return _is_flood_control_str(str(exc)) or getattr(exc, "error_code", None) == 429
 
 
 def _flood_control_seconds(exc: Exception) -> float:
     """Extract server-requested cooldown from a Telegram flood error."""
-    text = str(exc).lower()
     retry_after = getattr(exc, "retry_after", None)
     if retry_after is not None:
         return min(float(retry_after), 600.0)
-    match = re.search(r"retry\s+(?:in\s+|after\s+)?(\d+)", text)
-    if match:
-        return min(float(match.group(1)), 600.0)
-    return 300.0
+    return _flood_control_seconds_str(str(exc))
 
 
 def _latch_rich_flood_off(adapter: Any, exc: Exception) -> None:
@@ -136,12 +129,9 @@ def _is_flood_control_str(text: str) -> bool:
 
 
 def _flood_control_seconds_str(text: str) -> float:
-    """Extract server-requested cooldown from a flood error string."""
     lower = str(text or "").lower()
     match = re.search(r"retry\s+(?:in\s+|after\s+)?(\d+)", lower)
-    if match:
-        return min(float(match.group(1)), 600.0)
-    return 300.0
+    return min(float(match.group(1)), 600.0) if match else 300.0
 
 
 def _latch_rich_flood_off_str(adapter: Any, error_text: str) -> None:
@@ -428,8 +418,16 @@ def _mutate_telegram_format_monkeypatch(
                 self, chat_id, message_id, content, finalize=finalize, metadata=metadata
             )
         try:
-            max_len = int(getattr(self, "MAX_MESSAGE_LENGTH", 4096) or 4096)
+            max_len = int(getattr(self, "MAX_MESSAGE_LENGTH", LEGACY_MESSAGE_LIMIT) or LEGACY_MESSAGE_LIMIT)  # fmt: skip
             if utf16_len(str(content or "")) > max_len:
+                # Over the legacy cap: try the rich path first (Bot API 10.1
+                # rich messages allow up to ~32k chars) before falling back to
+                # the adapter's own overflow handling (truncate/split).
+                rich_result = await _try_edit_rich_message(
+                    self, chat_id, message_id, content, SendResult, callbacks
+                )
+                if rich_result is not None:
+                    return rich_result
                 return await original_edit(
                     self, chat_id, message_id, content, finalize=finalize, metadata=metadata
                 )

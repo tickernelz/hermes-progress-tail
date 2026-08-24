@@ -68,16 +68,16 @@ class PatchSettings:
 @dataclass(frozen=True)
 class AssistantSettings:
     enabled: bool = True
-    max_lines: int = 3
-    max_chars: int = 500
+    max_lines: int = 30
+    max_chars: int = 5000
     min_update_chars: int = 160
 
 
 @dataclass(frozen=True)
 class ReasoningSettings:
     enabled: bool = True
-    max_lines: int = 3
-    max_chars: int = 600
+    max_lines: int = 30
+    max_chars: int = 6000
     min_update_chars: int = 300
     no_edit_strategy: str = "off"
 

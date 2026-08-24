@@ -397,7 +397,7 @@ def test_delivery_pure_boundaries():
     assert delivery._fit_message("abcdef", 2) == "ab"
     fitted = delivery._fit_message("abcdefghijklmnopqrstuvwxyz", 10)
     assert "\n…\n" in fitted and len(fitted) == 10
-    assert delivery._message_limit(ctx) == 4096
+    assert delivery._message_limit(ctx) == 30000
     ctx.platform = "discord"
     assert delivery._message_limit(ctx) == 0
     assert delivery._classify_edit_error("not modified") == "noop_success"

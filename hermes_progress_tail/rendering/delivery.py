@@ -442,7 +442,11 @@ def _fit_message(content: str, limit: int) -> str:
 
 def _message_limit(ctx: SessionContext) -> int:
     if ctx.platform == "telegram":
-        return 4096
+        # Bot API 10.1 rich messages cap raw markdown at 32,768 chars; keep a
+        # safety margin below it so formatting expansion still fits. The
+        # Telegram send/edit monkeypatch tries the rich path first and falls
+        # back to the 4096 legacy path automatically.
+        return 30000
     return 0
 
 

@@ -38,14 +38,14 @@ DEFAULT_CONFIG = {
     },
     "assistant": {
         "enabled": True,
-        "max_lines": 3,
-        "max_chars": 500,
+        "max_lines": 30,
+        "max_chars": 5000,
         "min_update_chars": 160,
     },
     "reasoning": {
         "enabled": True,
-        "max_lines": 3,
-        "max_chars": 600,
+        "max_lines": 30,
+        "max_chars": 6000,
         "min_update_chars": 300,
         "no_edit_strategy": "off",
     },
