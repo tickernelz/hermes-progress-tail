@@ -462,7 +462,7 @@ def _on_post_tool_call(
     runtime_plugin = _runtime_provider
     renderer = runtime_plugin.get_renderer()
     agent, messages = _resolve_tool_agent(agent, tool_name, session_id, task_id, tool_call_id)
-    if _should_suppress_agent_progress(agent):
+    if _should_suppress_agent_progress(agent) or _is_background_review_thread():
         logger.debug(
             "hermes-progress-tail ignored background-review post-tool event: tool=%s thread=%s",
             tool_name,
