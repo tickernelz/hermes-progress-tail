@@ -5,7 +5,7 @@ from hermes_progress_tail.settings.types import RendererSettings, Settings
 
 
 def test_renderer_rollover_has_canonical_default_and_loads_valid_minutes():
-    assert RendererSettings().message_rollover_minutes == 5
+    assert RendererSettings().message_rollover_minutes == 20
     loaded = loading.load_settings(
         {"progress_tail": {"renderer": {"message_rollover_minutes": "7"}}}
     )
@@ -27,7 +27,7 @@ def test_renderer_rollover_invalid_values_fall_back_to_canonical_default():
         False,
     ):
         raw = {"progress_tail": {"renderer": {"message_rollover_minutes": invalid}}}
-        assert loading.load_settings(raw).renderer.message_rollover_minutes == 5
+        assert loading.load_settings(raw).renderer.message_rollover_minutes == 20
 
 
 def test_loading_constructs_every_section_from_current_config():

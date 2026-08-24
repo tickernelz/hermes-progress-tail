@@ -146,8 +146,8 @@ def test_advanced_rollover_prompt_uses_canonical_default(monkeypatch):
 
     monkeypatch.setattr(interactive, "_prompt", default_prompt)
     overrides = interactive._advanced_install_overrides(SimpleNamespace())
-    assert overrides["renderer"]["message_rollover_minutes"] == 5
-    assert "Progress message rollover minutes [5]: " in rendered_prompts
+    assert overrides["renderer"]["message_rollover_minutes"] == 20
+    assert "Progress message rollover minutes [20]: " in rendered_prompts
 
 
 def test_advanced_rollover_prompt_rejects_zero(monkeypatch):

@@ -52,7 +52,8 @@ def test_malformed_platform_map_and_override_fall_back_to_defaults() -> None:
     with pytest.raises(AttributeError):
         resolve_platform_settings(malformed_map, "discord")
     assert resolve_platform_settings(malformed_override, "discord") == PlatformSettings(
-        show_completed=True
+        edit_interval=15.0,
+        show_completed=True,
     )
 
 

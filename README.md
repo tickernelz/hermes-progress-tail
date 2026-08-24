@@ -33,7 +33,7 @@ Compact Hermes gateway plugin for live progress tails.
 Installing or updating requires Python 3.12 or newer. During the compatibility-removal window, uninstall remains available with the previously supported Python 3.10 and 3.11 (and newer); `python3` is still required.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.12/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.13/install.sh | bash
 ```
 
 Restart Hermes manually after install/update:
@@ -45,7 +45,7 @@ Restart Hermes manually after install/update:
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.12/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.13/uninstall.sh | bash
 ```
 
 By default, the installer is interactive and asks for target profile plus setup depth. It never restarts Hermes automatically.
@@ -61,16 +61,16 @@ Use environment variables for automation:
 - `HPT_TELEGRAM_FLOOD_SAFE=1` — rewrite Telegram progress-tail cadence to safer values while keeping rich messages enabled.
 - `HERMES_HOME=/path/to/.hermes` — target a custom Hermes home.
 - `HPT_REPO=owner/repo` — download from another GitHub repo.
-- `HPT_REF=v0.2.12` — download a specific tag/branch/ref.
+- `HPT_REF=v0.2.13` — download a specific tag/branch/ref.
 - `HPT_SOURCE_DIR=/path/to/repo` — install from a local checkout instead of downloading.
 
 Examples:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.12/install.sh | env HPT_INTERACTIVE=0 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.12/install.sh | env HPT_DRY_RUN=1 bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.12/install.sh | env HPT_PROFILES=work,personal bash
-curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.12/install.sh | env HPT_ALL_PROFILES=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.13/install.sh | env HPT_INTERACTIVE=0 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.13/install.sh | env HPT_DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.13/install.sh | env HPT_PROFILES=work,personal bash
+curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.13/install.sh | env HPT_ALL_PROFILES=1 bash
 ```
 
 Local checkout install:
@@ -153,7 +153,7 @@ progress_tail:
     head_lines: 2
     tail_lines: 3
     max_line_chars: 120
-    update_interval_seconds: 10
+    update_interval_seconds: 30
     suppress_native_notify: true
     suppress_watch_notifications: true
 
@@ -182,8 +182,8 @@ progress_tail:
 
   renderer:
     strategy: auto
-    edit_interval: 5.0
-    message_rollover_minutes: 5
+    edit_interval: 15.0
+    message_rollover_minutes: 20
     stale_ttl_seconds: 900
     redact_secrets: true
     mode: sectioned # focused|sectioned
@@ -192,7 +192,7 @@ progress_tail:
     agent_label: "" # optional label for focused HUD header, e.g. Akbar
 
   no_edit:
-    interval_seconds: 30
+    interval_seconds: 60
     min_new_events: 3
     final_summary: true
     max_snapshots_per_turn: 5
@@ -223,7 +223,7 @@ Turn lifecycle is internal: completed progress bubbles stay visible, but new use
 /progresstail jobs
 /progresstail update --dry-run
 /progresstail update --apply
-/progresstail update --apply --ref v0.2.12
+/progresstail update --apply --ref v0.2.13
 /progresstail config cleanup --dry-run
 /progresstail config cleanup --apply
 /progresstail demo

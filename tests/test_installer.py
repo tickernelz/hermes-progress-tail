@@ -47,12 +47,12 @@ def test_install_copies_plugin_and_updates_config(tmp_path):
     assert config["progress_tail"]["reasoning"]["min_update_chars"] == 300
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
     assert config["progress_tail"]["renderer"]["density"] == "normal"
-    assert config["progress_tail"]["renderer"]["edit_interval"] == 5.0
+    assert config["progress_tail"]["renderer"]["edit_interval"] == 15.0
     assert config["progress_tail"]["renderer"]["agent_label"] == ""
     assert config["progress_tail"]["footer"]["enabled"] is True
     assert config["progress_tail"]["footer"]["density"] == "normal"
     assert config["progress_tail"]["footer"]["max_path_chars"] == 56
-    assert config["progress_tail"]["background_jobs"]["update_interval_seconds"] == 10
+    assert config["progress_tail"]["background_jobs"]["update_interval_seconds"] == 30
     assert config["progress_tail"]["cleanup"]["auto_delete"] is False
     assert config["progress_tail"]["telegram"]["rich_messages"] is True
     assert "default_notify_on_complete" not in config["progress_tail"]["background_jobs"]
@@ -189,7 +189,7 @@ def test_install_merges_new_default_keys_without_overwriting_existing_values(tmp
     assert config["progress_tail"]["renderer"]["strategy"] == "live_tail"
     assert config["progress_tail"]["renderer"]["style"] == "emoji"
     assert config["progress_tail"]["renderer"]["density"] == "normal"
-    assert config["progress_tail"]["renderer"]["edit_interval"] == 5.0
+    assert config["progress_tail"]["renderer"]["edit_interval"] == 15.0
     assert config["progress_tail"]["renderer"]["agent_label"] == ""
     assert any("progress_tail.todo" in message for message in result.messages)
     assert any(
@@ -234,10 +234,10 @@ def test_install_flood_safe_overrides_existing_telegram_cadence(tmp_path):
     progress_tail = config["progress_tail"]
     assert progress_tail["assistant"]["min_update_chars"] == 160
     assert progress_tail["reasoning"]["min_update_chars"] == 300
-    assert progress_tail["background_jobs"]["update_interval_seconds"] == 10
+    assert progress_tail["background_jobs"]["update_interval_seconds"] == 30
     assert progress_tail["cleanup"]["auto_delete"] is False
     assert progress_tail["telegram"]["rich_messages"] is True
-    assert progress_tail["renderer"]["edit_interval"] == 5.0
+    assert progress_tail["renderer"]["edit_interval"] == 15.0
     assert progress_tail["renderer"]["density"] == "normal"
     assert result.changed is True
 

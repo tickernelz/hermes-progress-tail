@@ -102,7 +102,7 @@ def test_legacy_missing_values_use_settings_defaults():
         "assistant": {},
         "renderer": {
             "strategy": "auto",
-            "edit_interval": 5.0,
+            "edit_interval": 15.0,
             "stale_ttl_seconds": 900,
             "redact_secrets": True,
         },
@@ -148,7 +148,7 @@ def test_bare_mapping_is_supported_and_deep_copied():
                 "assistant": {},
                 "renderer": {
                     "strategy": "auto",
-                    "edit_interval": 5.0,
+                    "edit_interval": 15.0,
                     "stale_ttl_seconds": 900,
                     "redact_secrets": True,
                 },

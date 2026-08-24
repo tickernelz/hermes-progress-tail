@@ -241,9 +241,9 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
         "density": _prompt_choice(
             "Renderer density", ("compact", "normal", "verbose", "debug"), "normal", input_stream
         ),
-        "edit_interval": _prompt_float("Minimum seconds between live edits", 5.0, input_stream),
+        "edit_interval": _prompt_float("Minimum seconds between live edits", 15.0, input_stream),
         "message_rollover_minutes": _prompt_int(
-            "Progress message rollover minutes", 5, input_stream, min_value=1
+            "Progress message rollover minutes", 20, input_stream, min_value=1
         ),
         "stale_ttl_seconds": _prompt_int("Stale session TTL seconds", 900, input_stream),
         "redact_secrets": _confirm("Redact common secrets before rendering", True, input_stream),
@@ -251,7 +251,7 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
 
     print("\nNo-edit platform snapshots")
     no_edit = {
-        "interval_seconds": _prompt_int("Snapshot interval seconds", 30, input_stream),
+        "interval_seconds": _prompt_int("Snapshot interval seconds", 60, input_stream),
         "min_new_events": _prompt_int("Minimum new events before snapshot", 3, input_stream),
         "final_summary": _confirm("Send final snapshot summary", True, input_stream),
         "max_snapshots_per_turn": _prompt_int("Maximum snapshots per turn", 5, input_stream),

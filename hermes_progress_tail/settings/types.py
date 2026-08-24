@@ -92,7 +92,7 @@ class BackgroundJobSettings:
     head_lines: int = 2
     tail_lines: int = 3
     max_line_chars: int = 120
-    update_interval_seconds: int = 10
+    update_interval_seconds: int = 30
     suppress_native_notify: bool = True
     suppress_watch_notifications: bool = True
     default_notify_on_complete: bool = False
@@ -133,7 +133,7 @@ class TelegramSettings:
 class LegacyDefaultSettings:
     lines: int = 3
     preview_length: int = 120
-    edit_interval: float = 5.0
+    edit_interval: float = 15.0
     stale_ttl_seconds: int = 900
     redact_secrets: bool = True
     show_completed: bool = False
@@ -142,8 +142,8 @@ class LegacyDefaultSettings:
 @dataclass(frozen=True)
 class RendererSettings:
     strategy: str = "auto"
-    edit_interval: float = 5.0
-    message_rollover_minutes: int = 5
+    edit_interval: float = 15.0
+    message_rollover_minutes: int = 20
     stale_ttl_seconds: int = 900
     redact_secrets: bool = True
     mode: str = "sectioned"
@@ -154,7 +154,7 @@ class RendererSettings:
 
 @dataclass(frozen=True)
 class NoEditSettings:
-    interval_seconds: int = 30
+    interval_seconds: int = 60
     min_new_events: int = 3
     final_summary: bool = True
     max_snapshots_per_turn: int = 5

@@ -23,11 +23,11 @@ def test_curl_install_commands_are_documented():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     assert (
-        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.12/install.sh | bash"
+        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.13/install.sh | bash"
         in readme
     )
     assert (
-        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.12/uninstall.sh | bash"
+        "curl -fsSL https://raw.githubusercontent.com/tickernelz/hermes-progress-tail/v0.2.13/uninstall.sh | bash"
         in readme
     )
 
@@ -76,8 +76,8 @@ def test_readme_documents_assistant_platforms_and_config_doctor_warnings():
     assert "assistant:" in readme
     assert "min_update_chars: 160" in readme
     assert "min_update_chars: 300" in readme
-    assert "edit_interval: 5.0" in readme
-    assert "update_interval_seconds: 10" in readme
+    assert "edit_interval: 15.0" in readme
+    assert "update_interval_seconds: 30" in readme
     assert "auto_delete: false" in readme
     assert "rich_messages: true" in readme
     assert "platforms:" in readme
@@ -165,7 +165,7 @@ def test_install_script_applies_telegram_flood_safe_env(tmp_path):
 
     assert "Updated plugin" in result.stdout or "Installed plugin" in result.stdout
     config = config_path.read_text(encoding="utf-8")
-    assert "edit_interval: 5.0" in config
+    assert "edit_interval: 15.0" in config
     assert "density: normal" in config
     assert "auto_delete: false" in config
     assert "rich_messages: true" in config

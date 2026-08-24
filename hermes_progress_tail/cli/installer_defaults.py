@@ -58,7 +58,7 @@ DEFAULT_CONFIG = {
         "head_lines": 2,
         "tail_lines": 3,
         "max_line_chars": 120,
-        "update_interval_seconds": 10,
+        "update_interval_seconds": 30,
         "suppress_native_notify": True,
         "suppress_watch_notifications": True,
     },
@@ -87,8 +87,8 @@ DEFAULT_CONFIG = {
     },
     "renderer": {
         "strategy": "auto",
-        "edit_interval": 5.0,
-        "message_rollover_minutes": 5,
+        "edit_interval": 15.0,
+        "message_rollover_minutes": 20,
         "stale_ttl_seconds": 900,
         "redact_secrets": True,
         "mode": "sectioned",
@@ -97,7 +97,7 @@ DEFAULT_CONFIG = {
         "agent_label": "",
     },
     "no_edit": {
-        "interval_seconds": 30,
+        "interval_seconds": 60,
         "min_new_events": 3,
         "final_summary": True,
         "max_snapshots_per_turn": 5,
@@ -112,7 +112,7 @@ TELEGRAM_FLOOD_SAFE_CONFIG = {
         "min_update_chars": 300,
     },
     "background_jobs": {
-        "update_interval_seconds": 10,
+        "update_interval_seconds": 30,
     },
     "cleanup": {
         "auto_delete": False,
@@ -121,7 +121,7 @@ TELEGRAM_FLOOD_SAFE_CONFIG = {
         "rich_messages": True,
     },
     "renderer": {
-        "edit_interval": 5.0,
+        "edit_interval": 15.0,
         "density": "normal",
     },
 }

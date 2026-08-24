@@ -84,8 +84,8 @@ def test_readme_and_installer_examples_match_canonical_settings():
     readme = _read_readme_config()
     readme.pop("platforms", None)
     assert readme == _applicable_canonical(readme, canonical)
-    assert DEFAULT_CONFIG["renderer"]["message_rollover_minutes"] == 5
-    assert readme["renderer"]["message_rollover_minutes"] == 5
+    assert DEFAULT_CONFIG["renderer"]["message_rollover_minutes"] == 20
+    assert readme["renderer"]["message_rollover_minutes"] == 20
     assert "message_rollover_minutes" in PROGRESS_TAIL_CONFIG_CONTRACT["renderer"]
 
 

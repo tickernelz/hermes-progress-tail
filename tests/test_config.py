@@ -8,7 +8,7 @@ def test_load_settings_defaults():
     assert settings.enabled is True
     assert settings.defaults.lines == 3
     assert settings.defaults.preview_length == 120
-    assert settings.no_edit.interval_seconds == 30
+    assert settings.no_edit.interval_seconds == 60
     assert settings.tools.timestamp is True
     assert settings.tools.timestamp_format == "%H:%M"
     assert settings.todo.sticky is True
@@ -28,7 +28,7 @@ def test_load_settings_defaults():
     assert not hasattr(settings.reasoning, "capture_inline_think_tags")
     assert settings.renderer.style == "emoji"
     assert settings.renderer.density == "normal"
-    assert settings.renderer.edit_interval == 5.0
+    assert settings.renderer.edit_interval == 15.0
     assert settings.renderer.agent_label == ""
     assert (
         load_settings({"progress_tail": {"renderer": {"density": "verbose"}}}).renderer.density
@@ -40,7 +40,7 @@ def test_load_settings_defaults():
     assert settings.background_jobs.suppress_native_notify is True
     assert settings.background_jobs.max_jobs == 4
     assert settings.background_jobs.completed_ttl_seconds == 5
-    assert settings.background_jobs.update_interval_seconds == 10
+    assert settings.background_jobs.update_interval_seconds == 30
     assert settings.cleanup.auto_delete is False
     assert settings.cleanup.delay_seconds == 5
     assert settings.cleanup.delete_on_success is True
@@ -158,5 +158,5 @@ def test_invalid_values_fall_back_safely():
 
     assert settings.defaults.lines == 3
     assert settings.defaults.preview_length == 120
-    assert settings.defaults.edit_interval == 5.0
+    assert settings.defaults.edit_interval == 15.0
     assert resolve_platform_settings(settings, "sms").strategy == "off"
