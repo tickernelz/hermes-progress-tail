@@ -189,14 +189,63 @@ def test_invalid_budget_setting_falls_back_to_the_default():
     assert markdown_byte_length(guarded) <= BUDGET
 
 
-def test_guard_runs_on_both_rich_paths():
-    """Both send and edit funnel through the guarded seam."""
-    import inspect
+class _SendResult:
+    def __init__(self, success: bool = True, message_id: str = "1", **kwargs: object) -> None:
+        self.success = success
+        self.message_id = message_id
+        self.error = kwargs.get("error")
+
+
+class _CapturingBot:
+    """Stands in for the PTB bot on the edit path."""
+
+    def __init__(self) -> None:
+        self.transmitted: str | None = None
+
+    async def do_api_request(self, method: str, api_kwargs: dict) -> None:
+        self.transmitted = api_kwargs["rich_message"]["markdown"]
+
+
+class _CapturingAdapter:
+    """Stands in for the Hermes Telegram adapter on the send path."""
+
+    def __init__(self) -> None:
+        self._hermes_progress_tail_rich_messages = True
+        self._bot = _CapturingBot()
+        self.transmitted: str | None = None
+
+    async def _try_send_rich(
+        self, chat_id: str, markdown: str, reply_to: object, metadata: object
+    ) -> _SendResult:
+        self.transmitted = markdown
+        return _SendResult()
+
+
+def test_send_path_transmits_within_budget():
+    """The bytes actually handed to the adapter respect the cap."""
+    import asyncio
 
     from hermes_progress_tail.hooks import telegram as telegram_hooks
 
-    for func in (
-        telegram_hooks._try_edit_rich_message,
-        telegram_hooks._try_send_rich_message,
-    ):
-        assert "_telegram_rich_markdown(" in inspect.getsource(func)
+    adapter = _CapturingAdapter()
+    asyncio.run(telegram_hooks._try_send_rich_message(adapter, "1", _oversized_card(), _SendResult))
+
+    assert adapter.transmitted is not None
+    assert markdown_byte_length(adapter.transmitted) <= BUDGET
+    # The unguarded render of the same card really is over budget.
+    assert markdown_byte_length(_render(_oversized_card())) > BUDGET
+
+
+def test_edit_path_transmits_within_budget():
+    """The edit payload is capped too, not just the send payload."""
+    import asyncio
+
+    from hermes_progress_tail.hooks import telegram as telegram_hooks
+
+    adapter = _CapturingAdapter()
+    asyncio.run(
+        telegram_hooks._try_edit_rich_message(adapter, "1", "2", _oversized_card(), _SendResult)
+    )
+
+    assert adapter._bot.transmitted is not None
+    assert markdown_byte_length(adapter._bot.transmitted) <= BUDGET
