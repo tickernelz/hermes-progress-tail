@@ -179,6 +179,12 @@ def _build_telegram(raw: dict[str, Any], defaults: TelegramSettings) -> Telegram
         collapse_narrative_chars=as_int(
             raw.get("collapse_narrative_chars"), defaults.collapse_narrative_chars, min_value=0
         ),
+        rich_budget_bytes=as_int(
+            raw.get("rich_budget_bytes"), defaults.rich_budget_bytes, min_value=0
+        ),
+        min_narrative_chars=as_int(
+            raw.get("min_narrative_chars"), defaults.min_narrative_chars, min_value=0
+        ),
     )
 
 

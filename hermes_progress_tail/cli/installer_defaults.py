@@ -39,13 +39,13 @@ DEFAULT_CONFIG = {
     "assistant": {
         "enabled": True,
         "max_lines": 80,
-        "max_chars": 9000,
+        "max_chars": 2500,
         "min_update_chars": 160,
     },
     "reasoning": {
         "enabled": True,
         "max_lines": 80,
-        "max_chars": 12000,
+        "max_chars": 3000,
         "min_update_chars": 300,
         "no_edit_strategy": "off",
     },
@@ -85,6 +85,8 @@ DEFAULT_CONFIG = {
         "compact_success": True,
         "max_detail_items": 8,
         "collapse_narrative_chars": 1200,
+        "rich_budget_bytes": 7500,
+        "min_narrative_chars": 300,
     },
     "renderer": {
         "strategy": "auto",

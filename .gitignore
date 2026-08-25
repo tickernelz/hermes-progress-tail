@@ -36,6 +36,7 @@ Thumbs.db
 .hermes/
 .superpowers/
 docs/superpowers/
+.scratch/
 .worktrees/
 manual-backups/
 backups/

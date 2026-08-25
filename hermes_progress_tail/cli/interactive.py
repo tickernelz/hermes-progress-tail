@@ -203,7 +203,7 @@ def _advanced_install_overrides(input_stream: Any = sys.stdin) -> dict[str, Any]
     reasoning = {
         "enabled": _confirm("Enable reasoning/thinking tail", True, input_stream),
         "max_lines": _prompt_int("Reasoning max lines", 80, input_stream),
-        "max_chars": _prompt_int("Reasoning max characters", 12000, input_stream, min_value=80),
+        "max_chars": _prompt_int("Reasoning max characters", 3000, input_stream, min_value=80),
         "min_update_chars": _prompt_int(
             "Reasoning minimum new characters before edit", 300, input_stream
         ),

@@ -69,7 +69,7 @@ class PatchSettings:
 class AssistantSettings:
     enabled: bool = True
     max_lines: int = 80
-    max_chars: int = 9000
+    max_chars: int = 2500
     min_update_chars: int = 160
 
 
@@ -77,7 +77,7 @@ class AssistantSettings:
 class ReasoningSettings:
     enabled: bool = True
     max_lines: int = 80
-    max_chars: int = 12000
+    max_chars: int = 3000
     min_update_chars: int = 300
     no_edit_strategy: str = "off"
 
@@ -128,6 +128,8 @@ class TelegramSettings:
     compact_success: bool = True
     max_detail_items: int = 8
     collapse_narrative_chars: int = 1200
+    rich_budget_bytes: int = 7500
+    min_narrative_chars: int = 300
 
 
 @dataclass(frozen=True)

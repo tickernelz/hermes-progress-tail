@@ -9,9 +9,12 @@ from contextlib import suppress
 from functools import wraps
 from typing import Any
 
-from ..rendering.telegram_rich import (
-    format_progress_tail_telegram_rich_markdown,
+from ..rendering.telegram_rich import (  # re-exported for hooks.monkeypatches
+    format_progress_tail_telegram_rich_markdown,  # noqa: F401  (re-export only, NOT a patch seam)
     telegram_rich_message_payload,
+)
+from ..rendering.telegram_rich_budget import (
+    guarded_rich_markdown,
 )
 from .contracts import HookCallbacks, current_hook_callbacks
 from .install_report import PatchStatus
@@ -64,16 +67,7 @@ def _telegram_rich_enabled(adapter: Any, callbacks: HookCallbacks | None = None)
 
 
 def _telegram_rich_markdown(content: str, callbacks: HookCallbacks | None = None) -> str:
-    settings = _runtime_telegram_settings(callbacks)
-    return format_progress_tail_telegram_rich_markdown(
-        content,
-        max_table_rows=getattr(settings, "max_table_rows", 8),
-        verification_table=getattr(settings, "verification_table", True),
-        thinking_blocks=getattr(settings, "thinking_blocks", True),
-        compact_success=getattr(settings, "compact_success", True),
-        max_detail_items=getattr(settings, "max_detail_items", 8),
-        collapse_narrative_chars=getattr(settings, "collapse_narrative_chars", 1200),
-    )
+    return guarded_rich_markdown(content, _runtime_telegram_settings(callbacks))
 
 
 def _bot_supports_rich_edit(bot: Any) -> bool:

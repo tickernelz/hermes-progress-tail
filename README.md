@@ -134,13 +134,13 @@ progress_tail:
   assistant:
     enabled: true
     max_lines: 80
-    max_chars: 9000
+    max_chars: 2500
     min_update_chars: 160
 
   reasoning:
     enabled: true
     max_lines: 80
-    max_chars: 12000
+    max_chars: 3000
     min_update_chars: 300
     no_edit_strategy: "off"
 
@@ -180,6 +180,8 @@ progress_tail:
     compact_success: true
     max_detail_items: 8
     collapse_narrative_chars: 1200 # collapse Progress/Reasoning past this size into a tappable <details> block; 0 disables
+    rich_budget_bytes: 7500 # hard UTF-8 byte budget for a rich card; keeps Telegram from collapsing it behind "Show more"
+    min_narrative_chars: 300 # never shrink Progress/Reasoning below this when fitting the byte budget
 
   renderer:
     strategy: auto
