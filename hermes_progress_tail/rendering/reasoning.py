@@ -538,12 +538,16 @@ def _cap_chars(text: str, max_chars: int, *, preserve_first_line: bool = False) 
         return text
     lines = text.splitlines()
     if len(lines) > 1 and preserve_first_line:
+        # Keep the heading plus the NEWEST body tail. Streaming appends land at
+        # the end, so a head-anchored cut would freeze the visible text at stale
+        # content while live reasoning keeps moving (progress-tail must show the
+        # tail — that is the product's name and contract).
         heading = lines[0].strip()
         budget = max_chars - len(heading) - 1
         if budget <= 3:
             return truncate_tail_text(text, max_chars)
         body = "\n".join(lines[1:]).strip()
-        return heading + "\n" + truncate_to_sentence_boundary(body, budget)
+        return heading + "\n" + truncate_tail_text(body, budget)
     return truncate_tail_text(text, max_chars)
 
 

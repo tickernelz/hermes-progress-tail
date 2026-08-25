@@ -166,9 +166,8 @@ I'm considering the model-level fields for cancellation requests, such as cancel
     rendered = render_reasoning_tail(text, max_lines=3, max_chars=260, redact=False)
 
     assert rendered.startswith("**Planning cancellation metadata**\n")
-    assert rendered.endswith("...")
-    assert not rendered.endswith("I ")
-    assert "The engine might store" not in rendered or not rendered.endswith("I ")
+    # Tail-anchored cap: the newest streamed content must survive.
+    assert rendered.rstrip().endswith("not overfit the first workflow.")
 
 
 def test_gpt55_live_reasoning_buffer_preserves_heading_when_max_chars_truncates():
@@ -200,7 +199,7 @@ The first sentence is intentionally long enough that it needs capping but the ma
     rendered = render_reasoning_tail(text, max_lines=3, max_chars=105, redact=False)
 
     assert rendered.startswith("Planning cancellation metadata\n")
-    assert rendered.endswith("...")
+    assert "raw tail mode." in rendered
 
 
 def test_capped_colon_heading_reasoning_preserves_heading():
@@ -213,7 +212,7 @@ The first sentence is intentionally long enough that it needs capping but the co
     rendered = render_reasoning_tail(text, max_lines=3, max_chars=105, redact=False)
 
     assert rendered.startswith("Planning cancellation metadata\n")
-    assert rendered.endswith("...")
+    assert "raw tail mode." in rendered
 
 
 def test_plain_multiline_reasoning_keeps_raw_tail_when_capped():

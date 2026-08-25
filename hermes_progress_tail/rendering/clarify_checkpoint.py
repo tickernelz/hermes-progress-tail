@@ -24,6 +24,8 @@ _ANSWER_BUDGET = 240
 _TERMINAL_RESERVE = 300
 _QUESTION_BUDGET = 620
 _CHOICE_BUDGET = 320
+_LIVE_REASONING_LINES = 24
+_LIVE_PROGRESS_LINES = 10
 _ELLIPSIS = "…"
 
 
@@ -92,6 +94,47 @@ def _records(ctx: Any, budget: int) -> tuple[DecisionRecord, ...]:
     return tuple(sorted(selected, key=lambda item: item.created_at))
 
 
+def _live_context_sections(ctx: Any, budget: int) -> list[str]:
+    """Render live reasoning + assistant progress as checkpoint context.
+
+    Tool records alone cannot explain WHY the agent is asking. The reasoning
+    trail and the assistant progress narration carry that story; both are
+    already redacted upstream and bounded here so the question stays visible.
+    """
+    sections: list[str] = []
+
+    def push(title: str, body: str) -> None:
+        body = " ".join(str(body or "").split())
+        if not body:
+            return
+        remaining = budget - sum(len(section) for section in sections)
+        if remaining <= 40:
+            return
+        sections.append(f"{title}\n{_preview(body, max(40, remaining))}")
+
+    try:
+        from .reasoning import render_reasoning_tail
+
+        reasoning = render_reasoning_tail(
+            ctx.reasoning.text,
+            max_lines=_LIVE_REASONING_LINES,
+            max_chars=max(400, budget // 3),
+            redact=True,
+        )
+        if reasoning:
+            push("Reasoning", reasoning.replace("\n", " "))
+    except Exception:
+        pass
+    try:
+        lines = [line.text.strip() for line in ctx.assistant.lines if line.text.strip()]
+        progress = " ".join(" ".join(lines[-_LIVE_PROGRESS_LINES:]).split())
+        if progress:
+            push("Progress", progress)
+    except Exception:
+        pass
+    return sections
+
+
 def _sections(records: tuple[DecisionRecord, ...]) -> list[str]:
     groups = (
         ("Context so far", {"assistant", "warning"}),
@@ -117,8 +160,11 @@ def _fit_checkpoint(ctx: Any, normalized: NormalizedClarify, sequence: int) -> s
     if choice_lines:
         fixed.append("Choices\n" + "\n".join(choice_lines))
     base = "\n\n".join(fixed)
-    records = _records(ctx, max(0, _SOURCE_BUDGET - _TERMINAL_RESERVE - len(base) - 6))
-    return "\n\n".join([base, *_sections(records)])
+    records_budget = max(0, _SOURCE_BUDGET - _TERMINAL_RESERVE - len(base) - 6)
+    live_sections = _live_context_sections(ctx, max(0, records_budget // 2))
+    used_live = sum(len(section) for section in live_sections)
+    records = _records(ctx, max(0, records_budget - used_live - 6))
+    return "\n\n".join([base, *live_sections, *_sections(records)])
 
 
 def compose_checkpoint(ctx: Any, args: Mapping[str, Any] | Any, sequence: int) -> str | None:
