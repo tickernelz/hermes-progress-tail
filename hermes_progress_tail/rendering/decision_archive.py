@@ -5,9 +5,9 @@ import re
 from ..models.decision import DecisionRecord, DecisionState
 from ..utils.redaction import redact_text
 
-_ARCHIVE_CAPACITY = 24
-_MAX_RECORD_CHARS = 360
-_MAX_RENDERED_RECORDS = 12
+_ARCHIVE_CAPACITY = 48
+_MAX_RECORD_CHARS = 1200
+_MAX_RENDERED_RECORDS = 24
 _ELLIPSIS = " … "
 _IDENTIFIERS = re.compile(r"\b[A-Za-z][A-Za-z0-9_-]*_id\s*=\s*\S+", re.IGNORECASE)
 _PATHS = re.compile(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+")

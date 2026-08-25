@@ -14,7 +14,10 @@ from hermes_progress_tail.models.decision import (
 )
 from hermes_progress_tail.models.events import DecisionEvent, ProgressEvent, ToolEvent
 from hermes_progress_tail.models.state import SessionContext
-from hermes_progress_tail.rendering.decision_archive import DecisionArchive
+from hermes_progress_tail.rendering.decision_archive import (
+    _MAX_RECORD_CHARS,
+    DecisionArchive,
+)
 
 
 def record(identity, created_at, *, text=None, priority=10, kind="tool"):
@@ -76,7 +79,7 @@ def test_archive_redacts_compacts_and_bounds_ingested_records():
     assert "sk-abcdefghijklmnopqrstuvwxyz" not in stored.text
     assert "[redacted_env]" in stored.text
     assert path in stored.text
-    assert len(stored.text) <= 360
+    assert len(stored.text) <= _MAX_RECORD_CHARS
     assert "  " not in stored.text
 
 
@@ -85,7 +88,7 @@ def test_archive_preserves_a_path_even_when_it_is_not_in_the_final_tail():
     path = "src/decision/checkpoint.py"
     archive.upsert(state, record("path", 1.0, text=("prefix " * 40) + path + (" suffix" * 80)))
     assert path in state.records[0].text
-    assert len(state.records[0].text) <= 360
+    assert len(state.records[0].text) <= _MAX_RECORD_CHARS
 
 
 def test_archive_preserves_identifier_outside_retained_head_and_tail():
@@ -96,14 +99,14 @@ def test_archive_preserves_identifier_outside_retained_head_and_tail():
         record("identifier", 1.0, text=("prefix " * 60) + identifier + (" suffix" * 80)),
     )
     assert identifier in state.records[0].text
-    assert len(state.records[0].text) <= 360
+    assert len(state.records[0].text) <= _MAX_RECORD_CHARS
 
 
 def test_archive_bounding_overlong_preserved_path_never_exceeds_record_cap():
     archive, state = DecisionArchive(), DecisionState()
     path = "src/" + ("verylongcomponent" * 30) + ".py"
     archive.upsert(state, record("overlong-path", 1.0, text=("prefix " * 40) + path))
-    assert len(state.records[0].text) <= 360
+    assert len(state.records[0].text) <= _MAX_RECORD_CHARS
 
 
 def test_upsert_replaces_identity_without_growth_and_reorders_by_replacement_time():

@@ -133,14 +133,14 @@ progress_tail:
 
   assistant:
     enabled: true
-    max_lines: 30
-    max_chars: 5000
+    max_lines: 80
+    max_chars: 9000
     min_update_chars: 160
 
   reasoning:
     enabled: true
-    max_lines: 30
-    max_chars: 6000
+    max_lines: 80
+    max_chars: 12000
     min_update_chars: 300
     no_edit_strategy: "off"
 

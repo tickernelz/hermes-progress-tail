@@ -11,7 +11,7 @@ from ..rendering.event_reducer import EventReducer
 from ..rendering.formatter import extract_todo_items, format_tool_line, summarize_todo_items
 from ..utils.redaction import redact_text
 
-_MAX_TEXT = 360
+_MAX_TEXT = 1200
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _VERIFYING = re.compile(

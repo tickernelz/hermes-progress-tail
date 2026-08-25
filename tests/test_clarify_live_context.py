@@ -58,6 +58,62 @@ def test_checkpoint_includes_live_reasoning_and_progress_context():
     assert "progress note" in text, "assistant progress history must appear"
 
 
+def test_saturated_checkpoint_keeps_newest_reasoning_progress_and_fits_rich_limit():
+    """A fully saturated checkpoint must still deliver newest context.
+
+    Regression: budgets sized for the legacy 4096 cap truncated the question and
+    dropped live context, so the user could not tell what was being asked.
+    """
+    import time
+    from types import SimpleNamespace
+
+    from hermes_progress_tail.models.decision import DecisionRecord, DecisionState
+    from hermes_progress_tail.models.state_records import AssistantLine
+    from hermes_progress_tail.rendering.clarify_checkpoint import _SOURCE_BUDGET
+    from hermes_progress_tail.rendering.delivery import _fit_message, _message_limit
+
+    ctx = SessionContext("s", "k", "telegram", "chat", None, None, None, agent_label="Jono")
+    ctx.decision = DecisionState(records=deque(maxlen=48))
+    ctx.reasoning.text = (
+        "**Deep debug**\n\n"
+        + ("The typecheck error points at src/index.ts lines 422-429. " * 200)
+        + "FINAL THOUGHT: the overload changed upstream."
+    )
+    for i in range(60):
+        ctx.assistant.lines.append(
+            AssistantLine(
+                text=f"progress {i}: compared merged tree with origin baseline", created_at=float(i)
+            )
+        )
+    for i in range(40):
+        ctx.decision.records.append(
+            DecisionRecord(
+                "tool",
+                f"terminal: typecheck · failed · TS2345 at line {400 + i} " * 3,
+                f"tool:{i}",
+                30,
+                time.monotonic() + i,
+            )
+        )
+
+    text = compose_checkpoint(
+        ctx,
+        {
+            "question": "Which fix should I apply? " * 60,
+            "choices": ["Operation lock ordering " * 8, "Rewrite handler signature " * 8],
+        },
+        7,
+    )
+
+    assert len(text) <= _SOURCE_BUDGET
+    assert "FINAL THOUGHT" in text, "newest reasoning must reach the checkpoint"
+    assert "progress 59" in text, "newest progress line must reach the checkpoint"
+    assert "Reasoning\n" in text and "Progress\n" in text
+
+    limit = _message_limit(SimpleNamespace(platform="telegram"))
+    assert len(_fit_message(text, limit)) == len(text), "checkpoint must fit the rich bubble uncut"
+
+
 def test_checkpoint_without_live_context_keeps_legacy_shape():
     ctx = SessionContext("s", "k", "discord", "chat", None, None, None, agent_label="Ada")
     from hermes_progress_tail.models.decision import DecisionState

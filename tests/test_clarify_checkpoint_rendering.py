@@ -3,6 +3,8 @@ from collections import deque
 from hermes_progress_tail.models.decision import DecisionRecord, DecisionState
 from hermes_progress_tail.models.state import SessionContext
 from hermes_progress_tail.rendering.clarify_checkpoint import (
+    _MAX_RECORDS,
+    _SOURCE_BUDGET,
     canonicalize_clarify_args,
     compose_checkpoint,
     compose_resolution,
@@ -47,30 +49,32 @@ def test_checkpoint_groups_meaningful_records_without_event_metadata():
     assert "created_at" not in text and "identity" not in text
 
 
-def test_checkpoint_reserves_mandatory_previews_before_dropping_archive_and_caps_at_2800():
-    huge = "question " * 800
-    choices = ["choice " * 400 for _ in range(4)]
-    records = tuple(record("tool", "evidence " * 60, str(i), 50 - i, i) for i in range(20))
+def test_checkpoint_reserves_mandatory_previews_before_dropping_archive_and_caps_at_source_budget():
+    huge = "question " * 4000
+    choices = ["choice " * 2000 for _ in range(4)]
+    records = tuple(record("tool", "evidence " * 400, str(i), 50 - i, i) for i in range(60))
     text = compose_checkpoint(context(records=records), {"question": huge, "choices": choices}, 4)
-    assert len(text) <= 2800
+    assert len(text) <= _SOURCE_BUDGET
     assert "…" in text
     assert all(f"• {index + 1}." in text for index in range(4))
-    assert text.count("evidence") < 12 * 60
 
 
 def test_record_section_overhead_stays_inside_frozen_and_resolved_source_budgets():
     records = tuple(record("tool", "word " * 72, str(i), 30 - i, i) for i in range(12))
     frozen = compose_checkpoint(context(records=records), {"question": "q", "choices": []}, 1)
-    assert len(frozen) <= 2500
-    assert len(compose_resolution(frozen, "resolved", "answer " * 40)) <= 2800
+    assert len(frozen) <= _SOURCE_BUDGET
+    assert len(compose_resolution(frozen, "resolved", "answer " * 40)) <= _SOURCE_BUDGET
 
 
-def test_checkpoint_selects_at_most_twelve_records_and_redacts_at_final_boundary():
-    records = tuple(record("tool", f"result {index}", str(index), 1, index) for index in range(16))
+def test_checkpoint_selects_at_most_max_records_and_redacts_at_final_boundary():
+    count = _MAX_RECORDS + 4
+    records = tuple(
+        record("tool", f"result {index}", str(index), 1, index) for index in range(count)
+    )
     text = compose_checkpoint(
         context(records=records), {"question": "token sk-abcdefghijklmno", "choices": []}, 1
     )
-    assert text.count("• result") <= 12
+    assert text.count("• result") <= _MAX_RECORDS
     assert "sk-abcdefghijklmno" not in text
     assert "[redacted_token]" in text
 
@@ -87,7 +91,7 @@ def test_checkpoint_preserves_safe_markdown_conventions():
 def test_resolution_reserves_terminal_budget_redacts_and_never_invents_answer():
     frozen = compose_checkpoint(context(), {"question": "Q?", "choices": []}, 1)
     resolved = compose_resolution(frozen, "resolved", "sk-abcdefghijklmno " + "answer " * 1000)
-    assert len(resolved) <= 2800
+    assert len(resolved) <= _SOURCE_BUDGET
     assert "RESOLVED · [redacted_token]" in resolved
     assert "…" in resolved
     for status, expected in (
@@ -99,13 +103,13 @@ def test_resolution_reserves_terminal_budget_redacts_and_never_invents_answer():
 
 
 def test_pure_resolution_caps_oversized_frozen_input_after_final_redaction_and_keeps_terminal():
-    frozen = "FROZEN · waiting for your answer\n\n" + ("source sk-abcdefghijklmno " * 500)
+    frozen = "FROZEN · waiting for your answer\n\n" + ("source sk-abcdefghijklmno " * 4000)
     for status, terminal in (
         ("resolved", "RESOLVED · answer"),
         ("timed_out", "TIMED OUT · no answer received"),
     ):
         resolved = compose_resolution(frozen, status, "answer")
-        assert len(resolved) <= 2800
+        assert len(resolved) <= _SOURCE_BUDGET
         assert resolved.endswith(terminal)
         assert "sk-abcdefghijklmno" not in resolved
         assert "…" in resolved

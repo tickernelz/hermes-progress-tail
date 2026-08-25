@@ -18,14 +18,18 @@ from ..utils.redaction import redact_text
 from .decision_archive import DecisionArchive
 from .delivery import edit_content, send_content
 
-_MAX_RECORDS = 12
-_SOURCE_BUDGET = 2800
-_ANSWER_BUDGET = 240
-_TERMINAL_RESERVE = 300
-_QUESTION_BUDGET = 620
-_CHOICE_BUDGET = 320
-_LIVE_REASONING_LINES = 24
-_LIVE_PROGRESS_LINES = 10
+# Budgets are sized for the Telegram Bot API 10.1 rich message ceiling
+# (32,768 chars). Delivery clamps the whole bubble at 30,000, so the checkpoint
+# keeps headroom below that for markdown expansion and the resolution suffix.
+_MAX_RECORDS = 24
+_SOURCE_BUDGET = 24000
+_ANSWER_BUDGET = 1200
+_TERMINAL_RESERVE = 600
+_QUESTION_BUDGET = 4000
+_CHOICE_BUDGET = 800
+_RECORD_PREVIEW_CHARS = 1200
+_LIVE_REASONING_LINES = 80
+_LIVE_PROGRESS_LINES = 40
 _ELLIPSIS = "…"
 
 
@@ -84,7 +88,7 @@ def _records(ctx: Any, budget: int) -> tuple[DecisionRecord, ...]:
     )
     selected, used = [], 0
     for item in candidates:
-        text = _preview(item.text, 360)
+        text = _preview(item.text, _RECORD_PREVIEW_CHARS)
         if len(selected) == _MAX_RECORDS or used + len(text) > budget:
             continue
         selected.append(
@@ -92,6 +96,20 @@ def _records(ctx: Any, budget: int) -> tuple[DecisionRecord, ...]:
         )
         used += len(text)
     return tuple(sorted(selected, key=lambda item: item.created_at))
+
+
+def _tail_preview(value: Any, limit: int) -> str:
+    """Keep the NEWEST end of a live narrative when it exceeds the budget.
+
+    Live reasoning and progress grow at the end, so a head-anchored cut would
+    show stale context and hide the thought that motivated the question.
+    """
+    text = " ".join(redact_text(str(value)).split())
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    return _ELLIPSIS + " " + text[-(limit - 2) :].lstrip()
 
 
 def _live_context_sections(ctx: Any, budget: int) -> list[str]:
@@ -108,9 +126,9 @@ def _live_context_sections(ctx: Any, budget: int) -> list[str]:
         if not body:
             return
         remaining = budget - sum(len(section) for section in sections)
-        if remaining <= 40:
+        if remaining <= 80:
             return
-        sections.append(f"{title}\n{_preview(body, max(40, remaining))}")
+        sections.append(f"{title}\n{_tail_preview(body, max(80, remaining))}")
 
     try:
         from .reasoning import render_reasoning_tail
@@ -118,7 +136,7 @@ def _live_context_sections(ctx: Any, budget: int) -> list[str]:
         reasoning = render_reasoning_tail(
             ctx.reasoning.text,
             max_lines=_LIVE_REASONING_LINES,
-            max_chars=max(400, budget // 3),
+            max_chars=max(1200, (budget * 2) // 3),
             redact=True,
         )
         if reasoning:
@@ -160,10 +178,12 @@ def _fit_checkpoint(ctx: Any, normalized: NormalizedClarify, sequence: int) -> s
     if choice_lines:
         fixed.append("Choices\n" + "\n".join(choice_lines))
     base = "\n\n".join(fixed)
-    records_budget = max(0, _SOURCE_BUDGET - _TERMINAL_RESERVE - len(base) - 6)
-    live_sections = _live_context_sections(ctx, max(0, records_budget // 2))
+    context_budget = max(0, _SOURCE_BUDGET - _TERMINAL_RESERVE - len(base) - 6)
+    # Live narrative (why the agent is asking) gets the larger share; tool
+    # records fill whatever is left so both survive on a saturated checkpoint.
+    live_sections = _live_context_sections(ctx, (context_budget * 2) // 3)
     used_live = sum(len(section) for section in live_sections)
-    records = _records(ctx, max(0, records_budget - used_live - 6))
+    records = _records(ctx, max(0, context_budget - used_live - 6))
     return "\n\n".join([base, *live_sections, *_sections(records)])
 
 
