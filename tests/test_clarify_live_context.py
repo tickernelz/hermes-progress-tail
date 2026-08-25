@@ -114,6 +114,49 @@ def test_saturated_checkpoint_keeps_newest_reasoning_progress_and_fits_rich_limi
     assert len(_fit_message(text, limit)) == len(text), "checkpoint must fit the rich bubble uncut"
 
 
+def test_hard_saturation_drops_oldest_context_not_newest():
+    """At the hard cap the OLDEST history is dropped, never the newest detail.
+
+    User contract: maximization targets the latest detail, so a genuinely
+    saturated checkpoint head-truncates (drops old history) while preserving
+    the mandatory header and the most recent reasoning/progress.
+    """
+    import time
+
+    from hermes_progress_tail.models.decision import DecisionRecord, DecisionState
+    from hermes_progress_tail.models.state_records import AssistantLine
+    from hermes_progress_tail.rendering.clarify_checkpoint import _SOURCE_BUDGET
+
+    ctx = SessionContext("s", "k", "telegram", "chat", None, None, None, agent_label="Jono")
+    ctx.decision = DecisionState(records=deque(maxlen=48))
+    ctx.reasoning.text = (
+        "**Deep debug**\n\n" + ("analysis sentence. " * 3000) + "FINAL NEWEST THOUGHT here."
+    )
+    for i in range(60):
+        ctx.assistant.lines.append(
+            AssistantLine(text=f"progress {i}: " + ("detail " * 40), created_at=float(i))
+        )
+    for i in range(48):
+        ctx.decision.records.append(
+            DecisionRecord(
+                "tool", f"record {i} " + ("evidence " * 150), f"t{i}", 30, time.monotonic() + i
+            )
+        )
+
+    text = compose_checkpoint(
+        ctx,
+        {"question": "Which fix? " * 500, "choices": ["Option A " * 200, "Option B " * 200]},
+        9,
+    )
+
+    assert len(text) <= _SOURCE_BUDGET
+    assert text.startswith("Jono needs your input"), "mandatory header must survive"
+    assert "Checkpoint #9" in text
+    assert "FINAL NEWEST THOUGHT" in text, "newest reasoning must survive saturation"
+    assert "progress 59" in text, "newest progress must survive saturation"
+    assert "progress 0:" not in text, "oldest progress is what gets dropped"
+
+
 def test_checkpoint_without_live_context_keeps_legacy_shape():
     ctx = SessionContext("s", "k", "discord", "chat", None, None, None, agent_label="Ada")
     from hermes_progress_tail.models.decision import DecisionState

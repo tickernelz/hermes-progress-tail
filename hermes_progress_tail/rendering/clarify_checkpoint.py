@@ -47,14 +47,27 @@ def _preview(value: Any, limit: int) -> str:
 
 
 def _truncate_source(value: str, limit: int) -> str:
-    """Keep the leading checkpoint context; terminal composition owns its suffix."""
+    """Drop the OLDEST context first when the checkpoint hits its hard cap.
+
+    Maximization targets the newest detail: when content genuinely saturates,
+    the oldest history is what should disappear, not the latest reasoning that
+    explains the question. The mandatory header block (identity, checkpoint
+    number, state, decision) is preserved verbatim so the frozen message stays
+    self-describing, and the elision marker sits between header and body.
+    """
     if len(value) <= limit:
         return value
     if limit <= 0:
         return ""
     if limit == 1:
         return _ELLIPSIS
-    return value[: limit - 1].rstrip() + _ELLIPSIS
+    header, separator, body = value.partition("\n\n")
+    marker = "\n\n" + _ELLIPSIS + "\n\n"
+    if separator and len(header) + len(marker) + 40 <= limit:
+        body_budget = limit - len(header) - len(marker)
+        kept = body[-body_budget:].lstrip()
+        return header + marker + kept
+    return _ELLIPSIS + " " + value[-(limit - 2) :].lstrip()
 
 
 def _flatten_choice(value: Any) -> str:
