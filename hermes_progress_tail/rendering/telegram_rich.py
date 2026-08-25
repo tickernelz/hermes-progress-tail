@@ -3,7 +3,20 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Protocol
+
+from .telegram_rich_details import collapse_narrative
+from .telegram_rich_text import (
+    _strip_list_marker,
+    clean_body_lines,
+    clean_body_lines_preserve_rich,
+    hard_break_rich_lines,
+    shorten_command,
+    shorten_paths,
+    strip_control_markdown,
+    table_cell,
+)
 
 
 class RichBlock(Protocol):
@@ -118,6 +131,7 @@ def format_progress_tail_telegram_rich_markdown(
     thinking_blocks: bool = True,
     compact_success: bool = True,
     max_detail_items: int = 8,
+    collapse_narrative_chars: int = 0,
 ) -> str:
     text = str(content or "")
     doc = rich_doc_from_progress_tail(
@@ -127,6 +141,7 @@ def format_progress_tail_telegram_rich_markdown(
         thinking_blocks=thinking_blocks,
         compact_success=compact_success,
         max_detail_items=max_detail_items,
+        collapse_narrative_chars=collapse_narrative_chars,
     )
     return doc.to_markdown()
 
@@ -139,6 +154,7 @@ def rich_doc_from_progress_tail(
     thinking_blocks: bool = True,
     compact_success: bool = True,
     max_detail_items: int = 8,
+    collapse_narrative_chars: int = 0,
 ) -> RichDoc:
     lines = [line.rstrip() for line in str(content or "").splitlines()]
     blocks: list[RichBlock] = []
@@ -184,6 +200,7 @@ def rich_doc_from_progress_tail(
             thinking_blocks=thinking_blocks,
             compact_success=compact_success,
             max_detail_items=max_detail_items,
+            collapse_narrative_chars=collapse_narrative_chars,
         )
         blocks.extend(section_blocks)
     if not blocks:
@@ -240,14 +257,26 @@ def section_to_blocks(
     thinking_blocks: bool,
     compact_success: bool,
     max_detail_items: int,
+    collapse_narrative_chars: int = 0,
 ) -> list[RichBlock]:
     body = clean_body_lines(body_lines)
     if not body:
         return []
     title = strip_control_markdown(title)
+    collapse = partial(
+        collapse_narrative, threshold=collapse_narrative_chars, sanitize=strip_control_markdown
+    )
     if title.lower() == "reasoning" and thinking_blocks:
         rich_body = clean_body_lines_preserve_rich(body_lines)
-        return [RichHeading(title, level=2), *reasoning_rich_blocks(rich_body)]
+        blocks = reasoning_rich_blocks(rich_body)
+        if (collapsed := collapse(title, blocks)) is not None:
+            return [collapsed]
+        return [RichHeading(title, level=2), *blocks]
+    if title.lower() == "progress":
+        paragraph = RichParagraph("\n".join(body))
+        if (collapsed := collapse(title, [paragraph])) is not None:
+            return [collapsed]
+        return [RichHeading(title, level=2), paragraph]
     if title.lower() == "plan":
         return [RichHeading(title, level=2), RichList(plan_detail_lines(body_lines))]
     if title.lower() == "tools":
@@ -340,43 +369,12 @@ def focused_heading(line: str) -> str:
     return strip_control_markdown(match.group(1)) if match else ""
 
 
-def clean_body_lines(lines: Sequence[str]) -> list[str]:
-    cleaned = []
-    for line in lines:
-        text = strip_control_markdown(line)
-        text = shorten_paths(text)
-        if text:
-            cleaned.append(text)
-    return cleaned
-
-
-def clean_body_lines_preserve_rich(lines: Sequence[str]) -> list[str]:
-    cleaned = []
-    for line in lines:
-        text = str(line or "").strip()
-        text = shorten_paths(text)
-        if text:
-            cleaned.append(text)
-    return cleaned
-
-
 def plan_detail_lines(lines: Sequence[str]) -> list[str]:
     return [
         _strip_list_marker(shorten_paths(str(line or "").strip()))
         for line in lines
         if str(line or "").strip()
     ]
-
-
-def rich_list_item_markdown(item: str) -> str:
-    body = normalize_rich_text(item)
-    if not body:
-        return ""
-    lines = body.splitlines()
-    first, *rest = lines
-    if not rest:
-        return f"- {first}"
-    return "\n".join([f"- {first}", *(f"  {line}" for line in rest)])
 
 
 def reasoning_rich_blocks(lines: Sequence[str]) -> list[RichBlock]:
@@ -470,10 +468,6 @@ def max_table_rows_safe(value: int) -> int:
         return 8
 
 
-def _strip_list_marker(text: str) -> str:
-    return re.sub(r"^[-•]\s+", "", str(text or "").strip())
-
-
 def parse_terminal_line(line: str) -> tuple[str, str, str] | None:
     text = strip_control_markdown(line)
     text = re.sub(r"^\[[^\]]+\]\s*", "", text).strip()
@@ -524,30 +518,27 @@ def parse_terminal_line(line: str) -> tuple[str, str, str] | None:
     return command, result.strip(), status
 
 
-def strip_control_markdown(text: str) -> str:
-    value = str(text or "").strip()
-    value = re.sub(r"^\*\*__([^*\n]+)__\*\*$", r"\1", value)
-    value = re.sub(r"^\*\*([^*\n]+)\*\*$", r"\1", value)
-    value = re.sub(r"^\*([^*\n]+)\*$", r"\1", value)
-    value = re.sub(r"^__([^_\n]+)__$", r"\1", value)
-    return value.strip()
-
-
 def normalize_rich_text(text: str) -> str:
     separated = separate_inline_rich_headings(str(text or ""))
     lines = [shorten_paths(strip_control_markdown(line)) for line in separated.splitlines()]
     return "\n".join(line for line in lines if line.strip()).strip()
 
 
-def hard_break_rich_lines(text: str) -> str:
-    """Use paragraph breaks for lines Telegram rich Markdown may treat as soft wraps."""
-    return "\n\n".join(line.strip() for line in str(text or "").splitlines() if line.strip())
-
-
 def normalize_thinking_text(text: str) -> str:
     separated = separate_inline_rich_headings(str(text or ""))
     lines = [shorten_paths(line.strip()) for line in separated.splitlines()]
     return "\n".join(line for line in lines if line.strip()).strip()
+
+
+def rich_list_item_markdown(item: str) -> str:
+    body = normalize_rich_text(item)
+    if not body:
+        return ""
+    lines = body.splitlines()
+    first, *rest = lines
+    if not rest:
+        return f"- {first}"
+    return "\n".join([f"- {first}", *(f"  {line}" for line in rest)])
 
 
 def separate_inline_rich_headings(text: str) -> str:
@@ -564,33 +555,3 @@ def separate_inline_rich_headings(text: str) -> str:
         replace,
         text,
     )
-
-
-def table_cell(value: str) -> str:
-    return str(value or "").replace("\n", " ").replace("|", "\\|").strip()
-
-
-def shorten_command(command: str, *, max_chars: int = 72) -> str:
-    command = shorten_paths(command, max_chars=max_chars)
-    if len(command) <= max_chars:
-        return command
-    return command[: max_chars - 1].rstrip() + "…"
-
-
-def shorten_paths(text: str, *, max_chars: int = 64) -> str:
-    def repl(match: re.Match[str]) -> str:
-        path = match.group(0)
-        if len(path) <= max_chars:
-            return path
-        suffix = ""
-        suffix_match = re.search(r"(:\d+(?:\+\d+)?)$", path)
-        if suffix_match:
-            suffix = suffix_match.group(1)
-            path_body = path[: -len(suffix)]
-        else:
-            path_body = path
-        parts = [part for part in path_body.rstrip("/").split("/") if part]
-        tail = parts[-1] if parts else path_body
-        return f"…/{tail}{suffix}"
-
-    return re.sub(r"/(?:[^\s`|·]+/)+[^\s`|·]+(?::\d+(?:\+\d+)?)?", repl, str(text or ""))

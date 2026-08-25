@@ -179,6 +179,7 @@ progress_tail:
     max_table_rows: 8
     compact_success: true
     max_detail_items: 8
+    collapse_narrative_chars: 1200 # collapse Progress/Reasoning past this size into a tappable <details> block; 0 disables
 
   renderer:
     strategy: auto

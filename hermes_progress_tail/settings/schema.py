@@ -85,6 +85,7 @@ PROGRESS_TAIL_CONFIG_CONTRACT: dict[str, Any] = {
         "max_table_rows": None,
         "compact_success": None,
         "max_detail_items": None,
+        "collapse_narrative_chars": None,
     },
     "renderer": {
         "strategy": None,

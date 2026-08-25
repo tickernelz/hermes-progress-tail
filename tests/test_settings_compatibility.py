@@ -83,6 +83,7 @@ EXPECTED_SETTINGS_DEFAULTS = {
         "max_table_rows": 8,
         "compact_success": True,
         "max_detail_items": 8,
+        "collapse_narrative_chars": 1200,
     },
     "renderer": {
         "strategy": "auto",
@@ -291,6 +292,7 @@ def test_settings_field_surface_and_keyword_construction_are_stable():
         (("cleanup", "delay_seconds"), 0, 0),
         (("cleanup", "delay_seconds"), -1, 5),
         (("telegram", "max_detail_items"), 0, 0),
+        (("telegram", "collapse_narrative_chars"), 0, 0),
         (("renderer", "edit_interval"), "bad", 15.0),
         (("renderer", "edit_interval"), 0, 15.0),
         (("renderer", "edit_interval"), "0.1", 0.1),

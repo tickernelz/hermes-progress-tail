@@ -127,6 +127,7 @@ class TelegramSettings:
     max_table_rows: int = 8
     compact_success: bool = True
     max_detail_items: int = 8
+    collapse_narrative_chars: int = 1200
 
 
 @dataclass(frozen=True)

@@ -84,6 +84,7 @@ DEFAULT_CONFIG = {
         "max_table_rows": 8,
         "compact_success": True,
         "max_detail_items": 8,
+        "collapse_narrative_chars": 1200,
     },
     "renderer": {
         "strategy": "auto",

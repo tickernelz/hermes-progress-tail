@@ -72,6 +72,7 @@ def _telegram_rich_markdown(content: str, callbacks: HookCallbacks | None = None
         thinking_blocks=getattr(settings, "thinking_blocks", True),
         compact_success=getattr(settings, "compact_success", True),
         max_detail_items=getattr(settings, "max_detail_items", 8),
+        collapse_narrative_chars=getattr(settings, "collapse_narrative_chars", 1200),
     )
 
 

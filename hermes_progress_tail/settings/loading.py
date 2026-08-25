@@ -176,6 +176,9 @@ def _build_telegram(raw: dict[str, Any], defaults: TelegramSettings) -> Telegram
         max_detail_items=as_int(
             raw.get("max_detail_items"), defaults.max_detail_items, min_value=0
         ),
+        collapse_narrative_chars=as_int(
+            raw.get("collapse_narrative_chars"), defaults.collapse_narrative_chars, min_value=0
+        ),
     )
 
 
