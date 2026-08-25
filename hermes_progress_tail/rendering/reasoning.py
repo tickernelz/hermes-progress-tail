@@ -4,8 +4,13 @@ import re
 from dataclasses import dataclass
 
 from ..utils.redaction import redact_text
-from ..utils.text import truncate_tail_text
 from .markdown_code import sub_outside_inline_code
+from .reasoning_selection import (
+    _cap_chars,
+    _render_block_tail,
+    _render_latest_block,
+    _render_paragraph_or_line_tail,
+)
 
 _REASONING_TAG_NAMES = r"think|thinking|reasoning|thought|analysis|REASONING_SCRATCHPAD"
 _CODE_FENCE_LINE_RE = re.compile(r"^(?P<indent> {0,3})(?P<run>`{3,}|~{3,})(?P<tail>.*)$")
@@ -242,14 +247,14 @@ def render_reasoning_tail(
     if blocks:
         headed_blocks = [block for block in blocks if block.heading]
         if len(headed_blocks) >= 2:
-            rendered = _render_block_tail(headed_blocks, max_lines=max_lines)
+            rendered = _render_block_tail(headed_blocks, max_lines=max_lines, max_chars=max_chars)
         else:
-            rendered = _render_latest_block(blocks[-1], max_lines=max_lines)
-        if max_chars > 0 and len(rendered) > max_chars and "\n\n" in rendered:
             rendered = _render_latest_block(blocks[-1], max_lines=max_lines)
         rendered = _cap_chars(rendered, max_chars, preserve_first_line=bool(blocks[-1].heading))
     else:
-        rendered = _render_paragraph_or_line_tail(normalized, max_lines=max_lines)
+        rendered = _render_paragraph_or_line_tail(
+            normalized, max_lines=max_lines, max_chars=max_chars
+        )
         rendered = _cap_chars(rendered, max_chars)
     return redact_text(rendered) if redact else rendered
 
@@ -418,6 +423,12 @@ def _normalize_streaming_glue(text: str) -> str:
 
 
 def _extract_reasoning_tag_bodies(text: str) -> str:
+    """Return reasoning-tag bodies, discarding surrounding non-reasoning prose.
+
+    When explicit ``<think>``/``<thinking>`` tags are present they define what
+    the reasoning actually is; text outside them is ordinary assistant output
+    and belongs to the Progress section, not the Reasoning tail.
+    """
     bodies: list[str] = []
 
     def closed(match: re.Match[str]) -> str:
@@ -430,20 +441,14 @@ def _extract_reasoning_tag_bodies(text: str) -> str:
     match = _UNTERMINATED_REASONING_TAG_RE.search(remainder)
     if match:
         body = match.group("body").strip()
-        prefix = remainder[: match.start()].strip()
-        parts = []
-        if prefix:
-            parts.append(prefix)
-        if bodies:
-            parts.extend(bodies)
+        parts = list(bodies)
         if body:
             parts.append(body)
-        return "\n\n".join(parts)
+        if parts:
+            return "\n\n".join(parts)
+        return remainder[: match.start()].strip()
     if bodies:
-        remainder = remainder.strip()
-        parts = [remainder] if remainder else []
-        parts.extend(bodies)
-        return "\n\n".join(parts)
+        return "\n\n".join(bodies)
     return remainder
 
 
@@ -479,91 +484,3 @@ def _clean_heading(value: str) -> str:
     if len(words) > 9:
         return ""
     return value
-
-
-def _render_block_tail(blocks: list[ReasoningBlock], *, max_lines: int) -> str:
-    if not blocks:
-        return ""
-    selected: list[ReasoningBlock] = []
-    used_lines = 0
-    for block in reversed(blocks):
-        block_lines = _render_block_lines(block, max_lines=max_lines)
-        if not block_lines:
-            continue
-        line_count = len(block_lines)
-        if selected and used_lines + line_count > max_lines:
-            break
-        selected.append(block)
-        used_lines += line_count
-        if used_lines >= max_lines:
-            break
-    selected.reverse()
-    return "\n\n".join(
-        _render_latest_block(block, max_lines=max_lines) for block in selected
-    ).strip()
-
-
-def _render_latest_block(block: ReasoningBlock, *, max_lines: int) -> str:
-    return "\n".join(_render_block_lines(block, max_lines=max_lines)).strip()
-
-
-def _render_block_lines(block: ReasoningBlock, *, max_lines: int) -> list[str]:
-    parts = []
-    if block.heading:
-        heading = block.heading
-        if block.heading_style == "bold":
-            heading = f"**{heading}**"
-        parts.append(heading)
-    if block.body:
-        body_lines = [line.strip() for line in block.body.splitlines() if line.strip()]
-        body_budget = max(max_lines - len(parts), 1)
-        parts.extend(body_lines[:body_budget])
-    return parts[:max_lines]
-
-
-def _render_paragraph_or_line_tail(text: str, *, max_lines: int) -> str:
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-    if paragraphs:
-        latest = paragraphs[-1]
-        lines = [line.strip() for line in latest.splitlines() if line.strip()]
-        if len(lines) <= max_lines:
-            return "\n".join(lines)
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return "\n".join(lines[-max_lines:])
-
-
-def _cap_chars(text: str, max_chars: int, *, preserve_first_line: bool = False) -> str:
-    text = text.strip()
-    if max_chars <= 0 or len(text) <= max_chars:
-        return text
-    lines = text.splitlines()
-    if len(lines) > 1 and preserve_first_line:
-        # Keep the heading plus the NEWEST body tail. Streaming appends land at
-        # the end, so a head-anchored cut would freeze the visible text at stale
-        # content while live reasoning keeps moving (progress-tail must show the
-        # tail — that is the product's name and contract).
-        heading = lines[0].strip()
-        budget = max_chars - len(heading) - 1
-        if budget <= 3:
-            return truncate_tail_text(text, max_chars)
-        body = "\n".join(lines[1:]).strip()
-        return heading + "\n" + truncate_tail_text(body, budget)
-    return truncate_tail_text(text, max_chars)
-
-
-def truncate_to_sentence_boundary(text: str, max_chars: int) -> str:
-    text = text.strip()
-    if max_chars <= 0 or len(text) <= max_chars:
-        return text
-    if max_chars <= 3:
-        return "." * max_chars
-    cut = text[: max_chars - 3].rstrip()
-    boundary = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
-    min_boundary = min(80, max(24, (max_chars - 3) // 2))
-    if boundary >= min_boundary:
-        cut = cut[: boundary + 1].rstrip()
-    else:
-        word_boundary = cut.rfind(" ")
-        if word_boundary >= min_boundary:
-            cut = cut[:word_boundary].rstrip(" ,;:-")
-    return cut.rstrip() + "..."
