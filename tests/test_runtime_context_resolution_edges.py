@@ -171,6 +171,7 @@ def test_pre_dispatch_guards(
                 "session_id": "s",
                 "session_key": "k",
                 "origin": "gateway",
+                "gateway": gateway,
             }
         ]
     else:
@@ -296,5 +297,6 @@ def test_adapter_gateway_precedence_and_full_registration(monkeypatch):
             "session_id": "s",
             "session_key": "k",
             "origin": "adapter_internal",
+            "gateway": preferred,
         }
     ]

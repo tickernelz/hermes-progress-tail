@@ -6,6 +6,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+from .adapter_resolution import resolve_live_adapter
 from .decision import DecisionState
 from .events import TodoItem, TodoStatus  # noqa: F401 - compatibility re-export
 from .state_compat import SessionStateCompatibility
@@ -53,6 +54,8 @@ class SessionContext(SessionStateCompatibility):
 
     lock: Any = field(default_factory=asyncio.Lock)
     environment: EnvironmentSnapshot = field(default_factory=EnvironmentSnapshot)
+
+    _gateway = None
 
     def __init__(
         self,
@@ -270,6 +273,21 @@ class SessionContext(SessionStateCompatibility):
         if reasoning is not None and reasoning_legacy:
             raise TypeError("reasoning cannot be combined with legacy reasoning fields")
         self.reasoning = reasoning if reasoning is not None else ReasoningState(**reasoning_legacy)
+
+    @property
+    def adapter(self):
+        """The currently live adapter, not the one frozen at registration."""
+
+        return resolve_live_adapter(self._gateway, self.platform, self._adapter_ref)
+
+    @adapter.setter
+    def adapter(self, value):
+        self._adapter_ref = value
+
+    def attach_gateway(self, gateway) -> None:
+        """Remember the gateway so rebuilt adapters are picked up at use time."""
+
+        self._gateway = gateway
 
 
 from . import events as _events  # noqa: E402

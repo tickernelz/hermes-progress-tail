@@ -227,6 +227,7 @@ def _register_context(
     session_id: str,
     session_key: str,
     origin: str = "gateway",
+    gateway: Any = None,
 ) -> None:
     platform = platform_name(source)
     settings = resolve_platform_settings(renderer.settings, platform)
@@ -261,6 +262,7 @@ def _register_context(
         owner_thread_id=0,
         owner_thread_name="",
     )
+    ctx.attach_gateway(gateway)
     renderer.register_context(ctx)
     logger.info(
         "hermes-progress-tail context registered: origin=%s platform=%s session_id=%s "
@@ -301,6 +303,7 @@ def _on_pre_gateway_dispatch(event: Any, gateway: Any, session_store: Any, **_: 
         adapter=adapter,
         session_id=session_id,
         session_key=_session_key(entry, source, gateway),
+        gateway=gateway,
     )
     return None
 
@@ -319,9 +322,17 @@ def register_context_from_adapter_event(adapter: Any, event: Any) -> None:
     session_store = getattr(adapter, "_session_store", None)
     if session_store is None:
         return
+    # Hermes core injects ``adapter.gateway_runner = self`` on every adapter
+    # (``gateway/run.py``) but never sets ``adapter.gateway``. Under
+    # ``multiplex_profiles`` the message handler is a plain closure with no
+    # ``__self__``, so ``hooks/platform.py`` deletes the stamp; without the
+    # ``gateway_runner`` link the chain would fall through to the adapter
+    # itself, which has no ``adapters`` mapping, and live resolution would
+    # silently no-op.
     gateway = (
         getattr(adapter, "_hermes_progress_tail_gateway", None)
         or getattr(adapter, "gateway", None)
+        or getattr(adapter, "gateway_runner", None)
         or adapter
     )
     source, entry, session_id = _pre_gateway_session_context(gateway, session_store, source)
@@ -334,5 +345,6 @@ def register_context_from_adapter_event(adapter: Any, event: Any) -> None:
         session_id=session_id,
         session_key=_session_key(entry, source, gateway),
         origin="adapter_internal",
+        gateway=gateway,
     )
     return
