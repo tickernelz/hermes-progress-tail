@@ -18,7 +18,7 @@ from ..models.state import (
     ToolEvent,
 )
 from ..rendering.formatter import extract_todo_items, format_tool_line
-from ..utils.scheduling import create_task_or_close, submit_or_close
+from ..utils.scheduling import create_task_or_close, schedule_task_on_loop, submit_or_close
 from .clarify import (
     classify_clarify_result,
     run_clarify_freeze_barrier,
@@ -199,7 +199,7 @@ def _schedule_background_job_cleanup(ctx: SessionContext, process_id: str) -> No
             force=True,
         )
 
-    create_task_or_close(ctx.loop, _cleanup())
+    schedule_task_on_loop(ctx.loop, lambda: create_task_or_close(ctx.loop, _cleanup()))
 
 
 def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
@@ -209,9 +209,6 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
         or ctx.loop is None
         or not runtime_plugin.get_renderer().settings.background_jobs.enabled
     ):
-        return
-    job = ctx.background.jobs.get(process_id)
-    if job is not None and job.poll_task is not None and not job.poll_task.done():
         return
 
     async def _poll() -> None:
@@ -267,10 +264,17 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
         except Exception:
             logger.debug("hermes-progress-tail background job poll failed", exc_info=True)
 
-    task = create_task_or_close(ctx.loop, _poll())
-    job = ctx.background.jobs.get(process_id)
-    if job is not None:
-        job.poll_task = task
+    def _start() -> asyncio.Task[Any]:
+        job = ctx.background.jobs.get(process_id)
+        if job is not None and job.poll_task is not None and not job.poll_task.done():
+            return job.poll_task
+        task = create_task_or_close(ctx.loop, _poll())
+        job = ctx.background.jobs.get(process_id)
+        if job is not None:
+            job.poll_task = task
+        return task
+
+    schedule_task_on_loop(ctx.loop, _start)
 
 
 def _is_context_owner_thread(ctx: SessionContext) -> bool:

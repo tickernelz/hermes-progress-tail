@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -11,7 +10,7 @@ from typing import Any
 
 from ..models.decision import CheckpointStatus
 from ..utils.redaction import redact_text
-from ..utils.scheduling import create_task_or_close, submit_or_close
+from ..utils.scheduling import create_task_or_close, on_loop_thread, submit_or_close
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +37,6 @@ def _usable_loop(ctx: Any) -> Any | None:
     return loop
 
 
-def _on_loop(loop: Any) -> bool:
-    try:
-        return asyncio.get_running_loop() is loop
-    except RuntimeError:
-        return False
-
-
 def _diagnostic(label: str, exc: BaseException | str) -> None:
     text = _CONTROL.sub(" ", redact_text(str(exc)))
     logger.debug("hermes-progress-tail clarify %s: %s", label, " ".join(text.split())[:160])
@@ -69,7 +61,7 @@ def run_clarify_freeze_barrier(
         return False
     guard = FreezeAttemptGuard(threading.Event())
     try:
-        if _on_loop(loop):
+        if on_loop_thread(loop):
             create_task_or_close(loop, operation(guard)).add_done_callback(
                 _consume("same-loop freeze failed")
             )
@@ -90,7 +82,7 @@ def run_clarify_resolution_bridge(ctx: Any, operation: Callable[[], Awaitable[bo
     if loop is None:
         return
     try:
-        if _on_loop(loop):
+        if on_loop_thread(loop):
             create_task_or_close(loop, operation()).add_done_callback(
                 _consume("same-loop resolution failed")
             )

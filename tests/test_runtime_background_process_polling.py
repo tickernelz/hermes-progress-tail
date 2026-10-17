@@ -16,6 +16,9 @@ class CapturingLoop:
         self.coroutines.append(coroutine)
         return SimpleNamespace(done=lambda: False)
 
+    def call_soon_threadsafe(self, callback):
+        callback()
+
 
 class Registry:
     def __init__(self, values):
