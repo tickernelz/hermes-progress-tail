@@ -9,7 +9,7 @@ from typing import Any
 from ..gateway.compat import delete_message
 from ..models.decision import decision_is_waiting
 from ..models.state import SessionContext
-from ..utils.scheduling import create_task_or_close
+from ..utils.scheduling import call_on_loop_thread, create_task_or_close
 
 logger = logging.getLogger(__name__)
 
@@ -238,16 +238,18 @@ class RendererDelivery:
         ctx.delivery.delayed_flush_task = task
 
     def cancel_delayed_flush(self, ctx: SessionContext) -> None:
-        task = ctx.delivery.delayed_flush_task
-        if task is not None and not task.done():
-            task.cancel()
-        ctx.delivery.delayed_flush_task = None
+        self._cancel_scheduled_task(ctx, "delayed_flush_task")
 
     def cancel_delete(self, ctx: SessionContext) -> None:
-        task = ctx.delivery.delete_task
+        self._cancel_scheduled_task(ctx, "delete_task")
+
+    @staticmethod
+    def _cancel_scheduled_task(ctx: SessionContext, name: str) -> None:
+        delivery = ctx.delivery
+        task = getattr(delivery, name)
+        setattr(delivery, name, None)
         if task is not None and not task.done():
-            task.cancel()
-        ctx.delivery.delete_task = None
+            call_on_loop_thread(ctx.loop, task.cancel)
 
     def schedule_auto_delete(self, ctx: SessionContext, *, success: bool) -> None:
         cleanup = self.settings.cleanup

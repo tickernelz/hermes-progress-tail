@@ -8,7 +8,7 @@ from hermes_progress_tail.models.state import BackgroundJob, SessionContext
 from hermes_progress_tail.renderer import ProgressRenderer
 from hermes_progress_tail.runtime import plugin, tool_events
 from hermes_progress_tail.settings.loading import load_settings
-from tests.support.rendering import EditableAdapter
+from tests.support.rendering import EditableAdapter, SequenceEditAdapter
 
 
 class LoopThread:
@@ -186,3 +186,66 @@ def test_post_tool_hook_from_a_worker_thread_polls_without_another_loop_event(mo
     assert claimed
     assert (job.status, job.exit_code) == ("completed", 0)
     assert "2 passed" in " ".join(job.output_tail)
+
+def _wait_until(predicate, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.01)
+    raise AssertionError("condition not reached before timeout")
+
+def _scheduled_delete(adapter, loop):
+    renderer = ProgressRenderer(
+        load_settings({"progress_tail": {"cleanup": {"auto_delete": True, "delay_seconds": 60}}})
+    )
+    ctx = SessionContext("s1", "k1", "discord", "chat", None, adapter, loop, "live_tail")
+    renderer.register_context(ctx)
+    ctx.delivery.message_id = "m1"
+    loop.call_soon_threadsafe(lambda: renderer._schedule_auto_delete(ctx, success=True))
+    return renderer, ctx, _wait_until(lambda: ctx.delivery.delete_task)
+
+def test_cancel_delete_from_a_foreign_thread_cancels_the_delete_task():
+    adapter = SequenceEditAdapter([])
+
+    with LoopThread() as harness:
+        renderer, ctx, task = _scheduled_delete(adapter, harness.loop)
+        renderer._cancel_delete(ctx)
+
+        assert ctx.delivery.delete_task is None
+        _wait_until(task.done)
+
+    assert task.cancelled()
+    assert adapter.deleted == []
+
+def test_cancel_delayed_flush_from_a_foreign_thread_cancels_the_flush_task():
+    renderer = ProgressRenderer(load_settings({}))
+
+    with LoopThread() as harness:
+        ctx = _ctx(harness.loop)
+        ctx.adapter = EditableAdapter()
+        renderer.register_context(ctx)
+        harness.loop.call_soon_threadsafe(lambda: renderer._schedule_delayed_live_flush(ctx, 60))
+        task = _wait_until(lambda: ctx.delivery.delayed_flush_task)
+        renderer._cancel_delayed_flush(ctx)
+
+        assert ctx.delivery.delayed_flush_task is None
+        _wait_until(task.done)
+
+    assert task.cancelled()
+
+def test_reactivate_from_a_worker_thread_cancels_the_pending_delete():
+    adapter = SequenceEditAdapter([])
+
+    with LoopThread() as harness:
+        renderer, ctx, task = _scheduled_delete(adapter, harness.loop)
+        ctx.delivery.progress_state = "finalized"
+        tool_events._reactivate_foreground_context(renderer, ctx)
+
+        assert ctx.delivery.progress_state == "active"
+        assert ctx.delivery.delete_task is None
+        _wait_until(task.done)
+
+    assert task.cancelled()
+    assert adapter.deleted == []

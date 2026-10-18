@@ -13,6 +13,12 @@ def on_loop_thread(loop: asyncio.AbstractEventLoop) -> bool:
         return False
 
 
+def call_on_loop_thread(loop: asyncio.AbstractEventLoop | None, action: Callable[[], Any]) -> None:
+    if loop is None or on_loop_thread(loop):
+        action()
+        return
+    loop.call_soon_threadsafe(action)
+
 def submit_or_close(coro: Coroutine[Any, Any, Any], loop: asyncio.AbstractEventLoop) -> Future[Any]:
     try:
         return asyncio.run_coroutine_threadsafe(coro, loop)
