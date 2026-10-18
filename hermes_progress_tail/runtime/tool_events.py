@@ -212,6 +212,9 @@ def _schedule_background_job_poll(ctx: SessionContext, process_id: str) -> None:
         return
 
     async def _poll() -> None:
+        current = ctx.background.jobs.get(process_id)
+        if current is not None and current.poll_task is None:
+            current.poll_task = asyncio.current_task()
         try:
             while True:
                 await asyncio.sleep(

@@ -173,12 +173,16 @@ def test_post_tool_hook_from_a_worker_thread_polls_without_another_loop_event(mo
             session_id="s1",
         )
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline and (
-            ctx.background_jobs.get("proc_live") is None
-            or ctx.background_jobs["proc_live"].status != "completed"
-        ):
+        claimed = False
+        while time.monotonic() < deadline:
+            job = ctx.background_jobs.get("proc_live")
+            if job is not None and job.status == "running" and job.poll_task is not None:
+                claimed = True
+            if job is not None and job.status == "completed":
+                break
             time.sleep(0.01)
         job = ctx.background_jobs["proc_live"]
 
+    assert claimed
     assert (job.status, job.exit_code) == ("completed", 0)
     assert "2 passed" in " ".join(job.output_tail)
