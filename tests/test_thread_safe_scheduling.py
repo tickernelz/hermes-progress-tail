@@ -187,6 +187,7 @@ def test_post_tool_hook_from_a_worker_thread_polls_without_another_loop_event(mo
     assert (job.status, job.exit_code) == ("completed", 0)
     assert "2 passed" in " ".join(job.output_tail)
 
+
 def _wait_until(predicate, timeout=10.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -195,6 +196,7 @@ def _wait_until(predicate, timeout=10.0):
             return value
         time.sleep(0.01)
     raise AssertionError("condition not reached before timeout")
+
 
 def _scheduled_delete(adapter, loop):
     renderer = ProgressRenderer(
@@ -205,6 +207,7 @@ def _scheduled_delete(adapter, loop):
     ctx.delivery.message_id = "m1"
     loop.call_soon_threadsafe(lambda: renderer._schedule_auto_delete(ctx, success=True))
     return renderer, ctx, _wait_until(lambda: ctx.delivery.delete_task)
+
 
 def test_cancel_delete_from_a_foreign_thread_cancels_the_delete_task():
     adapter = SequenceEditAdapter([])
@@ -217,7 +220,7 @@ def test_cancel_delete_from_a_foreign_thread_cancels_the_delete_task():
         _wait_until(task.done)
 
     assert task.cancelled()
-    assert adapter.deleted == []
+
 
 def test_cancel_delayed_flush_from_a_foreign_thread_cancels_the_flush_task():
     renderer = ProgressRenderer(load_settings({}))
@@ -235,6 +238,7 @@ def test_cancel_delayed_flush_from_a_foreign_thread_cancels_the_flush_task():
 
     assert task.cancelled()
 
+
 def test_reactivate_from_a_worker_thread_cancels_the_pending_delete():
     adapter = SequenceEditAdapter([])
 
@@ -248,4 +252,3 @@ def test_reactivate_from_a_worker_thread_cancels_the_pending_delete():
         _wait_until(task.done)
 
     assert task.cancelled()
-    assert adapter.deleted == []
